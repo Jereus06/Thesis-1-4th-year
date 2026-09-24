@@ -1,11 +1,11 @@
 # StockCast
 
-Sales forecasting and inventory optimization for small retail shops. Pure client-side React app — open this folder in VS Code and run it locally.
+Sales forecasting and inventory optimization for small retail businesses. This repository currently contains a browser-only React prototype with synthetic demonstration data. The backend is under development. New coding sessions should read [AGENTS.md](AGENTS.md) and [project context](docs/PROJECT_CONTEXT.md) first.
 
 ## Open in VS Code
 
-1. Unzip this folder.
-2. File → Open Folder → select `stockcast`.
+1. Clone or download this repository.
+2. File → Open Folder → select the repository root.
 3. Open the integrated terminal (`Ctrl+\`` / `Cmd+\``).
 4. Install dependencies and start the dev server:
 
@@ -34,9 +34,9 @@ Recommended extensions (prompted on first open): ESLint, Prettier, Tailwind CSS 
 - TanStack Router (file routes in `src/routes/`)
 - Tailwind CSS v4
 - Zustand (`src/lib/store.ts`) — catalog, sales, settings persist in `localStorage`
-- In-browser XGBoost + moving-average forecast (`src/lib/forecast/`)
+- In-browser custom boosted-tree prototype (currently labeled XGBoost in the UI) and moving-average forecast (`src/lib/forecast/`); the model and final evaluation still require validation.
 
-No backend, database, or auth. Demo data is seeded in `src/lib/data/seed.ts`.
+The checked-in `main` branch has no backend, database, or auth. Backend development and database design are in progress outside this branch. Demo products and synthetic sales are seeded in `src/lib/data/seed.ts`; displayed metrics are not results from a real partner business.
 
 ## Layout
 
@@ -48,5 +48,5 @@ src/
   lib/inventory/   reorder-point logic
   lib/data/        seed + fallback series
   lib/store.ts     app state
-public/thesis/     source documents used by the Strategies page
+public/thesis/     documents used by the Strategies page (may lag latest drafts)
 ```
