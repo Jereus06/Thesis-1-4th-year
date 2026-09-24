@@ -19,7 +19,7 @@ The study will use real information from a partner business once one is confirme
 | Data | `src/lib/data/seed.ts` generates an example product catalog and synthetic sales dated 2026-03-01 through 2026-09-19; `AS_OF` is 2026-09-20. The example store and its location are placeholders. | Real partner selection, permission, collection, cleaning, units, missing-day meaning, and sufficient sales history. |
 | Forecasts | `src/lib/forecast/` implements moving average, a custom TypeScript boosted-tree model labelled XGBoost in the UI, model combination, intervals, and sparse-product fallback. | Confirm the thesis-required XGBoost algorithm/implementation, validate model selection and intervals, and report independent results on real data. |
 | Restocking | `src/lib/inventory/reorder.ts` computes daily demand, reorder point, target stock, a suggested quantity, and status. | Agree operational rules and delivery/stock history with the real partner; reconcile suggested quantity with the desired reorder trigger. |
-| Thesis content | `public/thesis/` holds checked-in documents for the Strategies page. | The latest Chapters 1–3 were revised outside this repository; request the latest copies before syncing thesis text. The user handles database design. |
+| Thesis content | `docs/thesis/` now contains the current text mirrors of Chapters 1–3 supplied on 2026-09-24. `public/thesis/` still contains older downloadable thesis artifacts used by the Strategies page. | Use `docs/thesis/` for current thesis claims and coding context; refresh the public DOCX downloads separately when a deliberate binary-file update is made. |
 
 ### File map
 
@@ -30,7 +30,8 @@ The study will use real information from a partner business once one is confirme
 - `src/lib/data/seed.ts`, `src/lib/data/fallback.ts`: synthetic/demo records and fallback data.
 - `src/lib/forecast/`: data preparation, model training/selection, metrics, cache, and forecasts.
 - `src/lib/inventory/reorder.ts`: reorder point and quantity calculations.
-- `public/thesis/`: files currently used by the Strategies page; version with the latest thesis drafts before quoting them.
+- `docs/thesis/`: current Chapters 1–3 text mirrors supplied on 2026-09-24; use these for thesis requirements, methodology, status, and constraints.
+- `public/thesis/`: older downloadable files currently used by the Strategies page; do not treat them as newer than `docs/thesis/`.
 
 ## Current behavior and integration boundaries
 
@@ -44,7 +45,7 @@ The study will use real information from a partner business once one is confirme
 
 The teacher's midterm checklist is **Chapters 1–3, technical/research diagrams, a project plan, and working prototype/software**. The team prepared a project schedule, project context diagram, and expanded data flow diagram and replaced wireframes with screenshots of the frontend. The current frontend supports a prototype demonstration; it does **not** establish that real-partner data, backend integration, or a completed study have been delivered.
 
-Latest working chapter files (maintained outside this repo): `Chapter_1_Approved_Title_Complete_System.docx`, `Chapter_2_Verified_Literature_and_References.docx`, `Chapter_3_Midterm_Actual_System_Screenshots.docx`. They explicitly leave partner details and backend status open for later update. Ask the user for these versions when editing thesis claims or the Strategies page.
+Current chapter text is now checked into [`docs/thesis/`](./thesis/): [`Chapter_1.md`](./thesis/Chapter_1.md), [`Chapter_2.md`](./thesis/Chapter_2.md), and [`Chapter_3.md`](./thesis/Chapter_3.md). These mirrors came from the DOCX files supplied on 2026-09-24 and explicitly keep partner details and backend status open for later update. Use these files before editing thesis claims or coding against research requirements. The original DOCX files remain the formal-layout source because figures and Word formatting are not fully represented in Markdown.
 
 ## Sensible next coding priorities
 
