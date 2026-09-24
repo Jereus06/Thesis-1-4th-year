@@ -34,19 +34,22 @@ try {
   await page.getByRole("heading", { name: /Morning briefing/ }).waitFor({ timeout: 90000 });
   await page.screenshot({ path: `${OUT}/01-overview.png`, fullPage: true });
 
-  const before = await page.evaluate(() => {
-    const store = JSON.parse(localStorage.getItem("stockcast-v5") || "{}").state;
-    return { sales: store.sales.length, stock: store.products[0].currentStock };
-  });
+  // Zustand seeds memory on first visit and writes localStorage on the first edit.
+  // Read the original quantity from the visible inventory form before that edit.
+  await page.getByRole("link", { name: "Inventory" }).click();
+  const beforeStock = Number(await page.getByText("Sinandomeng Rice 5kg", { exact: true })
+    .locator("..").locator("..").locator("input").first().inputValue());
+  if (!Number.isFinite(beforeStock)) throw new Error("Could not read opening stock");
+  await page.getByRole("link", { name: "Overview" }).click();
   await page.getByRole("button", { name: "Record sale" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Save sale" }).click();
   await page.getByText(/Recorded 1 /).waitFor({ timeout: 10000 });
   const after = await page.evaluate(() => {
     const store = JSON.parse(localStorage.getItem("stockcast-v5") || "{}").state;
-    return { sales: store.sales.length, stock: store.products[0].currentStock };
+    return { sales: store.sales.length, stock: store.products[0].currentStock, lastSale: store.sales.at(-1) };
   });
-  if (after.sales !== before.sales + 1 || after.stock !== before.stock - 1) {
-    throw new Error(`Sale did not update records and stock: ${JSON.stringify({ before, after })}`);
+  if (after.lastSale?.productId !== "p-rice" || after.lastSale?.qty !== 1 || after.stock !== beforeStock - 1) {
+    throw new Error(`Sale did not update records and stock: ${JSON.stringify({ beforeStock, after })}`);
   }
 
   await page.getByRole("link", { name: "Inventory" }).click();
