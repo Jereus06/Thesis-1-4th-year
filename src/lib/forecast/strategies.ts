@@ -70,7 +70,7 @@ export const TECHNIQUES = [
     title: "Pre-train and cache",
     purpose: "Load milliseconds, not a training loop.",
     bullets: [
-      "Fit once, keep the serialized model and forecasts in the cache",
+      "Fit once, keep persisted forecast artifacts in the cache",
       "Dashboard hydrates from the last successful run",
       "Never retrain as a side effect of opening a page",
     ],

@@ -33,7 +33,7 @@ On a small dataset, a large feature set is a form of overfitting. High-cardinali
 
 For daily series the features are lag 1, lag 7, lag 14, a 7-day rolling mean, a 30-day rolling mean, day of week, month, and a numeric product-category index. Holiday and promotion flags are added when the calendar supports them (Philippine regular holidays and a simple payday/weekend promotion proxy). Weekly series use the analogous lags and rolling means in week units. Category is encoded as a shared index so that related products can pool a coarse seasonal effect without granting each SKU its own dummy variable.
 
-This specification revises the earlier methodology note that listed “product identifier” among potential inputs. Product identity is retained in the database and on the dashboard; it is not a regressor.
+This specification revises the earlier methodology note that listed “product identifier” among potential inputs. Product identity is retained in the local catalog and on the dashboard; it is not a regressor.
 
 - lags: 1, 7, 14 (or 1w, 2w, 4w when the grain is weekly)
 - rolling means: 7 and 30 days (or 4w and 8w)
@@ -79,7 +79,7 @@ Training and serving are two processes with two triggers and two timeframes. Tra
 
 ### Technique 2 — Pre-Train and Cache
 
-The model is trained once per data version. The resulting forecasts, per-product errors, ensemble weights, and diagnostics are written to an in-memory cache and to local persistent storage (the browser analogue of joblib/pickle serialization used in a Python training script). Subsequent dashboard loads hydrate from that cache in milliseconds. Retraining is never a side effect of opening Overview, Restock, or Forecasts.
+The model is trained once per data version. The resulting forecasts, per-product errors, ensemble weights, and diagnostics are written to an in-memory cache and to local persistent storage (a browser-side persistence analogue for forecast artifacts). Subsequent dashboard loads hydrate from that cache in milliseconds. Retraining is never a side effect of opening Overview, Restock, or Forecasts.
 
 ### Technique 3 — Train Only on Top N Products
 
