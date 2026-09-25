@@ -21,6 +21,7 @@ The study will use real information from a partner business once one is confirme
 | Restocking     | `src/lib/inventory/reorder.ts` computes daily demand, reorder point, target stock, a suggested quantity, and status.                                                                                                                                        | Agree operational rules and delivery/stock history with the real partner; reconcile suggested quantity with the desired reorder trigger.                         |
 | Thesis content | `docs/thesis/` now contains the current text mirrors of Chapters 1–3 supplied on 2026-09-24. `public/thesis/` still contains older downloadable thesis artifacts used by the Strategies page.                                                               | Use `docs/thesis/` for current thesis claims and coding context; refresh the public DOCX downloads separately when a deliberate binary-file update is made.      |
 
+
 ### File map
 
 - `src/routes/`: pages and user flows.
