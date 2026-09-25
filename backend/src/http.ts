@@ -10,11 +10,24 @@ type Action = (
   actorId: string | null,
 ) => Promise<unknown>;
 
-export function createHttpHandler(service: StockCastService) {
+export function createHttpHandler(
+  service: StockCastService,
+  options: {
+    databaseStatus?: "ready" | "not_checked";
+    checkDatabase?: () => Promise<boolean>;
+  } = {},
+) {
   return async function handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/api/v1/health") {
-      return json(200, { status: "ok", database: "not_checked" });
+      if (options.checkDatabase) {
+        const connected = await options.checkDatabase();
+        return json(connected ? 200 : 503, {
+          status: connected ? "ok" : "unavailable",
+          database: connected ? "connected" : "unavailable",
+        });
+      }
+      return json(200, { status: "ok", database: options.databaseStatus ?? "not_checked" });
     }
 
     const match = url.pathname.match(

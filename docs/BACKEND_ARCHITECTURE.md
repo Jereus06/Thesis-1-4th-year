@@ -1,7 +1,7 @@
 # StockCast backend architecture and API contract
 
-Status: **database contract and the first HTTP/service/repository slice are implemented; a production
-server entry point, database driver, and authentication are not yet implemented**.
+Status: **the PostgreSQL driver, migration runner, connection pool, and first runnable
+HTTP/service/repository slice are implemented; authentication and production deployment are not**.
 
 This document describes the intended boundary between the existing browser demonstration and the
 backend under development. It is not evidence of a deployed service, partner data, verified
@@ -30,6 +30,28 @@ small pool interface so it can be tested independently and connected to the team
 PostgreSQL driver later. There is deliberately no production listener or trusted-header
 authentication shim: exposing one before identity and deployment decisions are confirmed would make
 an incomplete security boundary look operational.
+
+### Runnable local demonstration
+
+`backend/src/main.ts` now starts a loopback-only demonstration server backed by a local SQLite file.
+This adapter exists so developers can exercise HTTP, validation, persistence, sale, and inventory
+audit behavior without a separately installed database. It creates an explicitly labelled demo
+business and is not the production persistence design. It has no authentication and must never be
+used for partner records or exposed publicly. The PostgreSQL schema and repository above remain the
+target for deployment after driver, authentication, authorization, and recovery work is completed.
+
+### PostgreSQL runtime
+
+`backend/src/server.ts` is the PostgreSQL entry point. It validates environment configuration,
+constructs a bounded `pg.Pool`, verifies connectivity before listening, and injects the pool into
+`PostgresStockCastRepository`. The health endpoint executes `SELECT 1`; it reports HTTP 503 when
+the database is unavailable rather than returning a static status.
+
+`backend/src/migrate.ts` finds sorted `*.up.sql` files, takes a PostgreSQL advisory lock, records
+filenames and SHA-256 checksums in `schema_migrations`, and applies each migration and history row in
+one transaction. An applied file whose content changes is rejected; schema changes require a new
+migration. `db:bootstrap-demo` is separate from migration and creates only a clearly marked empty
+demo business for API testing.
 
 `products.current_stock` is a cached operational balance; `inventory_movements` is the audit trail.
 The API must not expose a generic endpoint that overwrites stock without a corresponding movement.

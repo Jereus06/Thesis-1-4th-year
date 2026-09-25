@@ -70,6 +70,24 @@ test("health response does not pretend the database was checked", async () => {
   assert.deepEqual(await response.json(), { status: "ok", database: "not_checked" });
 });
 
+test("health checks a connected database", async () => {
+  const { repo } = repository();
+  const response = await createHttpHandler(new StockCastService(repo), {
+    checkDatabase: async () => true,
+  })(new Request("http://test/api/v1/health"));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { status: "ok", database: "connected" });
+});
+
+test("health reports an unavailable database", async () => {
+  const { repo } = repository();
+  const response = await createHttpHandler(new StockCastService(repo), {
+    checkDatabase: async () => false,
+  })(new Request("http://test/api/v1/health"));
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { status: "unavailable", database: "unavailable" });
+});
+
 test("creates a product with decimal strings and explicit demo origin", async () => {
   const { repo, calls } = repository();
   const response = await createHttpHandler(new StockCastService(repo))(
