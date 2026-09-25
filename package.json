@@ -6,6 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "backend:dev": "npm --prefix backend run dev",
+    "backend:start": "npm --prefix backend start",
+    "backend:test": "npm --prefix backend test",
+    "backend:typecheck": "npm --prefix backend run typecheck",
+    "db:migrate": "npm --prefix backend run db:migrate",
+    "db:check": "npm --prefix backend run db:check",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

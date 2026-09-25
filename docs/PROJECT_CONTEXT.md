@@ -1,6 +1,6 @@
 # StockCast: project context for a new coding session
 
-Last checked against `main`: 2026-09-24. Read this alongside [`../AGENTS.md`](../AGENTS.md) and the current code. This is a status snapshot, not a substitute for inspecting source.
+Last checked against the current branch: 2026-09-25. Read this alongside [`../AGENTS.md`](../AGENTS.md) and the current code. This is a status snapshot, not a substitute for inspecting source.
 
 ## What the system is for
 
@@ -12,14 +12,14 @@ The study will use real information from a partner business once one is confirme
 
 ## What is actually in GitHub `main`
 
-| Area | Current implementation | What is still open |
-| --- | --- | --- |
-| Interface | Vite, React 19, TypeScript, TanStack Router, Tailwind. Pages: Overview, Restock, Forecasts, Inventory, Strategies. | Integrate and verify against a real backend when its contract is available. |
-| State | Zustand in `src/lib/store.ts` persists products, sales, and settings in browser `localStorage` (`stockcast-v5`). | Server persistence, concurrency, access control, and data migration have not been implemented in this branch. |
-| Data | `src/lib/data/seed.ts` generates an example product catalog and synthetic sales dated 2026-03-01 through 2026-09-19; `AS_OF` is 2026-09-20. The example store and its location are placeholders. | Real partner selection, permission, collection, cleaning, units, missing-day meaning, and sufficient sales history. |
-| Forecasts | `src/lib/forecast/` implements moving average, a custom TypeScript boosted-tree model labelled XGBoost in the UI, model combination, intervals, and sparse-product fallback. | Confirm the thesis-required XGBoost algorithm/implementation, validate model selection and intervals, and report independent results on real data. |
-| Restocking | `src/lib/inventory/reorder.ts` computes daily demand, reorder point, target stock, a suggested quantity, and status. | Agree operational rules and delivery/stock history with the real partner; reconcile suggested quantity with the desired reorder trigger. |
-| Thesis content | `docs/thesis/` now contains the current text mirrors of Chapters 1–3 supplied on 2026-09-24. `public/thesis/` still contains older downloadable thesis artifacts used by the Strategies page. | Use `docs/thesis/` for current thesis claims and coding context; refresh the public DOCX downloads separately when a deliberate binary-file update is made. |
+| Area           | Current implementation                                                                                                                                                                                                                                      | What is still open                                                                                                                                               |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Interface      | Vite, React 19, TypeScript, TanStack Router, Tailwind. Pages: Overview, Restock, Forecasts, Inventory, Strategies.                                                                                                                                          | Integrate and verify against a real backend when its contract is available.                                                                                      |
+| State          | Zustand in `src/lib/store.ts` persists the current UI state in browser `localStorage` (`stockcast-v5`). The backend now has PostgreSQL pool wiring, executable migrations, a server entry point, and the product/settings/sales/audited-movement API slice. | Authentication/access enforcement, deployment/recovery checks, remaining backend APIs, frontend integration, and migration of authorized data remain incomplete. |
+| Data           | `src/lib/data/seed.ts` generates an example product catalog and synthetic sales dated 2026-03-01 through 2026-09-19; `AS_OF` is 2026-09-20. The example store and its location are placeholders.                                                            | Real partner selection, permission, collection, cleaning, units, missing-day meaning, and sufficient sales history.                                              |
+| Forecasts      | `src/lib/forecast/` implements moving average, a custom TypeScript boosted-tree model labelled XGBoost in the UI, model combination, intervals, and sparse-product fallback.                                                                                | Confirm the thesis-required XGBoost algorithm/implementation, validate model selection and intervals, and report independent results on real data.               |
+| Restocking     | `src/lib/inventory/reorder.ts` computes daily demand, reorder point, target stock, a suggested quantity, and status.                                                                                                                                        | Agree operational rules and delivery/stock history with the real partner; reconcile suggested quantity with the desired reorder trigger.                         |
+| Thesis content | `docs/thesis/` now contains the current text mirrors of Chapters 1–3 supplied on 2026-09-24. `public/thesis/` still contains older downloadable thesis artifacts used by the Strategies page.                                                               | Use `docs/thesis/` for current thesis claims and coding context; refresh the public DOCX downloads separately when a deliberate binary-file update is made.      |
 
 ### File map
 
@@ -30,6 +30,12 @@ The study will use real information from a partner business once one is confirme
 - `src/lib/data/seed.ts`, `src/lib/data/fallback.ts`: synthetic/demo records and fallback data.
 - `src/lib/forecast/`: data preparation, model training/selection, metrics, cache, and forecasts.
 - `src/lib/inventory/reorder.ts`: reorder point and quantity calculations.
+- `backend/db/`: PostgreSQL schema migration and an executable structural contract check; this is not a deployed database.
+- `backend/`: independently installable backend package maintained in this repository alongside the frontend and research documentation.
+- `backend/src/`: framework-independent HTTP handler, validation, service layer, and PostgreSQL repository for the first operational API slice.
+- `backend/src/main.ts`, `backend/src/local-repository.ts`: runnable local demonstration API and file-backed persistence; not approved for partner data.
+- `backend/src/server.ts`, `backend/src/postgres-pool.ts`, `backend/src/migrate.ts`: PostgreSQL server, connection pool, connectivity check, and migration runner.
+- `docs/BACKEND_ARCHITECTURE.md`: proposed REST boundary, transaction rules, table relationships, and decisions that still require confirmation.
 - `docs/thesis/`: current Chapters 1–3 text mirrors supplied on 2026-09-24; use these for thesis requirements, methodology, status, and constraints.
 - `public/thesis/`: older downloadable files currently used by the Strategies page; do not treat them as newer than `docs/thesis/`.
 
@@ -50,8 +56,30 @@ Current chapter text is now checked into [`docs/thesis/`](./thesis/): [`Chapter_
 ## Sensible next coding priorities
 
 1. Keep demo versus real-data state visibly distinct, especially on pages with performance metrics or a fallback data set.
-2. Identify and implement a real backend boundary once the team's actual API contract is known. The user is designing the database; do not design its schema by assumption.
+2. Review the proposed PostgreSQL schema and API boundary with the team, then implement the HTTP service, authentication/access rules, transactional repositories, deployment, and recovery checks. Do not connect real partner data until those controls are confirmed and tested.
 3. Validate the actual XGBoost implementation and the independent evaluation protocol before making accuracy claims. Compare XGBoost, moving average, and any ensemble on identical product/date test points; track excluded products and fallback reasons.
 4. Test the full user flow with real data once the partner exists: sales, inventory receipt, import validation, forecast refresh, restock recommendations, and persistence. The separate draft PR #3 has preliminary build/browser flow checks, which are not yet part of `main`.
 
-Update this document when the partner is confirmed, backend is merged, database contract is shared, or evaluation rules change. Record confirmed facts and source locations instead of filling gaps with plausible examples.
+## Backend foundation added on 2026-09-24
+
+The initial PostgreSQL contract contains businesses, users, products, sales, inventory movements,
+data imports, business settings, forecast runs, predictions, metrics, and reorder recommendations.
+It makes demo/partner provenance explicit, preserves chronological train/validation/final-test
+ranges, defaults XGBoost verification to false, and stores the inputs and outputs of each reorder
+calculation. The schema is a reviewable starting point supplied by the project owner, not proof of a
+deployed backend. The first API slice now validates and implements product, settings, manual-sale,
+and inventory-movement operations, including transactional stock changes in the PostgreSQL
+repository. PostgreSQL driver/pool wiring, executable migrations, and a server entry point now make
+that slice runnable against PostgreSQL. A loopback-only SQLite adapter remains available for local
+demonstrations; SQLite is not the production database decision. Authentication mechanics, the remaining API,
+deployment, backup/restore, and frontend integration remain incomplete; see
+[`BACKEND_ARCHITECTURE.md`](./BACKEND_ARCHITECTURE.md).
+
+On 2026-09-25, the project owner confirmed that backend development will remain in
+`https://github.com/Jereus06/Thesis-1-4th-year.git` under `backend/`, rather than moving to a
+separate repository. The backend retains its own package metadata so it can still be installed and
+checked independently within this repository.
+
+Update this document when the partner is confirmed, the HTTP backend is implemented, database
+contract decisions are revised, or evaluation rules change. Record confirmed facts and source
+locations instead of filling gaps with plausible examples.
