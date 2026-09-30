@@ -10,14 +10,12 @@ The backend currently provides:
 - cookie sessions, CSRF protection, and owner/staff authorization;
 - product, settings, manual-sale, and audited inventory-movement endpoints;
 - transactional PostgreSQL stock updates and an executable migration runner;
-- chronological moving-average/XGBoost evaluation utilities;
-- queued forecast-run processing with persisted final-test metrics and future baseline forecasts;
-- validated historical sales imports and versioned reorder recommendation snapshots; and
+- chronological moving-average/XGBoost evaluation utilities; and
 - an explicit SQLite demonstration API for local-only synthetic workflows.
 
-It is not production-ready and contains no real partner data or verified research results. Import
-file preview/mapping, sale corrections, model-artifact retention, production scheduling/deployment,
-and tested backup/recovery remain incomplete.
+It is not production-ready and contains no real partner data or verified research results. Historical
+imports, sale corrections, idempotent writes, forecast persistence/workers, deployment, and tested
+backup/recovery remain incomplete.
 
 ## Requirements and installation
 
@@ -50,7 +48,6 @@ Run commands from the repository root:
 python -m backend.app.migrate
 python -m backend.app.bootstrap_owner
 python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 3001 --reload
-python -m backend.app.worker  # run separately when queued forecasts should be processed
 ```
 
 The migration runner applies sorted `*.up.sql` files under `backend/db/migrations`, records SHA-256
@@ -66,8 +63,8 @@ python -m ruff check backend/app backend/tests
 ```
 
 The root `package.json` exposes convenience commands such as `npm run backend:dev`,
-`npm run backend:worker`, `npm run backend:test`, and `npm run db:migrate`; these invoke Python and
-do not constitute a Node backend.
+`npm run backend:test`, and `npm run db:migrate`; these invoke Python and do not constitute a Node
+backend.
 
 ## Optional SQLite demonstration
 

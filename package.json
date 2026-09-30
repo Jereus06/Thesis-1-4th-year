@@ -12,7 +12,6 @@
     "backend:dev": "python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 3001 --reload",
     "backend:start": "python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 3001",
     "backend:demo": "python -m uvicorn backend.app.sqlite_demo:app --host 127.0.0.1 --port 3001",
-    "backend:worker": "python -m backend.app.worker",
     "backend:test": "python -m pytest backend/tests",
     "db:migrate": "python -m backend.app.migrate",
     "db:check": "python -m backend.app.check_schema",

@@ -1,5 +1,3 @@
-import csv
-import io
 from contextlib import asynccontextmanager
 from uuid import UUID
 
@@ -123,32 +121,11 @@ def health():
 
 
 @app.post("/api/v1/auth/sign-in")
-def sign_in(
-    data: SignIn,
-    response: Response,
-    repository: Repository = Depends(repo),
-    config: Settings = Depends(get_settings),
-):
-    session, csrf, user = repository.sign_in(
-        data.business_id, str(data.email), data.password, config.session_hours
-    )
+def sign_in(data: SignIn, response: Response, repository: Repository = Depends(repo), config: Settings = Depends(get_settings)):
+    session, csrf, user = repository.sign_in(data.business_id, str(data.email), data.password, config.session_hours)
     secure = config.app_env == "production"
-    response.set_cookie(
-        "stockcast_session",
-        session,
-        httponly=True,
-        secure=secure,
-        samesite="strict",
-        max_age=config.session_hours * 3600,
-    )
-    response.set_cookie(
-        "stockcast_csrf",
-        csrf,
-        httponly=False,
-        secure=secure,
-        samesite="strict",
-        max_age=config.session_hours * 3600,
-    )
+    response.set_cookie("stockcast_session", session, httponly=True, secure=secure, samesite="strict", max_age=config.session_hours * 3600)
+    response.set_cookie("stockcast_csrf", csrf, httponly=False, secure=secure, samesite="strict", max_age=config.session_hours * 3600)
     return {"data": principal_data(user)}
 
 

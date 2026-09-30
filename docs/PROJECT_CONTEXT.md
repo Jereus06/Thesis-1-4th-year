@@ -85,12 +85,6 @@ On 2026-09-30, the legacy TypeScript backend under `backend/src/` was retired. T
 tests, schema checks, migration command, owner bootstrap, local SQLite demonstration, and official
 XGBoost integration now use Python. TypeScript remains only in the React frontend.
 
-The Python API now also contains business metadata, validated historical-sale imports, queued
-forecast runs and a private worker, persisted predictions/metrics, rule-based recommendation
-snapshots, and optional idempotency keys for critical stock writes. These are implementation
-foundations, not proof of deployment or completed partner validation; file-preview UX, correction
-policy, forecast-linked recommendations, production scheduling, and recovery testing remain open.
-
 Update this document when the partner is confirmed, the HTTP backend is implemented, database
 contract decisions are revised, or evaluation rules change. Record confirmed facts and source
 locations instead of filling gaps with plausible examples.

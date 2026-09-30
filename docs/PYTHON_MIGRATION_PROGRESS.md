@@ -18,10 +18,10 @@ Updated: 2026-09-30. Branch: `python-backend-migration`.
 
 ## Not yet complete
 
-- Historical file preview and inventory snapshot policy.
-- Sale void/correction workflow and exports.
-- Model artifact retention and production worker scheduling.
-- Full React import, forecast, and recommendation screens backed by the API.
+- Historical import preview/commit and inventory snapshot policy.
+- Idempotency execution, sale void/correction workflow, and exports.
+- Forecast run persistence, model artifacts, queue/worker/scheduler, and recommendation endpoints.
+- React authentication/API adapter and server-confirmed mutations.
 - PostgreSQL integration, concurrency, restart persistence, backup/restore, and recovery tests.
 - Live PostgreSQL integration and clean-environment runtime verification.
 
