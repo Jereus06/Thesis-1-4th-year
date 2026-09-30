@@ -21,7 +21,6 @@ The study will use real information from a partner business once one is confirme
 | Restocking     | `src/lib/inventory/reorder.ts` computes daily demand, reorder point, target stock, a suggested quantity, and status.                                                                                                                                        | Agree operational rules and delivery/stock history with the real partner; reconcile suggested quantity with the desired reorder trigger.                         |
 | Thesis content | `docs/thesis/` now contains the current text mirrors of Chapters 1–3 supplied on 2026-09-24. `public/thesis/` still contains older downloadable thesis artifacts used by the Strategies page.                                                               | Use `docs/thesis/` for current thesis claims and coding context; refresh the public DOCX downloads separately when a deliberate binary-file update is made.      |
 
-
 ### File map
 
 - `src/routes/`: pages and user flows.
@@ -47,6 +46,7 @@ The study will use real information from a partner business once one is confirme
 3. The forecast pipeline starts from recorded sale dates and applies separate gates. The general minimum is 8 weeks (`MIN_WEEKS`), but ML eligibility requires at least **100 nonzero days per product** (`MIN_NONZERO_FOR_ML`), and only a limited top-N set qualifies. This matters especially for a new business with limited history: a product can pass the weeks check and still use the baseline/rule path. Zero-sale days and stockouts also require interpretation with the partner.
 4. The current reorder point is `dailyDemand × leadTimeDays + safetyStock`; target stock is `dailyDemand × (leadTimeDays + coverDays) + safetyStock`. The current suggested quantity is `max(0, ceil(targetStock − currentStock))` even when on-hand stock is above the reorder point; the status separately flags `reorder` when on-hand is at or below the point. Agree whether quantity should be zero unless the trigger is reached before presenting it as final business logic.
 5. The code uses a custom boosted-tree trainer in `src/lib/forecast/xgboost.ts`; equivalence to a standard XGBoost implementation has **not** been established. The displayed holdout is used in model stability/winner logic and interval calibration in `src/lib/forecast/pipeline.ts`, so its displayed error must not be described as an untouched final test. The aggregate model scores can also draw on different sets of products. A defensible real-data evaluation needs a chronological fit/validation/test design and model comparisons on matching observations.
+6. The frontend inventory CSV import is a local catalog/on-hand snapshot: it updates products with matching SKUs and adds new SKUs. It does not create sales or inventory-delivery records. The settings UI reports the date span calculated from currently stored sales, while the older `dataScenario` state remains an internal demo-only fallback control rather than a business-facing history selector.
 
 ## Academic and delivery context
 
