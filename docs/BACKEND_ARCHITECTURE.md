@@ -13,49 +13,26 @@ Use PostgreSQL as the durable system of record. Its transactions, foreign keys, 
 date/time types, and backup tooling fit the linked sales, stock ledger, import, and research-run
 records better than browser storage or an unstructured document store.
 
-The proposed deployment has four replaceable parts:
+The backend is Python 3.12 under `backend/app/`: FastAPI owns the versioned JSON REST boundary,
+Pydantic validates requests, application/repository operations enforce transaction rules, psycopg
+connects to PostgreSQL, and the official Python `xgboost` package supports model evaluation. The
+React/TypeScript frontend is a separate client; there is no TypeScript backend runtime.
 
-1. The React client calls a versioned JSON REST API.
-2. A TypeScript HTTP application validates requests, identifies the business and user, and invokes
-   application services. A specific framework has intentionally not been selected yet.
-3. Application services own transaction boundaries. Recording a current sale or stock receipt must
-   update `products.current_stock` and append an `inventory_movements` row in one transaction.
-4. PostgreSQL stores operational and research records. A separate forecast worker may consume a
-   queued `forecast_runs` row so model fitting never blocks dashboard requests.
+`backend/app/main.py` is the PostgreSQL API entry point. `backend/app/db.py` owns the bounded
+connection pool and live connectivity check. `backend/app/repository.py` implements authenticated,
+business-scoped products, settings, manual sales, and audited stock movements. Recording stock
+changes locks the product and updates its cached balance together with the audit record.
 
-The first implemented slice is under `backend/src/`. It provides validated handlers and a
-PostgreSQL repository for products, settings, manual sales, and inventory movements. The handler is
-framework-independent and uses the standard `Request`/`Response` API. The repository accepts a
-small pool interface so it can be tested independently and connected to the team's selected
-PostgreSQL driver later. There is deliberately no production listener or trusted-header
-authentication shim: exposing one before identity and deployment decisions are confirmed would make
-an incomplete security boundary look operational.
+`backend/app/migrate.py` applies the preserved SQL migration history in filename order, takes a
+PostgreSQL advisory lock, records SHA-256 checksums in `schema_migrations`, and rejects edits to an
+already-applied migration. `backend/app/bootstrap_owner.py` creates a configured business, settings
+row, and initial owner; it does not create sales, products, forecasts, or research results.
 
 ### Runnable local demonstration
 
-`backend/src/main.ts` now starts a loopback-only demonstration server backed by a local SQLite file.
-This adapter exists so developers can exercise HTTP, validation, persistence, sale, and inventory
-audit behavior without a separately installed database. It creates an explicitly labelled demo
-business and is not the production persistence design. It has no authentication and must never be
-used for partner records or exposed publicly. The PostgreSQL schema and repository above remain the
-target for deployment after driver, authentication, authorization, and recovery work is completed.
-
-### PostgreSQL runtime
-
-`backend/src/server.ts` is the PostgreSQL entry point. It validates environment configuration,
-constructs a bounded `pg.Pool`, verifies connectivity before listening, and injects the pool into
-`PostgresStockCastRepository`. The health endpoint executes `SELECT 1`; it reports HTTP 503 when
-the database is unavailable rather than returning a static status.
-
-`backend/src/migrate.ts` finds sorted `*.up.sql` files, takes a PostgreSQL advisory lock, records
-filenames and SHA-256 checksums in `schema_migrations`, and applies each migration and history row in
-one transaction. An applied file whose content changes is rejected; schema changes require a new
-migration. `db:bootstrap-demo` is separate from migration and creates only a clearly marked empty
-demo business for API testing.
-
-`products.current_stock` is a cached operational balance; `inventory_movements` is the audit trail.
-The API must not expose a generic endpoint that overwrites stock without a corresponding movement.
-Historic CSV sales imports do not represent deliveries and do not change current stock.
+`backend/app/sqlite_demo.py` provides a loopback-only, file-backed demonstration of the same current
+API slice. It creates an explicitly labelled demo business and must not be exposed publicly or used
+for partner data. SQLite is not the production database decision.
 
 ## Data ownership and provenance
 
