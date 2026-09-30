@@ -49,6 +49,7 @@ export const api = {
       await request<ApiProduct>(`/businesses/${businessId}/products`, {
         method: "POST",
         body: product,
+        idempotencyKey: crypto.randomUUID(),
       }),
     ),
   updateProduct: async (businessId: string, productId: string, patch: Partial<Product>) =>
@@ -65,11 +66,13 @@ export const api = {
       await request<ApiSale>(`/businesses/${businessId}/sales`, {
         method: "POST",
         body: { productId, saleDate: date, quantity: String(qty) },
+        idempotencyKey: crypto.randomUUID(),
       }),
     ),
   receiveStock: (businessId: string, productId: string, qty: number, date: string) =>
     request(`/businesses/${businessId}/inventory-movements`, {
       method: "POST",
+      idempotencyKey: crypto.randomUUID(),
       body: {
         productId,
         movementDate: date,
@@ -97,11 +100,12 @@ export const api = {
 
 async function request<T>(
   path: string,
-  options: { method?: string; body?: unknown } = {},
+  options: { method?: string; body?: unknown; idempotencyKey?: string } = {},
 ): Promise<T> {
   const method = options.method ?? "GET";
   const headers: Record<string, string> = {};
   if (options.body !== undefined) headers["content-type"] = "application/json";
+  if (options.idempotencyKey) headers["idempotency-key"] = options.idempotencyKey;
   if (!new Set(["GET", "HEAD", "OPTIONS"]).has(method)) {
     const csrf = cookie("stockcast_csrf");
     if (csrf) headers["x-csrf-token"] = csrf;
@@ -113,9 +117,7 @@ async function request<T>(
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
   const payload = (await response.json().catch(() => null)) as
-    | Envelope<T>
-    | { detail?: string; error?: { code?: string; message?: string } }
-    | null;
+    Envelope<T> | { detail?: string; error?: { code?: string; message?: string } } | null;
   if (!response.ok) {
     const failure = payload as {
       detail?: string;

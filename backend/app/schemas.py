@@ -2,13 +2,16 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 class ApiModel(BaseModel):
-    model_config = ConfigDict(alias_generator=lambda value: "".join(
-        [value.split("_")[0], *[part.title() for part in value.split("_")[1:]]]
-    ), populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=lambda value: "".join(
+            [value.split("_")[0], *[part.title() for part in value.split("_")[1:]]]
+        ),
+        populate_by_name=True,
+    )
 
 
 class SignIn(ApiModel):
@@ -62,3 +65,52 @@ class SettingsUpdate(ApiModel):
     top_n_products: int = Field(gt=0)
     cv_folds: int = Field(ge=2)
     timezone: str = Field(min_length=1)
+
+
+class BusinessUpdate(ApiModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    location: str | None = Field(default=None, max_length=300)
+
+
+class ImportSaleRow(ApiModel):
+    sku: str = Field(min_length=1, max_length=100)
+    sale_date: date
+    quantity: Decimal = Field(gt=0, decimal_places=3)
+    source_record_key: str | None = Field(default=None, max_length=200)
+
+
+class SalesImportCreate(ApiModel):
+    source: str = Field(default="csv", pattern="^(csv|pos_export|spreadsheet|migration)$")
+    original_filename: str | None = Field(default=None, max_length=255)
+    rows: list[ImportSaleRow] = Field(min_length=1, max_length=50_000)
+
+
+class ForecastRunCreate(ApiModel):
+    training_start: date
+    training_end: date
+    validation_start: date
+    validation_end: date
+    final_test_start: date
+    final_test_end: date
+    forecast_horizon_days: int = Field(gt=0, le=365)
+    configuration: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def ordered_periods(self):
+        if not (
+            self.training_start
+            <= self.training_end
+            < self.validation_start
+            <= self.validation_end
+            < self.final_test_start
+            <= self.final_test_end
+        ):
+            raise ValueError(
+                "Training, validation, and final-test periods must be ordered and disjoint"
+            )
+        return self
+
+
+class RecommendationGenerate(ApiModel):
+    recommendation_date: date
+    lookback_days: int = Field(default=28, ge=7, le=365)

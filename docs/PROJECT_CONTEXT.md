@@ -32,9 +32,9 @@ The study will use real information from a partner business once one is confirme
 - `src/lib/inventory/reorder.ts`: reorder point and quantity calculations.
 - `backend/db/`: PostgreSQL schema migration and an executable structural contract check; this is not a deployed database.
 - `backend/`: independently installable backend package maintained in this repository alongside the frontend and research documentation.
-- `backend/src/`: framework-independent HTTP handler, validation, service layer, and PostgreSQL repository for the first operational API slice.
-- `backend/src/main.ts`, `backend/src/local-repository.ts`: runnable local demonstration API and file-backed persistence; not approved for partner data.
-- `backend/src/server.ts`, `backend/src/postgres-pool.ts`, `backend/src/migrate.ts`: PostgreSQL server, connection pool, connectivity check, and migration runner.
+- `backend/app/`: the Python FastAPI application, validation models, security, PostgreSQL repository, migration tooling, and forecasting code.
+- `backend/app/sqlite_demo.py`: runnable local demonstration API and file-backed persistence; not approved for partner data.
+- `backend/app/main.py`, `backend/app/db.py`, `backend/app/migrate.py`: PostgreSQL API, connection pool, connectivity check, and migration runner.
 - `docs/BACKEND_ARCHITECTURE.md`: proposed REST boundary, transaction rules, table relationships, and decisions that still require confirmation.
 - `docs/thesis/`: current Chapters 1–3 text mirrors supplied on 2026-09-24; use these for thesis requirements, methodology, status, and constraints.
 - `public/thesis/`: older downloadable files currently used by the Strategies page; do not treat them as newer than `docs/thesis/`.
@@ -80,6 +80,16 @@ On 2026-09-25, the project owner confirmed that backend development will remain 
 `https://github.com/Jereus06/Thesis-1-4th-year.git` under `backend/`, rather than moving to a
 separate repository. The backend retains its own package metadata so it can still be installed and
 checked independently within this repository.
+
+On 2026-09-30, the legacy TypeScript backend under `backend/src/` was retired. The backend runtime,
+tests, schema checks, migration command, owner bootstrap, local SQLite demonstration, and official
+XGBoost integration now use Python. TypeScript remains only in the React frontend.
+
+The Python API now also contains business metadata, validated historical-sale imports, queued
+forecast runs and a private worker, persisted predictions/metrics, rule-based recommendation
+snapshots, and optional idempotency keys for critical stock writes. These are implementation
+foundations, not proof of deployment or completed partner validation; file-preview UX, correction
+policy, forecast-linked recommendations, production scheduling, and recovery testing remain open.
 
 Update this document when the partner is confirmed, the HTTP backend is implemented, database
 contract decisions are revised, or evaluation rules change. Record confirmed facts and source

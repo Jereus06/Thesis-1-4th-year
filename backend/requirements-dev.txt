@@ -1,1 +1,1 @@
--e .[forecast,test]
+-e ./backend[forecast,test]

@@ -7,15 +7,22 @@ import { api, type SessionUser } from "@/lib/api";
 import type { Product, Sale, Settings } from "@/lib/types";
 
 type Store = {
+  dataMode: "browser-demo" | "api";
+  session: SessionUser | null;
+  apiStatus: "idle" | "loading" | "ready" | "error";
+  apiError: string | null;
   products: Product[];
   sales: Sale[];
   settings: Settings;
-  recordSale: (productId: string, date: string, qty: number) => void;
-  receiveStock: (productId: string, qty: number) => void;
-  updateProduct: (id: string, patch: Partial<Product>) => void;
-  addProduct: (product: Omit<Product, "id" | "sku"> & { sku?: string }) => void;
+  connectApi: () => Promise<void>;
+  signIn: (businessId: string, email: string, password: string) => Promise<void>;
+  signOut: () => Promise<void>;
+  recordSale: (productId: string, date: string, qty: number) => Promise<void>;
+  receiveStock: (productId: string, qty: number) => Promise<void>;
+  updateProduct: (id: string, patch: Partial<Product>) => Promise<void>;
+  addProduct: (product: Omit<Product, "id" | "sku"> & { sku?: string }) => Promise<void>;
   importInventory: (rows: Omit<Product, "id">[]) => void;
-  updateSettings: (patch: Partial<Settings>) => void;
+  updateSettings: (patch: Partial<Settings>) => Promise<void>;
   importSales: (rows: Sale[]) => void;
   resetDemo: () => void;
 };
@@ -37,7 +44,14 @@ export const useAppStore = create<Store>()(
           const session = await api.me();
           await loadApiState(session, set);
         } catch (error) {
-          set({ session: null, apiStatus: error instanceof Error && "status" in error && error.status === 401 ? "idle" : "error", apiError: error instanceof Error ? error.message : "Unable to connect" });
+          set({
+            session: null,
+            apiStatus:
+              error instanceof Error && "status" in error && error.status === 401
+                ? "idle"
+                : "error",
+            apiError: error instanceof Error ? error.message : "Unable to connect",
+          });
         }
       },
       signIn: async (businessId, email, password) => {
@@ -46,7 +60,10 @@ export const useAppStore = create<Store>()(
           const session = await api.signIn(businessId, email, password);
           await loadApiState(session, set);
         } catch (error) {
-          set({ apiStatus: "error", apiError: error instanceof Error ? error.message : "Sign-in failed" });
+          set({
+            apiStatus: "error",
+            apiError: error instanceof Error ? error.message : "Sign-in failed",
+          });
           throw error;
         }
       },
@@ -94,7 +111,7 @@ export const useAppStore = create<Store>()(
         if (get().dataMode === "api") {
           const session = requireSession(get());
           const updated = await api.updateProduct(session.businessId, id, patch);
-          set({ products: get().products.map((item) => item.id === id ? updated : item) });
+          set({ products: get().products.map((item) => (item.id === id ? updated : item)) });
           return;
         }
         set({
@@ -143,8 +160,13 @@ export const useAppStore = create<Store>()(
           .map((row, index) => ({ ...row, id: `p-import-${Date.now()}-${index}` }));
         set({ products: [...updated, ...added] });
       },
-      updateSettings: (patch) => {
-        set({ settings: { ...get().settings, ...patch } });
+      updateSettings: async (patch) => {
+        const settings = { ...get().settings, ...patch };
+        if (get().dataMode === "api") {
+          const session = requireSession(get());
+          await api.updateSettings(session.businessId, settings);
+        }
+        set({ settings });
       },
       importSales: (rows) => {
         if (!rows.length) return;
