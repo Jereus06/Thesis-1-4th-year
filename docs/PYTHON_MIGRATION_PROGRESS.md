@@ -12,6 +12,8 @@ Updated: 2026-09-30. Branch: `python-backend-migration`.
 - Migration 003 for CSRF-token hashing on sessions.
 - Chronological XGBoost/Moving Average evaluation core using the official Python package.
 - Credentialed TypeScript API client with decimal/date field conversion; UI store wiring remains.
+- Business, historical import, forecast-run, prediction, metric, and recommendation API routes.
+- A private Python forecast worker and optional idempotency keys for critical stock writes.
 - Reserved date-helper contract documented without implementing the groupmate’s task.
 
 ## Not yet complete

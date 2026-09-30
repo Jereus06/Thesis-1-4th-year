@@ -41,10 +41,10 @@ sales, movement, and forecast records distinguish `demo` from `partner` data. De
 be copied into a partner business or included in research metrics. Creating the first real partner
 business, its retention rules, and its users requires partner permission and team confirmation.
 
-The schema models `owner` and `staff` as intended roles, but does not define passwords, an identity
-provider, cookies, tokens, or role permissions. Those are security decisions, not safe defaults.
-Until they are implemented and tested, the API must not be presented as ready to hold real business
-data.
+The implemented local authentication foundation models `owner` and `staff`, salted password hashes,
+server-side sessions, cookies, CSRF checks, and route permissions. The final deployment still needs
+HTTPS, rate limiting, password recovery, session cleanup, security review, and partner approval, so
+the API must not yet be presented as ready to hold real business data.
 
 ## Transaction rules
 
@@ -116,9 +116,12 @@ team adopts and documents a safe integer unit convention.
 | `GET`   | `/businesses/{businessId}/forecast-runs/{runId}/metrics`     | Read like-for-like split metrics and observation counts.          |
 | `GET`   | `/businesses/{businessId}/reorder-recommendations`           | Read persisted recommendations and their inputs.                  |
 | `POST`  | `/businesses/{businessId}/reorder-recommendations/generate`  | Generate a versioned recommendation snapshot.                     |
+| `GET`   | `/businesses/{businessId}/exports/sales.csv`                 | Export authorized sales as CSV.                                   |
+| `GET`   | `/businesses/{businessId}/exports/inventory-movements.csv`   | Export the authorized inventory audit ledger as CSV.              |
 
-Authentication endpoints are deliberately absent until the team chooses an identity/session design.
-Forecast-worker endpoints should be private service operations rather than public browser endpoints.
+Authentication uses server-side sessions, HTTP-only session cookies, a readable double-submit CSRF
+cookie, and owner/staff authorization. The forecast worker is a separate private process invoked with
+`python -m backend.app.worker`; it is intentionally not exposed as a browser endpoint.
 
 ## Frontend integration sequence
 
