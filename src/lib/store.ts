@@ -13,6 +13,7 @@ type Store = {
   receiveStock: (productId: string, qty: number) => void;
   updateProduct: (id: string, patch: Partial<Product>) => void;
   addProduct: (product: Omit<Product, "id" | "sku"> & { sku?: string }) => void;
+  importInventory: (rows: Omit<Product, "id">[]) => void;
   updateSettings: (patch: Partial<Settings>) => void;
   importSales: (rows: Sale[]) => void;
   resetDemo: () => void;
@@ -71,6 +72,19 @@ export const useAppStore = create<Store>()(
             },
           ],
         });
+      },
+      importInventory: (rows) => {
+        if (!rows.length) return;
+        const importedBySku = new Map(rows.map((row) => [row.sku.toLowerCase(), row]));
+        const existingSkus = new Set(get().products.map((product) => product.sku.toLowerCase()));
+        const updated = get().products.map((product) => {
+          const imported = importedBySku.get(product.sku.toLowerCase());
+          return imported ? { ...product, ...imported, id: product.id } : product;
+        });
+        const added = rows
+          .filter((row) => !existingSkus.has(row.sku.toLowerCase()))
+          .map((row, index) => ({ ...row, id: `p-import-${Date.now()}-${index}` }));
+        set({ products: [...updated, ...added] });
       },
       updateSettings: (patch) => {
         set({ settings: { ...get().settings, ...patch } });
