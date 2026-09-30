@@ -1,128 +1,163 @@
-# StockCast Python backend
+# StockCast backend
 
-The backend is FastAPI with PostgreSQL and the official Python `xgboost` package. All backend
-application and test code is Python under `backend/app/` and `backend/tests/`. The React frontend
-remains TypeScript.
+This directory contains the independently installable backend package for StockCast. The frontend,
+backend, database migrations, and project documentation are maintained together in the
+[StockCast thesis repository](https://github.com/Jereus06/Thesis-1-4th-year).
 
-## Windows laptop setup
+The current implementation contains:
 
-Install:
+- a reversible PostgreSQL schema for operational and research records;
+- a framework-independent `/api/v1` request handler;
+- validation and service layers for products, settings, manual sales, and inventory movements;
+- a PostgreSQL connection pool, migration runner, and repository with transactional stock and
+  audit-ledger operations;
+- a runnable PostgreSQL HTTP server; and
+- unit tests and structural migration checks.
 
-1. Git.
-2. Node.js 24 for the React frontend.
-3. Python 3.12 (enable **Add Python to PATH**).
-4. PostgreSQL 15+ including Command Line Tools; pgAdmin is optional.
+For local demonstrations, the runnable server uses a file-backed SQLite adapter from Node's
+standard library. This makes the API workflow executable without pretending that SQLite is the
+planned production database. The PostgreSQL schema and repository remain the production target.
 
-From the repository root in PowerShell:
+It does **not** yet contain authentication, production deployment/recovery configuration, real
+partner data, or verified XGBoost results.
 
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r backend\requirements-lock.txt
+## Local checks
+
+```bash
 npm install
-Copy-Item backend\.env.example backend\.env
+npm run check
 ```
 
-Create the database as a PostgreSQL administrator:
+## Requirements
+
+- Node.js 24 or newer and npm.
+- PostgreSQL 15 or newer. On Windows, install PostgreSQL from the official installer and include
+  PostgreSQL Server, Command Line Tools, and optionally pgAdmin.
+
+## Configure PostgreSQL
+
+Open `psql` or the pgAdmin query tool as a PostgreSQL administrator and create a local role and
+database. Replace the example password before running these commands:
 
 ```sql
-CREATE ROLE stockcast WITH LOGIN PASSWORD 'replace_this_password';
+CREATE ROLE stockcast WITH LOGIN PASSWORD 'replace_with_a_local_password';
 CREATE DATABASE stockcast OWNER stockcast;
 ```
 
-Put the encoded password in `backend/.env`:
+Copy `.env.example` to `.env`, then set the same password in `DATABASE_URL`:
 
 ```dotenv
-DATABASE_URL=postgresql://stockcast:replace_this_password@localhost:5432/stockcast
+DATABASE_URL=postgresql://stockcast:replace_with_a_local_password@localhost:5432/stockcast
+PORT=3001
 NODE_ENV=development
+HOST=127.0.0.1
 CORS_ORIGIN=http://localhost:5173
-OWNER_BUSINESS_ID=00000000-0000-4000-8000-000000000001
-OWNER_BUSINESS_NAME=StockCast Demo Store
-OWNER_DATA_ORIGIN=demo
-OWNER_EMAIL=owner@example.test
-OWNER_DISPLAY_NAME=Demo Owner
-OWNER_PASSWORD=replace_with_at_least_12_characters
+DATABASE_SSL=false
 ```
 
-Never commit `.env`, passwords, session cookies, partner files, or database dumps.
+Never commit `.env` or a real password.
 
-## Initialize and run
+## Install, migrate, and run
 
-From the repository root with the virtual environment active:
-
-```powershell
+```bash
+npm install
 npm run db:migrate
+
 npm run db:bootstrap-owner
-npm run backend:dev
+npm start
 ```
 
-In a second terminal:
+Before running the owner bootstrap, replace every `OWNER_*` placeholder in `.env`. Use
+`OWNER_DATA_ORIGIN=demo` for functional testing. The command creates the business, default settings,
+and its first owner account; it does not create products, sales, forecasts, or research results.
+`db:bootstrap-demo` remains available when an account is not needed by older API-only tests.
 
-```powershell
-npm run dev
+npm run db:bootstrap-demo
+npm start
 ```
 
-The API is at `http://127.0.0.1:3001`; Swagger UI is at
-`http://127.0.0.1:3001/docs`. The browser client must send credentials. Mutating requests require
-the `stockcast_csrf` cookie value in `X-CSRF-Token`.
+The server listens on `http://127.0.0.1:3001`. The optional bootstrap command creates only an empty,
+explicitly labelled demo business with ID `00000000-0000-4000-8000-000000000001`; it does not
+create products, sales, partner records, or research results.
 
-## Implemented Python API slice
+Configuration:
 
-- live database health;
-- sign-in, sign-out, session lookup, business isolation, and CSRF checking;
-- owner/staff checks;
-- product create/edit/archive and listing;
-- business settings;
-- atomic sales that reject insufficient stock;
-- audited receipts, customer returns, write-offs, and adjustments;
-- paginated sales and movement histories;
-- Python migration and initial-owner commands;
-- chronological official-XGBoost/Moving-Average evaluation core.
+- `PORT` — API port, default `3001`.
+- `HOST` — bind address, default `127.0.0.1`.
+- `CORS_ORIGIN` — allowed frontend origin, default `http://localhost:5173`.
+- `DATABASE_URL` — required PostgreSQL connection URL.
+- `DATABASE_SSL` — `true` only when the database host requires TLS; default `false`.
 
-## Permission matrix
+`npm run dev` watches and restarts the PostgreSQL server during backend development. `npm start`
+runs it without watch mode. `npm run db:migrate` applies each new `*.up.sql` migration once and
+rejects an already-applied migration if its checksum changes.
 
-| Action                                   | Owner | Staff |
-| ---------------------------------------- | ----- | ----- |
-| View products/settings/sales/movements   | Yes   | Yes   |
-| Record sales, receipts, customer returns | Yes   | Yes   |
-| Create/edit/archive products             | Yes   | No    |
-| Change settings                          | Yes   | No    |
-| Adjust stock or record write-offs        | Yes   | No    |
 
-## Tests
+## Authentication and permissions
 
-```powershell
-python -m pytest backend\tests
-npm run typecheck
-npm run lint
-npm run build
+Sign-in uses the business ID, normalized email, and password. Passwords are stored as salted scrypt
+hashes. Successful sign-in creates a random server-side session and returns an HTTP-only,
+SameSite=Strict cookie. Sign-out deletes that session. The PostgreSQL server derives the actor and
+business membership from the session; it does not trust a client-supplied actor ID.
+
+| Action                                               | Owner | Staff |
+| ---------------------------------------------------- | ----- | ----- |
+| View products, settings, sales, and movement history | Yes   | Yes   |
+| Record a sale                                        | Yes   | Yes   |
+| Record a receipt or customer return                  | Yes   | Yes   |
+| Create/edit/archive products                         | Yes   | No    |
+| Change business settings                             | Yes   | No    |
+| Record adjustments or write-offs                     | Yes   | No    |
+
+Authentication is suitable for local development verification, but production deployment still
+requires HTTPS, session cleanup, rate limiting, password reset/recovery, security review, and tested
+backup/restore.
+
+
+## Test with curl or Postman
+
+Health check:
+
+```bash
+curl http://127.0.0.1:3001/api/v1/health
 ```
 
-Live PostgreSQL tests and the complete frontend workflow remain required. Current progress and blockers are recorded in
-[`../docs/PYTHON_MIGRATION_PROGRESS.md`](../docs/PYTHON_MIGRATION_PROGRESS.md).
+Create a demonstration product:
 
-## Backup and restore
-
-Create an encrypted/controlled backup outside the repository:
-
-```powershell
-pg_dump --format=custom --file=stockcast.backup --dbname=$env:DATABASE_URL
+```bash
+curl -X POST http://127.0.0.1:3001/api/v1/businesses/00000000-0000-4000-8000-000000000001/products \
+  -H "Content-Type: application/json" \
+  -d '{"productId":"REPLACE_WITH_PRODUCT_ID","saleDate":"2026-09-25","quantity":"3"}'
 ```
 
-Restore only into an empty verification database, then run health and workflow tests:
+Verify stock and the audit ledger:
 
-```powershell
-createdb -U postgres stockcast_restore_test
-pg_restore --clean --if-exists --no-owner --dbname=stockcast_restore_test stockcast.backup
+```bash
+curl http://127.0.0.1:3001/api/v1/businesses/00000000-0000-4000-8000-000000000001/products
+curl http://127.0.0.1:3001/api/v1/businesses/00000000-0000-4000-8000-000000000001/inventory-movements
 ```
 
-Set a temporary `DATABASE_URL` for `stockcast_restore_test`, start the API, and verify counts and the
-login → product → sale → movement workflow. Backup/recovery is not “verified” until this succeeds on
-the selected deployment device.
+In Postman, use the same URLs, choose Body → raw → JSON for POST requests, and set
+`Content-Type: application/json`. Stop and restart `npm start`, then repeat the GET requests to
+confirm PostgreSQL retained the records.
 
-## Reserved date helper
+## Optional SQLite demonstration
 
-The groupmate-reserved `is_valid_iso_date(value: str) -> bool` is intentionally not implemented.
-See [`docs/RESERVED_DATE_HELPER.md`](docs/RESERVED_DATE_HELPER.md). API request dates continue to use
-normal Pydantic/Python calendar-date validation.
+The earlier SQLite adapter remains available only for dependency-free interface demonstrations:
+
+```bash
+npm run demo
+```
+
+It writes `data/stockcast-demo.sqlite`. SQLite is not the production database decision.
+
+The PostgreSQL and SQLite servers have no authentication and must not be exposed publicly or used
+for real partner records. Authentication, authorization, backup/restore, and deployment checks are
+required before partner use.
+
+## Repository location
+
+Backend development stays in this repository under `backend/`. Keeping its package metadata here
+allows backend checks to run independently without splitting its Git history from the frontend and
+shared research documentation. Do not copy generated frontend demo records into backend partner
+storage or relabel them as partner data.

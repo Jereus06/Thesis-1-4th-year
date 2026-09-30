@@ -1,7 +1,7 @@
 # StockCast
 
 Sales forecasting and inventory optimization for small retail businesses. This repository contains
-the React demonstration frontend and an in-progress FastAPI/PostgreSQL backend. New coding
+the React demonstration frontend and an in-progress TypeScript/PostgreSQL backend. New coding
 sessions should read [AGENTS.md](AGENTS.md), the [project context](docs/PROJECT_CONTEXT.md), and the
 [completion checklist](docs/COMPLETION_CHECKLIST.md) first.
 
@@ -30,8 +30,8 @@ Recommended extensions (prompted on first open): ESLint, Prettier, Tailwind CSS 
 | `npm run preview`      | Serve the production build          |
 | `npm run typecheck`    | TypeScript only                     |
 | `npm run lint`         | ESLint                              |
-| `npm run backend:dev`  | FastAPI backend in watch mode       |
-| `npm run backend:test` | Python backend tests                |
+| `npm run backend:dev`  | PostgreSQL backend in watch mode    |
+| `npm run backend:test` | Backend tests                       |
 | `npm run db:migrate`   | Apply pending PostgreSQL migrations |
 
 ## Stack
@@ -40,12 +40,13 @@ Recommended extensions (prompted on first open): ESLint, Prettier, Tailwind CSS 
 - TanStack Router (file routes in `src/routes/`)
 - Tailwind CSS v4
 - Zustand (`src/lib/store.ts`) — the current frontend demonstration persists in `localStorage`
-- FastAPI backend and PostgreSQL schema under `backend/`
+- TypeScript backend and PostgreSQL schema under `backend/`
 - In-browser custom boosted-tree prototype (currently labeled XGBoost in the UI) and moving-average forecast (`src/lib/forecast/`); the model and final evaluation still require validation.
 
-The Python backend provides PostgreSQL migrations and an initial authenticated operational API, but
-the frontend integration and full acceptance workflow are not complete. Demo products and synthetic
-sales are not results from a real partner business.
+The backend provides PostgreSQL migrations, product/settings/sales/movement APIs, and an
+authentication foundation, but the frontend is not yet connected to it and production security is
+not complete. Demo products and synthetic sales are seeded in `src/lib/data/seed.ts`; displayed
+metrics are not results from a real partner business.
 
 ## Layout
 
@@ -58,6 +59,6 @@ src/
   lib/data/        seed + fallback series
   lib/store.ts     app state
 public/thesis/     documents used by the Strategies page (may lag latest drafts)
-backend/           Python FastAPI service, PostgreSQL migrations, and Python tests
+backend/           TypeScript API, PostgreSQL migrations, and backend tests
 docs/              architecture, project context, thesis mirrors, completion checklist
 ```
