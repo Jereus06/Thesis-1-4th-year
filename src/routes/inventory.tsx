@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { Search } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -7,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { SEED_END, SEED_START } from "@/lib/data/seed";
+import { formatShort, parseDate } from "@/lib/dates";
 import { num, peso } from "@/lib/format";
 import { useAppStore } from "@/lib/store";
 import type { Product, Sale } from "@/lib/types";
@@ -20,7 +21,8 @@ function InventoryPage() {
       <header>
         <h1 className="font-display text-3xl font-medium tracking-tight">Inventory & records</h1>
         <p className="mt-2 max-w-2xl text-muted">
-          Products, lead times, and safety stock drive reorder points. Sales history is the only input the models need.
+          Products, lead times, and safety stock drive reorder points. Sales history is the only
+          input the models need.
         </p>
       </header>
       <Tabs defaultValue="products">
@@ -47,20 +49,103 @@ function ProductsPanel() {
   const products = useAppStore((s) => s.products);
   const updateProduct = useAppStore((s) => s.updateProduct);
   const addProduct = useAppStore((s) => s.addProduct);
+  const importInventory = useAppStore((s) => s.importInventory);
   const [open, setOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [inventoryCsv, setInventoryCsv] = useState("");
+  const [query, setQuery] = useState("");
+  const filteredProducts = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return products;
+    return products.filter((product) =>
+      [product.name, product.sku, product.category].some((value) =>
+        value.toLowerCase().includes(normalized),
+      ),
+    );
+  }, [products, query]);
+
+  function importInventoryCsv() {
+    const rows = parseInventoryCsv(inventoryCsv);
+    if (!rows.length) {
+      toast.error("No valid inventory rows. Check the required CSV columns and values.");
+      return;
+    }
+    importInventory(rows);
+    toast.success(`Imported ${rows.length} inventory rows.`);
+    setInventoryCsv("");
+    setImportOpen(false);
+  }
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
-        <Button variant="outline" onClick={() => setOpen((v) => !v)}>
-          {open ? "Close form" : "Add product"}
-        </Button>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full sm:max-w-sm">
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
+          <Input
+            className="pl-9"
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search by product, SKU, or category"
+            aria-label="Search inventory products"
+          />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setImportOpen((value) => !value)}>
+            {importOpen ? "Close import" : "Import inventory"}
+          </Button>
+          <Button variant="outline" onClick={() => setOpen((v) => !v)}>
+            {open ? "Close form" : "Add product"}
+          </Button>
+        </div>
       </div>
+      {importOpen && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Import inventory snapshot</CardTitle>
+            <CardDescription>
+              This updates matching SKUs or adds new products. It records the current catalog and
+              on-hand quantities only—not sales or stock deliveries.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            <p className="text-xs text-muted">
+              Columns: SKU, Product, Category, Unit, On Hand, Lead Time, Safety Stock, Unit Cost.
+            </p>
+            <textarea
+              value={inventoryCsv}
+              onChange={(event) => setInventoryCsv(event.target.value)}
+              rows={7}
+              className="w-full rounded-xl border border-border bg-surface p-3 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              placeholder={
+                "SKU,Product,Category,Unit,On Hand,Lead Time,Safety Stock,Unit Cost\nNS-500,Nature Spring Water 500ml,Beverages,bottle,80,2,24,12"
+              }
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={importInventoryCsv}>
+                Import inventory
+              </Button>
+              <CsvFileButton onLoad={setInventoryCsv} />
+            </div>
+          </CardContent>
+        </Card>
+      )}
       {open && <AddProductForm onAdd={addProduct} onDone={() => setOpen(false)} />}
       <div className="grid gap-3">
-        {products.map((p) => (
-          <ProductEditor key={`${p.id}-${p.currentStock}-${p.leadTimeDays}-${p.safetyStock}`} product={p} onSave={(patch) => updateProduct(p.id, patch)} />
+        {filteredProducts.map((p) => (
+          <ProductEditor
+            key={`${p.id}-${p.currentStock}-${p.leadTimeDays}-${p.safetyStock}`}
+            product={p}
+            onSave={(patch) => updateProduct(p.id, patch)}
+          />
         ))}
+        {filteredProducts.length === 0 && (
+          <Card>
+            <CardContent className="text-sm text-muted">
+              No products match “{query.trim()}”.
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );
@@ -158,7 +243,9 @@ function AddProductForm({
     <Card>
       <CardHeader>
         <CardTitle>New product</CardTitle>
-        <CardDescription>Needs a few weeks of sales before forecasts become reliable.</CardDescription>
+        <CardDescription>
+          Needs a few weeks of sales before forecasts become reliable.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <form className="grid gap-3 md:grid-cols-2" onSubmit={submit}>
@@ -204,7 +291,10 @@ function SalesPanel() {
   const products = useAppStore((s) => s.products);
   const importSales = useAppStore((s) => s.importSales);
   const [csv, setCsv] = useState("");
-  const nameById = useMemo(() => Object.fromEntries(products.map((p) => [p.id, p.name])), [products]);
+  const nameById = useMemo(
+    () => Object.fromEntries(products.map((p) => [p.id, p.name])),
+    [products],
+  );
   const recent = [...sales].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 40);
 
   function importCsv() {
@@ -223,9 +313,7 @@ function SalesPanel() {
       <Card>
         <CardHeader>
           <CardTitle>Recent sales</CardTitle>
-          <CardDescription>
-            Seed history covers {SEED_START} to {SEED_END} ({num(sales.length)} rows).
-          </CardDescription>
+          <CardDescription>{num(sales.length)} locally stored sales rows.</CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -251,7 +339,9 @@ function SalesPanel() {
       <Card>
         <CardHeader>
           <CardTitle>Import CSV</CardTitle>
-          <CardDescription>Columns: Date, Product, Quantity. Product can be name or SKU.</CardDescription>
+          <CardDescription>
+            Columns: Date, Product, Quantity. Product can be name or SKU.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3">
           <textarea
@@ -259,37 +349,74 @@ function SalesPanel() {
             onChange={(e) => setCsv(e.target.value)}
             rows={10}
             className="w-full rounded-xl border border-border bg-surface p-3 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-            placeholder={"2026-09-18,Lucky Me Pancit Canton,12\n2026-09-18,Nature Spring Water 500ml,20"}
+            placeholder={
+              "2026-09-18,Lucky Me Pancit Canton,12\n2026-09-18,Nature Spring Water 500ml,20"
+            }
           />
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={importCsv}>
               Import rows
             </Button>
-            <label className="inline-flex h-11 cursor-pointer items-center justify-center rounded-lg border border-border bg-surface px-4 text-sm font-medium hover:bg-surface-2">
-              Upload file
-              <input
-                type="file"
-                accept=".csv,text/csv,text/plain"
-                className="sr-only"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  const reader = new FileReader();
-                  reader.onload = () => {
-                    const text = String(reader.result ?? "");
-                    setCsv(text);
-                    toast.success(`Loaded ${file.name}`);
-                  };
-                  reader.readAsText(file);
-                  e.target.value = "";
-                }}
-              />
-            </label>
+            <CsvFileButton onLoad={setCsv} />
           </div>
         </CardContent>
       </Card>
     </div>
   );
+}
+
+function CsvFileButton({ onLoad }: { onLoad: (text: string) => void }) {
+  return (
+    <label className="inline-flex h-11 cursor-pointer items-center justify-center rounded-lg border border-border bg-surface px-4 text-sm font-medium hover:bg-surface-2">
+      Upload CSV file
+      <input
+        type="file"
+        accept=".csv,text/csv,text/plain"
+        className="sr-only"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            onLoad(String(reader.result ?? ""));
+            toast.success(`Loaded ${file.name}`);
+          };
+          reader.readAsText(file);
+          event.target.value = "";
+        }}
+      />
+    </label>
+  );
+}
+
+function parseInventoryCsv(text: string): Omit<Product, "id">[] {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const rows: Omit<Product, "id">[] = [];
+  for (const line of lines) {
+    if (/^sku\s*,/i.test(line)) continue;
+    const [sku, name, category, unit, stockRaw, leadRaw, safetyRaw, costRaw] = line
+      .split(",")
+      .map((part) => part.trim());
+    const values = [stockRaw, leadRaw, safetyRaw, costRaw].map(Number);
+    if (!sku || !name || !category || !unit || values.some((value) => !Number.isFinite(value)))
+      continue;
+    const [currentStock, leadTimeDays, safetyStock, unitCost] = values;
+    if (currentStock < 0 || leadTimeDays < 1 || safetyStock < 0 || unitCost < 0) continue;
+    rows.push({
+      sku,
+      name,
+      category,
+      unit,
+      currentStock,
+      leadTimeDays,
+      safetyStock,
+      unitCost,
+    });
+  }
+  return rows;
 }
 
 function parseCsv(text: string, products: Product[]): Sale[] {
@@ -324,22 +451,26 @@ function parseCsv(text: string, products: Product[]): Sale[] {
 
 function SettingsPanel() {
   const settings = useAppStore((s) => s.settings);
+  const sales = useAppStore((s) => s.sales);
   const updateSettings = useAppStore((s) => s.updateSettings);
   const resetDemo = useAppStore((s) => s.resetDemo);
+  const history = useMemo(() => getSalesHistory(sales), [sales]);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Store & model settings</CardTitle>
         <CardDescription>
-          Safety stock and lead time stay on each product. Top N and the thin-data toggle belong to
-          the two strategies.
+          Business planning settings are separated from advanced forecasting controls.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid max-w-xl gap-4">
         <div className="grid gap-1.5">
           <Label>Store name</Label>
-          <Input value={settings.storeName} onChange={(e) => updateSettings({ storeName: e.target.value })} />
+          <Input
+            value={settings.storeName}
+            onChange={(e) => updateSettings({ storeName: e.target.value })}
+          />
         </div>
         <div className="grid gap-1.5">
           <Label>Location</Label>
@@ -349,12 +480,12 @@ function SettingsPanel() {
           />
         </div>
         <div className="grid gap-1.5">
-          <Label>Moving Average window (days)</Label>
+          <Label>Forecast horizon</Label>
           <Select
-            value={String(settings.maWindow)}
-            onChange={(e) => updateSettings({ maWindow: Number(e.target.value) })}
+            value={String(settings.forecastHorizon)}
+            onChange={(e) => updateSettings({ forecastHorizon: Number(e.target.value) })}
           >
-            {[3, 7, 14].map((n) => (
+            {[7, 14, 21, 30].map((n) => (
               <option key={n} value={n}>
                 {n} days
               </option>
@@ -374,30 +505,70 @@ function SettingsPanel() {
             ))}
           </Select>
         </div>
-        <div className="grid gap-1.5">
-          <Label>Train only top N products</Label>
-          <Select
-            value={String(settings.topNProducts)}
-            onChange={(e) => updateSettings({ topNProducts: Number(e.target.value) })}
-          >
-            {[5, 8, 12, 20].map((n) => (
-              <option key={n} value={n}>
-                Top {n} by units sold
-              </option>
-            ))}
-          </Select>
+        <div className="rounded-xl border border-border bg-surface-2 p-4">
+          <p className="text-sm font-medium">
+            {history.limited ? "Limited history" : "Available sales history"}
+          </p>
+          {history.start && history.end ? (
+            <>
+              <p className="mt-1 text-sm">
+                {formatShort(history.start)}, {parseDate(history.start).getFullYear()} –{" "}
+                {formatShort(history.end)}, {parseDate(history.end).getFullYear()}
+              </p>
+              <p className="text-sm text-muted">
+                {history.days} days / about {history.months} month{history.months === 1 ? "" : "s"}
+              </p>
+              {history.limited && (
+                <p className="mt-2 text-sm text-warning">
+                  Only about {history.weeks} week{history.weeks === 1 ? "" : "s"} of sales are
+                  available. XGBoost eligibility may be unavailable and a simpler forecasting method
+                  may be used.
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="mt-1 text-sm text-warning">
+              No sales history is available. Add or import sales before forecasting.
+            </p>
+          )}
         </div>
-        <div className="grid gap-1.5">
-          <Label>Sales history for this run</Label>
-          <Select
-            value={settings.dataScenario}
-            onChange={(e) =>
-              updateSettings({ dataScenario: e.target.value === "thin" ? "thin" : "partner" })
-            }
-          >
-            <option value="partner">Partner history (~24 weeks)</option>
-            <option value="thin">Simulate thin partner data (4 weeks → public fallback)</option>
-          </Select>
+        <div className="grid gap-4 rounded-xl border border-border p-4">
+          <div>
+            <p className="font-medium">Advanced forecasting settings</p>
+            <p className="text-sm text-muted">
+              Model controls for forecast experiments and eligibility.
+            </p>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Moving Average window (days)</Label>
+            <Select
+              value={String(settings.maWindow)}
+              onChange={(e) => updateSettings({ maWindow: Number(e.target.value) })}
+            >
+              {[3, 7, 14].map((n) => (
+                <option key={n} value={n}>
+                  {n} days
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>ML product limit</Label>
+            <Select
+              value={String(settings.topNProducts)}
+              onChange={(e) => updateSettings({ topNProducts: Number(e.target.value) })}
+            >
+              {[5, 8, 12, 20].map((n) => (
+                <option key={n} value={n}>
+                  Top {n} eligible products
+                </option>
+              ))}
+            </Select>
+            <p className="text-xs text-muted">
+              This is the maximum ML scope. Products must still pass data sufficiency and
+              eligibility checks.
+            </p>
+          </div>
         </div>
         <Button
           variant="outline"
@@ -411,4 +582,24 @@ function SettingsPanel() {
       </CardContent>
     </Card>
   );
+}
+
+function getSalesHistory(sales: Sale[]) {
+  if (!sales.length) return { start: "", end: "", days: 0, weeks: 0, months: 0, limited: true };
+  const dates = sales
+    .map((sale) => sale.date)
+    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+    .sort();
+  if (!dates.length) return { start: "", end: "", days: 0, weeks: 0, months: 0, limited: true };
+  const start = dates[0];
+  const end = dates[dates.length - 1];
+  const days = Math.floor((parseDate(end).getTime() - parseDate(start).getTime()) / 86_400_000) + 1;
+  return {
+    start,
+    end,
+    days,
+    weeks: Math.max(1, Math.round(days / 7)),
+    months: Math.max(1, Math.round(days / 30.44)),
+    limited: days < 56,
+  };
 }

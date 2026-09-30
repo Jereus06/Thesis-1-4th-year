@@ -17,7 +17,9 @@ def hash_password(password: str, *, salt: bytes | None = None) -> str:
     if len(password) < 12:
         raise ValueError("Password must contain at least 12 characters")
     actual_salt = salt or secrets.token_bytes(16)
-    derived = hashlib.scrypt(password.encode(), salt=actual_salt, n=2**14, r=8, p=1, dklen=64)
+    derived = hashlib.scrypt(
+        password.encode(), salt=actual_salt, n=2**14, r=8, p=1, dklen=64
+    )
     return f"scrypt:{actual_salt.hex()}:{derived.hex()}"
 
 

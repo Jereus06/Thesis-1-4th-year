@@ -46,10 +46,6 @@ def migrate() -> list[str]:
     return applied
 
 
-def main() -> None:
+if __name__ == "__main__":
     names = migrate()
     print(f"Applied: {', '.join(names)}" if names else "Database is up to date.")
-
-
-if __name__ == "__main__":
-    main()

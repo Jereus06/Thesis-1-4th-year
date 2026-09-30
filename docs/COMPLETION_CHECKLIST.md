@@ -1,24 +1,23 @@
 # StockCast completion checklist
 
-Last reviewed for the Python migration: 2026-09-30. “Complete” means the repository contains implementation plus automated
+Last reviewed: 2026-09-30. “Complete” means the repository contains implementation plus automated
 or recorded workflow evidence. External research and deployment work is not marked complete from
 code alone.
 
-| Requirement                                       | Status                   | Evidence / blocker                                                                                                                                                            |
-| ------------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PostgreSQL schema, pool, migration runner, server | Complete locally in code | `backend/db/` and `backend/app/`; live PostgreSQL rerun still required in the target environment.                                                                             |
-| Reproducible Node/package installation            | In progress              | Node version and lockfiles require reconciliation.                                                                                                                            |
-| Python FastAPI language migration                 | Complete in code         | Active backend runtime, CLI, schema checker, SQLite demo, package, and tests are Python; no backend TypeScript/Node runtime remains. Runtime dependency installation was blocked here. |
-| Authentication and owner/staff authorization      | In progress              | Python session, CSRF, membership, and permission enforcement exist; live PostgreSQL workflow tests remain blocked in this environment.                                        |
-| Products/settings/sales/receipts API              | Partial                  | Authenticated core writes, decimal quantities, negative-stock rejection, audit movements, and offset paging exist; retry keys and corrections remain.                         |
-| Frontend/API integration                          | Partial                  | `VITE_DATA_MODE=api` supplies sign-in and database-backed product/settings/sale/receipt state; imports and forecast screens remain browser-only demonstrations.                |
-| Safe historical imports                           | Not started              | Tables exist; preview/mapping/idempotent workflow does not.                                                                                                                   |
-| Verified XGBoost                                  | Blocked externally       | Official-package chronological training code exists, but XGBoost is not installed/run and partner data/cutoffs are unavailable, so verification is not claimed.               |
-| Forecast persistence and worker                   | Not started              | Tables exist; execution API/worker does not.                                                                                                                                  |
-| Conditional reorder recommendations               | Not started              | Browser calculation exists; persisted server workflow does not.                                                                                                               |
-| Exports                                           | Not started              | No operational export endpoints.                                                                                                                                              |
-| Backup/restore verification                       | Blocked externally       | Requires an available PostgreSQL instance and selected deployment environment.                                                                                                |
-| Real partner evaluation                           | Blocked externally       | Partner, permission, records, evaluator responses, and research outcomes remain pending.                                                                                      |
+| Requirement                                       | Status                   | Evidence / blocker                                                                                                                                               |
+| ------------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PostgreSQL schema, pool, migration runner, server | Complete locally in code | `backend/db/`, `backend/src/server.ts`; live PostgreSQL rerun still required in the target environment.                                                          |
+| Reproducible Node/package installation            | In progress              | Node version and lockfiles require reconciliation.                                                                                                               |
+| Authentication and owner/staff authorization      | In progress              | Session/password implementation and permission enforcement exist; dependency installation and live PostgreSQL workflow tests remain blocked in this environment. |
+| Products/settings/sales/receipts API              | Partial                  | Core writes exist; authentication, paging, retry safety, corrections, and expanded movement rules remain.                                                        |
+| Frontend/API integration                          | Not started              | Frontend remains an explicit localStorage demonstration.                                                                                                         |
+| Safe historical imports                           | Not started              | Tables exist; preview/mapping/idempotent workflow does not.                                                                                                      |
+| Verified XGBoost                                  | Blocked externally       | No verified XGBoost runtime is installed; partner data and preregistered evaluation cutoffs are unavailable.                                                     |
+| Forecast persistence and worker                   | Not started              | Tables exist; execution API/worker does not.                                                                                                                     |
+| Conditional reorder recommendations               | Not started              | Browser calculation exists; persisted server workflow does not.                                                                                                  |
+| Exports                                           | Not started              | No operational export endpoints.                                                                                                                                 |
+| Backup/restore verification                       | Blocked externally       | Requires an available PostgreSQL instance and selected deployment environment.                                                                                   |
+| Real partner evaluation                           | Blocked externally       | Partner, permission, records, evaluator responses, and research outcomes remain pending.                                                                         |
 
 ## Non-negotiable boundaries
 

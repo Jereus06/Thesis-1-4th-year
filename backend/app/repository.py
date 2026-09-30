@@ -1,7 +1,7 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from psycopg import Connection
@@ -17,17 +17,11 @@ def decimal_text(value: Decimal | str) -> str:
 
 def product_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
-        "id": str(row["id"]),
-        "businessId": str(row["business_id"]),
-        "sku": row["sku"],
-        "name": row["name"],
-        "category": row["category"],
-        "unit": row["unit"],
-        "currentStock": decimal_text(row["current_stock"]),
-        "leadTimeDays": row["lead_time_days"],
-        "safetyStock": decimal_text(row["safety_stock"]),
-        "unitCost": decimal_text(row["unit_cost"]),
-        "isActive": row["is_active"],
+        "id": str(row["id"]), "businessId": str(row["business_id"]),
+        "sku": row["sku"], "name": row["name"], "category": row["category"],
+        "unit": row["unit"], "currentStock": decimal_text(row["current_stock"]),
+        "leadTimeDays": row["lead_time_days"], "safetyStock": decimal_text(row["safety_stock"]),
+        "unitCost": decimal_text(row["unit_cost"]), "isActive": row["is_active"],
     }
 
 
@@ -41,11 +35,7 @@ class Repository:
             "SELECT * FROM users WHERE business_id=%s AND email=%s AND is_active",
             (business_id, email.strip().lower()),
         ).fetchone()
-        if (
-            not row
-            or not row["password_hash"]
-            or not verify_password(password, row["password_hash"])
-        ):
+        if not row or not row["password_hash"] or not verify_password(password, row["password_hash"]):
             raise HTTPException(401, "Invalid business, email, or password")
         session, csrf = new_token(), new_token()
         expires = datetime.now(UTC) + timedelta(hours=hours)
@@ -81,17 +71,9 @@ class Repository:
                 """INSERT INTO products
                 (business_id,sku,name,category,unit,current_stock,lead_time_days,safety_stock,unit_cost)
                 VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
-                (
-                    principal.business_id,
-                    data.sku.strip(),
-                    data.name.strip(),
-                    data.category.strip(),
-                    data.unit.strip(),
-                    data.current_stock,
-                    data.lead_time_days,
-                    data.safety_stock,
-                    data.unit_cost,
-                ),
+                (principal.business_id, data.sku.strip(), data.name.strip(), data.category.strip(),
+                 data.unit.strip(), data.current_stock, data.lead_time_days, data.safety_stock,
+                 data.unit_cost),
             ).fetchone()
             if data.current_stock > 0:
                 self.conn.execute(
@@ -100,14 +82,8 @@ class Repository:
                      data_origin,note,recorded_by)
                     SELECT %s,%s,CURRENT_DATE,'opening_balance',%s,%s,data_origin,
                            'Initial product balance',%s FROM businesses WHERE id=%s""",
-                    (
-                        principal.business_id,
-                        row["id"],
-                        data.current_stock,
-                        data.current_stock,
-                        principal.user_id,
-                        principal.business_id,
-                    ),
+                    (principal.business_id, row["id"], data.current_stock, data.current_stock,
+                     principal.user_id, principal.business_id),
                 )
         return product_row(row)
 
@@ -115,16 +91,7 @@ class Repository:
         fields = data.model_dump(exclude_none=True)
         if not fields:
             raise HTTPException(422, "At least one field is required")
-        names = {
-            "lead_time_days",
-            "safety_stock",
-            "unit_cost",
-            "is_active",
-            "sku",
-            "name",
-            "category",
-            "unit",
-        }
+        names = {"lead_time_days", "safety_stock", "unit_cost", "is_active", "sku", "name", "category", "unit"}
         if not set(fields) <= names:
             raise HTTPException(422, "Unsupported product field")
         assignments = ",".join(f"{name}=%s" for name in fields)
@@ -150,43 +117,21 @@ class Repository:
             sale = self.conn.execute(
                 """INSERT INTO sales(business_id,product_id,sale_date,quantity,source,data_origin,recorded_by)
                 SELECT %s,%s,%s,%s,'manual',data_origin,%s FROM businesses WHERE id=%s RETURNING *""",
-                (
-                    principal.business_id,
-                    data.product_id,
-                    data.sale_date,
-                    data.quantity,
-                    principal.user_id,
-                    principal.business_id,
-                ),
+                (principal.business_id, data.product_id, data.sale_date, data.quantity,
+                 principal.user_id, principal.business_id),
             ).fetchone()
-            self.conn.execute(
-                "UPDATE products SET current_stock=%s WHERE id=%s", (balance, data.product_id)
-            )
+            self.conn.execute("UPDATE products SET current_stock=%s WHERE id=%s", (balance, data.product_id))
             self.conn.execute(
                 """INSERT INTO inventory_movements
                 (business_id,product_id,movement_date,movement_type,quantity_delta,balance_after,
                  data_origin,sale_id,recorded_by)
                 SELECT %s,%s,%s,'sale',%s,%s,data_origin,%s,%s FROM businesses WHERE id=%s""",
-                (
-                    principal.business_id,
-                    data.product_id,
-                    data.sale_date,
-                    -data.quantity,
-                    balance,
-                    sale["id"],
-                    principal.user_id,
-                    principal.business_id,
-                ),
+                (principal.business_id, data.product_id, data.sale_date, -data.quantity, balance,
+                 sale["id"], principal.user_id, principal.business_id),
             )
-        return {
-            "id": str(sale["id"]),
-            "businessId": principal.business_id,
-            "productId": str(data.product_id),
-            "saleDate": str(data.sale_date),
-            "quantity": decimal_text(data.quantity),
-            "source": "manual",
-            "dataOrigin": sale["data_origin"],
-        }
+        return {"id": str(sale["id"]), "businessId": principal.business_id,
+                "productId": str(data.product_id), "saleDate": str(data.sale_date),
+                "quantity": decimal_text(data.quantity), "source": "manual", "dataOrigin": sale["data_origin"]}
 
     def record_movement(self, principal: Principal, data: MovementCreate):
         allowed = {"receipt", "return", "write_off", "adjustment"}
@@ -206,25 +151,14 @@ class Repository:
             balance = product["current_stock"] + data.quantity_delta
             if balance < 0:
                 raise HTTPException(409, "Movement would make stock negative")
-            self.conn.execute(
-                "UPDATE products SET current_stock=%s WHERE id=%s", (balance, data.product_id)
-            )
+            self.conn.execute("UPDATE products SET current_stock=%s WHERE id=%s", (balance, data.product_id))
             row = self.conn.execute(
                 """INSERT INTO inventory_movements
                 (business_id,product_id,movement_date,movement_type,quantity_delta,balance_after,
                  data_origin,note,recorded_by)
                 SELECT %s,%s,%s,%s,%s,%s,data_origin,%s,%s FROM businesses WHERE id=%s RETURNING *""",
-                (
-                    principal.business_id,
-                    data.product_id,
-                    data.movement_date,
-                    data.movement_type,
-                    data.quantity_delta,
-                    balance,
-                    data.note,
-                    principal.user_id,
-                    principal.business_id,
-                ),
+                (principal.business_id, data.product_id, data.movement_date, data.movement_type,
+                 data.quantity_delta, balance, data.note, principal.user_id, principal.business_id),
             ).fetchone()
         return self._movement(row)
 
@@ -233,17 +167,9 @@ class Repository:
             "SELECT * FROM sales WHERE business_id=%s ORDER BY sale_date DESC,id DESC LIMIT %s OFFSET %s",
             (business_id, limit, offset),
         ).fetchall()
-        return [
-            {
-                "id": str(r["id"]),
-                "productId": str(r["product_id"]),
-                "saleDate": str(r["sale_date"]),
-                "quantity": decimal_text(r["quantity"]),
-                "source": r["source"],
-                "dataOrigin": r["data_origin"],
-            }
-            for r in rows
-        ]
+        return [{"id": str(r["id"]), "productId": str(r["product_id"]), "saleDate": str(r["sale_date"]),
+                 "quantity": decimal_text(r["quantity"]), "source": r["source"], "dataOrigin": r["data_origin"]}
+                for r in rows]
 
     def list_movements(self, business_id: str, limit: int, offset: int):
         rows = self.conn.execute(
@@ -253,22 +179,13 @@ class Repository:
         return [self._movement(r) for r in rows]
 
     def get_settings(self, business_id: str):
-        row = self.conn.execute(
-            "SELECT * FROM business_settings WHERE business_id=%s", (business_id,)
-        ).fetchone()
+        row = self.conn.execute("SELECT * FROM business_settings WHERE business_id=%s", (business_id,)).fetchone()
         if not row:
             raise HTTPException(404, "Settings not found")
-        return {
-            "businessId": str(row["business_id"]),
-            "movingAverageWindow": row["moving_average_window"],
-            "forecastHorizonDays": row["forecast_horizon_days"],
-            "targetCoverDays": row["target_cover_days"],
-            "minimumHistoryWeeks": row["minimum_history_weeks"],
-            "minimumNonzeroDays": row["minimum_nonzero_days"],
-            "topNProducts": row["top_n_products"],
-            "cvFolds": row["cv_folds"],
-            "timezone": row["timezone"],
-        }
+        return {"businessId": str(row["business_id"]), "movingAverageWindow": row["moving_average_window"],
+                "forecastHorizonDays": row["forecast_horizon_days"], "targetCoverDays": row["target_cover_days"],
+                "minimumHistoryWeeks": row["minimum_history_weeks"], "minimumNonzeroDays": row["minimum_nonzero_days"],
+                "topNProducts": row["top_n_products"], "cvFolds": row["cv_folds"], "timezone": row["timezone"]}
 
     def put_settings(self, business_id: str, data: SettingsUpdate):
         values = data.model_dump()
@@ -284,22 +201,12 @@ class Repository:
 
     @staticmethod
     def _principal(row):
-        return Principal(
-            str(row["id"]), str(row["business_id"]), row["email"], row["display_name"], row["role"]
-        )
+        return Principal(str(row["id"]), str(row["business_id"]), row["email"], row["display_name"], row["role"])
 
     @staticmethod
     def _movement(row):
-        return {
-            "id": str(row["id"]),
-            "businessId": str(row["business_id"]),
-            "productId": str(row["product_id"]),
-            "movementDate": str(row["movement_date"]),
-            "movementType": row["movement_type"],
-            "quantityDelta": decimal_text(row["quantity_delta"]),
-            "balanceAfter": decimal_text(row["balance_after"]),
-            "dataOrigin": row["data_origin"],
-            "saleId": str(row["sale_id"]) if row["sale_id"] else None,
-            "note": row["note"],
-            "recordedBy": str(row["recorded_by"]) if row["recorded_by"] else None,
-        }
+        return {"id": str(row["id"]), "businessId": str(row["business_id"]), "productId": str(row["product_id"]),
+                "movementDate": str(row["movement_date"]), "movementType": row["movement_type"],
+                "quantityDelta": decimal_text(row["quantity_delta"]), "balanceAfter": decimal_text(row["balance_after"]),
+                "dataOrigin": row["data_origin"], "saleId": str(row["sale_id"]) if row["sale_id"] else None,
+                "note": row["note"], "recordedBy": str(row["recorded_by"]) if row["recorded_by"] else None}

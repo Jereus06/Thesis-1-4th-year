@@ -6,12 +6,9 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class ApiModel(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=lambda value: "".join(
-            [value.split("_")[0], *[part.title() for part in value.split("_")[1:]]]
-        ),
-        populate_by_name=True,
-    )
+    model_config = ConfigDict(alias_generator=lambda value: "".join(
+        [value.split("_")[0], *[part.title() for part in value.split("_")[1:]]]
+    ), populate_by_name=True)
 
 
 class SignIn(ApiModel):

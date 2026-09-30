@@ -38,13 +38,9 @@ def chronological_partitions(rows: Sequence[Observation], bounds: SplitBoundarie
     ordered = sorted(rows, key=lambda row: row.day)
     train = [row for row in ordered if row.day <= bounds.train_end]
     validation = [row for row in ordered if bounds.train_end < row.day <= bounds.validation_end]
-    final_test = [
-        row for row in ordered if bounds.validation_end < row.day <= bounds.final_test_end
-    ]
+    final_test = [row for row in ordered if bounds.validation_end < row.day <= bounds.final_test_end]
     if not train or not validation or not final_test:
-        raise ValueError(
-            "Training, validation, and final-test periods must all contain observations"
-        )
+        raise ValueError("Training, validation, and final-test periods must all contain observations")
     return train, validation, final_test
 
 
@@ -52,11 +48,7 @@ def evaluate(actual: Sequence[float], predicted: Sequence[float]) -> Metrics:
     if len(actual) != len(predicted) or not actual:
         raise ValueError("Metrics require matching, non-empty observations")
     errors = [a - p for a, p in zip(actual, predicted, strict=True)]
-    return Metrics(
-        sum(abs(error) for error in errors) / len(errors),
-        sqrt(sum(error**2 for error in errors) / len(errors)),
-        len(errors),
-    )
+    return Metrics(sum(abs(error) for error in errors) / len(errors), sqrt(sum(error**2 for error in errors) / len(errors)), len(errors))
 
 
 def moving_average(history: Sequence[float], horizon: int, window: int) -> list[float]:
@@ -93,22 +85,18 @@ def train_verified_xgboost(rows: Sequence[Observation], bounds: SplitBoundaries,
         {"max_depth": 3, "learning_rate": 0.1, "n_estimators": 120},
     ]
     selected = None
+    selected_model = None
     selected_validation = None
     for params in candidates:
         model = XGBRegressor(
-            objective="reg:squarederror",
-            random_state=seed,
-            n_jobs=1,
-            subsample=0.9,
-            colsample_bytree=0.9,
-            reg_lambda=1.5,
-            **params,
+            objective="reg:squarederror", random_state=seed, n_jobs=1,
+            subsample=0.9, colsample_bytree=0.9, reg_lambda=1.5, **params,
         )
         model.fit(x_train, y_train)
         predictions = np.clip(model.predict(x_validation), 0, None)
         metric = evaluate(y_validation.tolist(), predictions.tolist())
         if selected_validation is None or metric.mae < selected_validation.mae:
-            selected, selected_validation = params, metric
+            selected, selected_model, selected_validation = params, model, metric
 
     ma_validation = moving_average(y_train.tolist(), len(y_validation), min(7, len(y_train)))
     ma_metric = evaluate(y_validation.tolist(), ma_validation)
@@ -120,13 +108,8 @@ def train_verified_xgboost(rows: Sequence[Observation], bounds: SplitBoundaries,
     x_fit = np.concatenate([x_train, x_validation])
     y_fit = np.concatenate([y_train, y_validation])
     final_model = XGBRegressor(
-        objective="reg:squarederror",
-        random_state=seed,
-        n_jobs=1,
-        subsample=0.9,
-        colsample_bytree=0.9,
-        reg_lambda=1.5,
-        **selected,
+        objective="reg:squarederror", random_state=seed, n_jobs=1,
+        subsample=0.9, colsample_bytree=0.9, reg_lambda=1.5, **selected,
     )
     final_model.fit(x_fit, y_fit)
     xgb_test = np.clip(final_model.predict(x_test), 0, None)
@@ -148,11 +131,7 @@ def train_verified_xgboost(rows: Sequence[Observation], bounds: SplitBoundaries,
         "model": final_model,
         "testDays": [str(day) for day, include in zip(days, test_mask, strict=True) if include],
         "testActual": y_test.tolist(),
-        "testPredictions": {
-            "xgboost": xgb_test.tolist(),
-            "movingAverage": ma_test.tolist(),
-            "ensemble": ensemble_test.tolist(),
-        },
+        "testPredictions": {"xgboost": xgb_test.tolist(), "movingAverage": ma_test.tolist(), "ensemble": ensemble_test.tolist()},
     }
 
 
@@ -161,17 +140,7 @@ def _supervised(rows: Sequence[Observation]):
     result, targets, days = [], [], []
     for index in range(30, len(rows)):
         day = rows[index].day
-        result.append(
-            [
-                quantities[index - 1],
-                quantities[index - 7],
-                quantities[index - 14],
-                quantities[index - 7 : index].mean(),
-                quantities[index - 30 : index].mean(),
-                day.weekday(),
-                day.month,
-            ]
-        )
+        result.append([quantities[index - 1], quantities[index - 7], quantities[index - 14], quantities[index - 7:index].mean(), quantities[index - 30:index].mean(), day.weekday(), day.month])
         targets.append(quantities[index])
         days.append(day)
     return np.asarray(result), np.asarray(targets), np.asarray(days)

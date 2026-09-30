@@ -10,18 +10,12 @@ type Store = {
   products: Product[];
   sales: Sale[];
   settings: Settings;
-  dataMode: "browser-demo" | "api";
-  session: SessionUser | null;
-  apiStatus: "idle" | "loading" | "ready" | "error";
-  apiError: string | null;
-  connectApi: () => Promise<void>;
-  signIn: (businessId: string, email: string, password: string) => Promise<void>;
-  signOut: () => Promise<void>;
-  recordSale: (productId: string, date: string, qty: number) => Promise<void>;
-  receiveStock: (productId: string, qty: number) => Promise<void>;
-  updateProduct: (id: string, patch: Partial<Product>) => Promise<void>;
-  addProduct: (product: Omit<Product, "id" | "sku"> & { sku?: string }) => Promise<void>;
-  updateSettings: (patch: Partial<Settings>) => Promise<void>;
+  recordSale: (productId: string, date: string, qty: number) => void;
+  receiveStock: (productId: string, qty: number) => void;
+  updateProduct: (id: string, patch: Partial<Product>) => void;
+  addProduct: (product: Omit<Product, "id" | "sku"> & { sku?: string }) => void;
+  importInventory: (rows: Omit<Product, "id">[]) => void;
+  updateSettings: (patch: Partial<Settings>) => void;
   importSales: (rows: Sale[]) => void;
   resetDemo: () => void;
 };
@@ -136,13 +130,21 @@ export const useAppStore = create<Store>()(
           ],
         });
       },
-      updateSettings: async (patch) => {
-        const settings = { ...get().settings, ...patch };
-        if (get().dataMode === "api") {
-          const session = requireSession(get());
-          await api.updateSettings(session.businessId, settings);
-        }
-        set({ settings });
+      importInventory: (rows) => {
+        if (!rows.length) return;
+        const importedBySku = new Map(rows.map((row) => [row.sku.toLowerCase(), row]));
+        const existingSkus = new Set(get().products.map((product) => product.sku.toLowerCase()));
+        const updated = get().products.map((product) => {
+          const imported = importedBySku.get(product.sku.toLowerCase());
+          return imported ? { ...product, ...imported, id: product.id } : product;
+        });
+        const added = rows
+          .filter((row) => !existingSkus.has(row.sku.toLowerCase()))
+          .map((row, index) => ({ ...row, id: `p-import-${Date.now()}-${index}` }));
+        set({ products: [...updated, ...added] });
+      },
+      updateSettings: (patch) => {
+        set({ settings: { ...get().settings, ...patch } });
       },
       importSales: (rows) => {
         if (!rows.length) return;

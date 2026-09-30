@@ -1,19 +1,28 @@
+import os
+import uuid
+
 import psycopg
 
-from .config import BootstrapSettings, get_settings
+from .config import get_settings
 from .security import hash_password
 
 
+def required(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise RuntimeError(f"Set {name}")
+    return value
+
+
 def bootstrap() -> str:
-    owner = BootstrapSettings()  # type: ignore[call-arg]
-    business_id = owner.owner_business_id
-    origin = owner.owner_data_origin
+    business_id = os.getenv("OWNER_BUSINESS_ID") or str(uuid.uuid4())
+    origin = os.getenv("OWNER_DATA_ORIGIN", "demo")
     if origin not in {"demo", "partner"}:
         raise RuntimeError("OWNER_DATA_ORIGIN must be demo or partner")
     with psycopg.connect(str(get_settings().database_url)) as conn:
         conn.execute(
             "INSERT INTO businesses(id,name,data_origin) VALUES(%s,%s,%s) ON CONFLICT(id) DO NOTHING",
-            (business_id, owner.owner_business_name.strip(), origin),
+            (business_id, required("OWNER_BUSINESS_NAME"), origin),
         )
         conn.execute(
             "INSERT INTO business_settings(business_id) VALUES(%s) ON CONFLICT DO NOTHING",
@@ -24,19 +33,11 @@ def bootstrap() -> str:
             VALUES(%s,%s,%s,'owner',%s,now())
             ON CONFLICT(business_id,email) DO UPDATE SET display_name=excluded.display_name,
             password_hash=excluded.password_hash,password_changed_at=now(),is_active=true""",
-            (
-                business_id,
-                owner.owner_email.strip().lower(),
-                owner.owner_display_name.strip(),
-                hash_password(owner.owner_password),
-            ),
+            (business_id, required("OWNER_EMAIL").lower(), required("OWNER_DISPLAY_NAME"),
+             hash_password(required("OWNER_PASSWORD"))),
         )
     return business_id
 
 
-def main() -> None:
-    print(f"Owner ready for business {bootstrap()}.")
-
-
 if __name__ == "__main__":
-    main()
+    print(f"Owner ready for business {bootstrap()}.")

@@ -1,15 +1,7 @@
 # StockCast backend architecture and API contract
 
-Status: **the active backend and its utilities are Python-only. PostgreSQL and an explicitly local
-SQLite demo implement the authenticated operational API slice; imports, forecasting jobs, and
-deployment verification remain open**.
-
-## Python target architecture
-
-The target runtime is `React/Vite → FastAPI → psycopg pool → PostgreSQL`. Python owns forecasting
-through the official `xgboost` package. `backend/app/main.py` exposes the API, `repository.py` owns
-atomic SQL workflows, and `forecasting.py` enforces chronological train/validation/final-test
-boundaries. The backend runtime is Python-only; TypeScript remains only in the React frontend.
+Status: **the PostgreSQL driver, migration runner, connection pool, and first runnable
+HTTP/service/repository slice are implemented; authentication and production deployment are not**.
 
 This document describes the intended boundary between the existing browser demonstration and the
 backend under development. It is not evidence of a deployed service, partner data, verified
@@ -24,34 +16,42 @@ records better than browser storage or an unstructured document store.
 The proposed deployment has four replaceable parts:
 
 1. The React client calls a versioned JSON REST API.
-2. FastAPI validates requests, identifies the business and user, enforces CSRF/permissions, and
-   invokes the Python repository layer.
+2. A TypeScript HTTP application validates requests, identifies the business and user, and invokes
+   application services. A specific framework has intentionally not been selected yet.
 3. Application services own transaction boundaries. Recording a current sale or stock receipt must
    update `products.current_stock` and append an `inventory_movements` row in one transaction.
 4. PostgreSQL stores operational and research records. A separate forecast worker may consume a
    queued `forecast_runs` row so model fitting never blocks dashboard requests.
 
-The implemented slice is under `backend/app/`. FastAPI provides handlers for authentication,
-products, settings, manual sales, and inventory movements. `psycopg_pool` manages PostgreSQL
-connections and the repository owns transaction boundaries.
+The first implemented slice is under `backend/src/`. It provides validated handlers and a
+PostgreSQL repository for products, settings, manual sales, and inventory movements. The handler is
+framework-independent and uses the standard `Request`/`Response` API. The repository accepts a
+small pool interface so it can be tested independently and connected to the team's selected
+PostgreSQL driver later. There is deliberately no production listener or trusted-header
+authentication shim: exposing one before identity and deployment decisions are confirmed would make
+an incomplete security boundary look operational.
 
-### Browser-local demonstration
+### Runnable local demonstration
 
-The existing React/localStorage demonstration remains explicitly separate from the Python API. It
-does not upload seeded records or represent partner data. `app.sqlite_demo` is a second, explicitly
-labelled local demonstration backed by a persistent SQLite file; it exposes the operational route
-contract but cannot be configured as partner data. Production uses PostgreSQL through `app.main`.
+`backend/src/main.ts` now starts a loopback-only demonstration server backed by a local SQLite file.
+This adapter exists so developers can exercise HTTP, validation, persistence, sale, and inventory
+audit behavior without a separately installed database. It creates an explicitly labelled demo
+business and is not the production persistence design. It has no authentication and must never be
+used for partner records or exposed publicly. The PostgreSQL schema and repository above remain the
+target for deployment after driver, authentication, authorization, and recovery work is completed.
 
 ### PostgreSQL runtime
 
-`backend/app/main.py` is the FastAPI entry point. It validates environment configuration, opens a
-bounded psycopg connection pool, and reports HTTP 503 when PostgreSQL is unavailable.
+`backend/src/server.ts` is the PostgreSQL entry point. It validates environment configuration,
+constructs a bounded `pg.Pool`, verifies connectivity before listening, and injects the pool into
+`PostgresStockCastRepository`. The health endpoint executes `SELECT 1`; it reports HTTP 503 when
+the database is unavailable rather than returning a static status.
 
-`backend/app/migrate.py` finds sorted `*.up.sql` files, takes a PostgreSQL advisory lock, records
+`backend/src/migrate.ts` finds sorted `*.up.sql` files, takes a PostgreSQL advisory lock, records
 filenames and SHA-256 checksums in `schema_migrations`, and applies each migration and history row in
 one transaction. An applied file whose content changes is rejected; schema changes require a new
-migration. `db:bootstrap-owner` is separate from migration and creates an explicitly classified
-business plus its initial owner without generating sales or research results.
+migration. `db:bootstrap-demo` is separate from migration and creates only a clearly marked empty
+demo business for API testing.
 
 `products.current_stock` is a cached operational balance; `inventory_movements` is the audit trail.
 The API must not expose a generic endpoint that overwrites stock without a corresponding movement.
@@ -64,11 +64,10 @@ sales, movement, and forecast records distinguish `demo` from `partner` data. De
 be copied into a partner business or included in research metrics. Creating the first real partner
 business, its retention rules, and its users requires partner permission and team confirmation.
 
-The schema models `owner` and `staff` roles. Migration 002 adds scrypt password hashes, server-side
-sessions stored by SHA-256 token hash, and business/user-scoped idempotency keys. The HTTP server
-uses HTTP-only SameSite cookies, derives the actor from the session, rejects cross-business access,
-and restricts product/settings/adjustment administration to owners. Production use still requires
-HTTPS, rate limiting, account recovery, security review, and tested backup/restore.
+The schema models `owner` and `staff` as intended roles, but does not define passwords, an identity
+provider, cookies, tokens, or role permissions. Those are security decisions, not safe defaults.
+Until they are implemented and tested, the API must not be presented as ready to hold real business
+data.
 
 ## Transaction rules
 
@@ -85,8 +84,8 @@ HTTPS, rate limiting, account recovery, security review, and tested backup/resto
 - **Recommendation generation:** save the exact demand, stock, lead time, safety stock, coverage,
   method, formula version, reorder point, target, quantity, and status used at that time.
 
-Idempotency-key execution remains service work. Insufficient stock returns HTTP 409 and the locked
-PostgreSQL product row serializes concurrent stock changes. Imports can use a file SHA-256 plus source row number to detect retries, subject to the
+Idempotency keys and the exact insufficient-stock/concurrency response remain HTTP service design
+work. Imports can use a file SHA-256 plus source row number to detect retries, subject to the
 partner's confirmed import workflow.
 
 ## Relational model
@@ -141,23 +140,27 @@ team adopts and documents a safe integer unit convention.
 | `GET`   | `/businesses/{businessId}/reorder-recommendations`           | Read persisted recommendations and their inputs.                  |
 | `POST`  | `/businesses/{businessId}/reorder-recommendations/generate`  | Generate a versioned recommendation snapshot.                     |
 
-Authentication is implemented at `/auth/sign-in`, `/auth/sign-out`, and `/auth/me` using opaque,
-hashed server sessions and double-submit CSRF tokens. Forecast-worker endpoints should be private
-service operations rather than public browser endpoints.
+Authentication endpoints are deliberately absent until the team chooses an identity/session design.
+Forecast-worker endpoints should be private service operations rather than public browser endpoints.
 
 ## Frontend integration sequence
 
-1. Keep the browser-local demo and Python SQLite demo clearly labelled and separate from partner data.
-2. API mode currently signs in and migrates product/settings reads plus audited sales and receipts.
-3. Add imports and finally forecast runs/recommendations without reusing browser-generated records.
-4. Test export, backup, restore, authorization, concurrency, and provenance before storing partner
+1. Add API DTOs and a persistence interface without changing forecasting domain types.
+2. Keep a clearly labelled local demo implementation of that interface.
+3. Add a server implementation only after the HTTP contract, authentication, and decimal encoding
+   are confirmed.
+4. Migrate product/settings reads first, then audited sales and inventory transactions, imports, and
+   finally forecast runs/recommendations.
+5. Test export, backup, restore, authorization, concurrency, and provenance before storing partner
    records. Do not automatically upload existing `stockcast-v5` browser data.
 
 ## Still to confirm
 
 - Partner identity, consent, retention period, product units, timezone, stockout meaning, and source
   file format.
-- Deployment target, database hosting, encryption, backup schedule, and restore test.
+- Authentication provider, session transport, password responsibility, and the exact owner/staff
+  permission matrix.
+- API framework, deployment target, database hosting, encryption, backup schedule, and restore test.
 - Whether sales may drive stock negative, how returns are represented, and whether outstanding
   purchase orders/backorders will later be modeled.
 - The verified XGBoost runtime and the preregistered split dates/eligibility rules after a real-data
