@@ -1,6 +1,9 @@
 # StockCast
 
-Sales forecasting and inventory optimization for small retail businesses. This repository currently contains a browser-only React prototype with synthetic demonstration data. The backend is under development. New coding sessions should read [AGENTS.md](AGENTS.md) and [project context](docs/PROJECT_CONTEXT.md) first.
+Sales forecasting and inventory optimization for small retail businesses. This repository contains
+the React demonstration frontend and an in-progress FastAPI/PostgreSQL backend. New coding
+sessions should read [AGENTS.md](AGENTS.md), the [project context](docs/PROJECT_CONTEXT.md), and the
+[completion checklist](docs/COMPLETION_CHECKLIST.md) first.
 
 ## Open in VS Code
 
@@ -20,23 +23,29 @@ Recommended extensions (prompted on first open): ESLint, Prettier, Tailwind CSS 
 
 ## Scripts
 
-| Command | What it does |
-|---|---|
-| `npm run dev` | Dev server with hot reload |
-| `npm run build` | Typecheck + production build |
-| `npm run preview` | Serve the production build |
-| `npm run typecheck` | TypeScript only |
-| `npm run lint` | ESLint |
+| Command                | What it does                        |
+| ---------------------- | ----------------------------------- |
+| `npm run dev`          | Dev server with hot reload          |
+| `npm run build`        | Typecheck + production build        |
+| `npm run preview`      | Serve the production build          |
+| `npm run typecheck`    | TypeScript only                     |
+| `npm run lint`         | ESLint                              |
+| `npm run backend:dev`  | FastAPI backend in watch mode       |
+| `npm run backend:test` | Python backend tests                |
+| `npm run db:migrate`   | Apply pending PostgreSQL migrations |
 
 ## Stack
 
 - Vite + React 19 + TypeScript
 - TanStack Router (file routes in `src/routes/`)
 - Tailwind CSS v4
-- Zustand (`src/lib/store.ts`) — catalog, sales, settings persist in `localStorage`
+- Zustand (`src/lib/store.ts`) — the current frontend demonstration persists in `localStorage`
+- FastAPI backend and PostgreSQL schema under `backend/`
 - In-browser custom boosted-tree prototype (currently labeled XGBoost in the UI) and moving-average forecast (`src/lib/forecast/`); the model and final evaluation still require validation.
 
-The checked-in `main` branch has no backend, database, or auth. Backend development and database design are in progress outside this branch. Demo products and synthetic sales are seeded in `src/lib/data/seed.ts`; displayed metrics are not results from a real partner business.
+The Python backend provides PostgreSQL migrations and an initial authenticated operational API, but
+the frontend integration and full acceptance workflow are not complete. Demo products and synthetic
+sales are not results from a real partner business.
 
 ## Layout
 
@@ -49,4 +58,6 @@ src/
   lib/data/        seed + fallback series
   lib/store.ts     app state
 public/thesis/     documents used by the Strategies page (may lag latest drafts)
+backend/           Python FastAPI service, PostgreSQL migrations, and Python tests
+docs/              architecture, project context, thesis mirrors, completion checklist
 ```

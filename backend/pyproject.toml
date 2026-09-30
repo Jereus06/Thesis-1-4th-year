@@ -1,0 +1,30 @@
+[project]
+name = "stockcast-backend"
+version = "0.2.0"
+description = "FastAPI and PostgreSQL backend for StockCast"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "email-validator>=2.2,<3",
+  "pydantic-settings>=2.7,<3",
+  "psycopg[binary,pool]>=3.2,<4",
+  "python-multipart>=0.0.20,<1",
+  "uvicorn[standard]>=0.34,<1",
+]
+
+[project.optional-dependencies]
+forecast = [
+  "joblib>=1.4,<2",
+  "numpy>=2,<3",
+  "scikit-learn>=1.6,<2",
+  "xgboost>=3,<4",
+]
+test = ["httpx>=0.28,<1", "pytest>=8,<10"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

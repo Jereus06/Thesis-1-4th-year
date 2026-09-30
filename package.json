@@ -2,10 +2,19 @@
   "name": "stockcast",
   "private": true,
   "version": "1.0.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "backend:dev": "python -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 3001",
+    "backend:start": "python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 3001",
+    "backend:test": "python -m pytest backend/tests",
+    "db:migrate": "python -m backend.app.migrate",
+    "db:bootstrap-owner": "python -m backend.app.bootstrap_owner",
+    "db:check": "python -m backend.app.check_schema",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

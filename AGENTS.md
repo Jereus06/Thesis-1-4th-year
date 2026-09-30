@@ -17,6 +17,12 @@ Read [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) before changing this p
 4. For forecast evaluation, separate chronological training, model selection/validation, and final testing. Compare models on the **same product/date observations**, and do not use the final test period to pick a winner or calibrate its intervals. Data sufficiency checks must be explicit; eight calendar weeks and 100 nonzero sales days are different thresholds.
 5. For backend work, confirm the actual API and data contract with the user when required; implement independent frontend work in the meantime. The user owns database design. Avoid hard-coded assumptions about how future persistence, users, or stock transactions work.
 6. Run `npm run typecheck`, `npm run lint`, and `npm run build` for code changes. Report failures accurately. For documentation-only edits, check links and facts against source.
+7. The backend is Python 3.12 with FastAPI, psycopg, PostgreSQL, and the official Python `xgboost`
+   package. Keep existing SQL migration history. Backend application code belongs under
+   `backend/app/`; do not add a second TypeScript backend.
+8. Run `python -m pytest backend/tests` for Python changes. Do not implement the groupmate-reserved
+   `is_valid_iso_date(value: str) -> bool` or its dedicated tests; its contract is documented in
+   `backend/docs/RESERVED_DATE_HELPER.md`.
 
 ## Documentation
 
