@@ -2,6 +2,19 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "StockCast: Python API",
+      "type": "shell",
+      "command": "python -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 3001",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "StockCast: migrate PostgreSQL",
+      "type": "shell",
+      "command": "python -m backend.app.migrate",
+      "problemMatcher": []
+    },
+    {
       "label": "npm: dev",
       "type": "npm",
       "script": "dev",

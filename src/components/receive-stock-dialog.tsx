@@ -28,7 +28,7 @@ export function ReceiveStockDialog({
 
   const suggested = row?.reorderQty ?? 0;
 
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     if (!row) return;
     const n = Number(qty || suggested);
@@ -36,10 +36,14 @@ export function ReceiveStockDialog({
       toast.error("Enter a valid quantity.");
       return;
     }
-    receiveStock(row.product.id, n);
-    toast.success(`Received ${num(n)} ${row.product.unit} of ${row.product.name}.`);
-    onOpenChange(false);
-    setQty("");
+    try {
+      await receiveStock(row.product.id, n);
+      toast.success(`Received ${num(n)} ${row.product.unit} of ${row.product.name}.`);
+      onOpenChange(false);
+      setQty("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The delivery could not be saved.");
+    }
   }
 
   return (

@@ -1,5 +1,6 @@
 import { createRootRoute, Outlet } from "@tanstack/react-router";
 import { AppShell } from "@/components/layout/app-shell";
+import { ApiGate } from "@/components/api-gate";
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -7,8 +8,6 @@ export const Route = createRootRoute({
 
 function RootLayout() {
   return (
-    <AppShell>
-      <Outlet />
-    </AppShell>
+    <ApiGate><AppShell><Outlet /></AppShell></ApiGate>
   );
 }

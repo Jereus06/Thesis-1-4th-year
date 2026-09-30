@@ -23,18 +23,22 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
   const [date, setDate] = useState(todayISO());
   const [qty, setQty] = useState("1");
 
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     const n = Number(qty);
     if (!productId || !Number.isFinite(n) || n <= 0) {
       toast.error("Enter a valid quantity.");
       return;
     }
-    recordSale(productId, date, n);
-    const product = products.find((p) => p.id === productId);
-    toast.success(`Recorded ${n} ${product?.unit ?? "unit"} of ${product?.name ?? "item"}.`);
-    setOpen(false);
-    setQty("1");
+    try {
+      await recordSale(productId, date, n);
+      const product = products.find((p) => p.id === productId);
+      toast.success(`Recorded ${n} ${product?.unit ?? "unit"} of ${product?.name ?? "item"}.`);
+      setOpen(false);
+      setQty("1");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The sale could not be saved.");
+    }
   }
 
   return (
