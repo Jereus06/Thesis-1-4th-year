@@ -1,10 +1,6 @@
 export type DataOrigin = "demo" | "partner";
 export type InventoryMovementType =
-  | "opening_balance"
-  | "receipt"
-  | "adjustment"
-  | "return"
-  | "write_off";
+  "opening_balance" | "receipt" | "adjustment" | "return" | "write_off";
 
 export type ProductRecord = {
   id: string;

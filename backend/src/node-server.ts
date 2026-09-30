@@ -51,7 +51,6 @@ async function toRequest(incoming: IncomingMessage): Promise<Request> {
 
 function writeCors(response: ServerResponse, origin: string) {
   response.setHeader("access-control-allow-origin", origin);
-  response.setHeader("access-control-allow-credentials", "true");
   response.setHeader("access-control-allow-headers", "content-type,x-stockcast-user-id");
   response.setHeader("access-control-allow-methods", "GET,POST,PATCH,PUT,OPTIONS");
   response.setHeader("vary", "origin");

@@ -1,18 +1,9 @@
 import assert from "node:assert/strict";
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 
-const migrationsUrl = new URL("./migrations/", import.meta.url);
-const filenames = await readdir(migrationsUrl);
-const readMatching = async (suffix) =>
-  (
-    await Promise.all(
-      filenames
-        .filter((filename) => filename.endsWith(suffix))
-        .sort()
-        .map((filename) => readFile(new URL(filename, migrationsUrl), "utf8")),
-    )
-  ).join("\n");
-const [up, down] = await Promise.all([readMatching(".up.sql"), readMatching(".down.sql")]);
+const upUrl = new URL("./migrations/001_initial_schema.up.sql", import.meta.url);
+const downUrl = new URL("./migrations/001_initial_schema.down.sql", import.meta.url);
+const [up, down] = await Promise.all([readFile(upUrl, "utf8"), readFile(downUrl, "utf8")]);
 
 const tables = [
   "businesses",
@@ -26,8 +17,6 @@ const tables = [
   "forecast_predictions",
   "forecast_metrics",
   "reorder_recommendations",
-  "sessions",
-  "idempotency_keys",
 ];
 
 for (const table of tables) {
@@ -77,10 +66,9 @@ assert.ok(
   up.includes("xgboost_verified boolean NOT NULL DEFAULT false"),
   "XGBoost must default to unverified",
 );
-for (const filename of filenames) {
-  const sql = await readFile(new URL(filename, migrationsUrl), "utf8");
-  assert.ok(sql.trimStart().startsWith("BEGIN;"), `${filename} must be transactional`);
-  assert.ok(sql.trimEnd().endsWith("COMMIT;"), `${filename} must commit`);
-}
+assert.ok(up.trimStart().startsWith("BEGIN;"), "up migration must be transactional");
+assert.ok(up.trimEnd().endsWith("COMMIT;"), "up migration must commit");
+assert.ok(down.trimStart().startsWith("BEGIN;"), "down migration must be transactional");
+assert.ok(down.trimEnd().endsWith("COMMIT;"), "down migration must commit");
 
 console.log(`Schema contract check passed for ${tables.length} tables.`);

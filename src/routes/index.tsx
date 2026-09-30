@@ -17,6 +17,7 @@ export const Route = createFileRoute("/")({ component: Overview });
 function Overview() {
   const products = useAppStore((s) => s.products);
   const storeName = useAppStore((s) => s.settings.storeName);
+  const forecastHorizon = useAppStore((s) => s.settings.forecastHorizon);
   const { result, rows } = useForecast();
   const ready = Boolean(result);
 
@@ -35,7 +36,9 @@ function Overview() {
   return (
     <div className="page-enter mx-auto flex max-w-6xl flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <p className="text-xs font-medium tracking-widest text-muted uppercase">{formatLong(AS_OF)}</p>
+        <p className="text-xs font-medium tracking-widest text-muted uppercase">
+          {formatLong(AS_OF)}
+        </p>
         <h1 className="font-display text-2xl font-medium tracking-tight sm:text-3xl md:text-4xl">
           Morning briefing
           <span className="mt-1 block">for {storeName}</span>
@@ -73,7 +76,7 @@ function Overview() {
         <Kpi
           icon={Clock3}
           label="Forecast horizon"
-          value="14 days"
+          value={`${forecastHorizon} days`}
           hint={
             result
               ? `${result.diagnostics.trainedProductCount} ML SKUs · top ${result.diagnostics.topN}`
@@ -122,7 +125,9 @@ function Overview() {
                 </div>
               ))}
             {ready && restock.length === 0 && (
-              <p className="text-sm text-muted">No urgent restocks. Healthy cover across the catalog.</p>
+              <p className="text-sm text-muted">
+                No urgent restocks. Healthy cover across the catalog.
+              </p>
             )}
           </CardContent>
         </Card>

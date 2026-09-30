@@ -64,11 +64,10 @@ sales, movement, and forecast records distinguish `demo` from `partner` data. De
 be copied into a partner business or included in research metrics. Creating the first real partner
 business, its retention rules, and its users requires partner permission and team confirmation.
 
-The schema models `owner` and `staff` roles. Migration 002 adds scrypt password hashes, server-side
-sessions stored by SHA-256 token hash, and business/user-scoped idempotency keys. The HTTP server
-uses HTTP-only SameSite cookies, derives the actor from the session, rejects cross-business access,
-and restricts product/settings/adjustment administration to owners. Production use still requires
-HTTPS, rate limiting, account recovery, security review, and tested backup/restore.
+The schema models `owner` and `staff` as intended roles, but does not define passwords, an identity
+provider, cookies, tokens, or role permissions. Those are security decisions, not safe defaults.
+Until they are implemented and tested, the API must not be presented as ready to hold real business
+data.
 
 ## Transaction rules
 

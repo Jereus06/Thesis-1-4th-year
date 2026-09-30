@@ -18,8 +18,8 @@ For local demonstrations, the runnable server uses a file-backed SQLite adapter 
 standard library. This makes the API workflow executable without pretending that SQLite is the
 planned production database. The PostgreSQL schema and repository remain the production target.
 
-It now contains a local-development authentication foundation, but not production security review,
-deployment/recovery configuration, real partner data, or verified XGBoost results.
+It does **not** yet contain authentication, production deployment/recovery configuration, real
+partner data, or verified XGBoost results.
 
 ## Local checks
 
@@ -62,6 +62,7 @@ Never commit `.env` or a real password.
 ```bash
 npm install
 npm run db:migrate
+
 npm run db:bootstrap-owner
 npm start
 ```
@@ -70,6 +71,14 @@ Before running the owner bootstrap, replace every `OWNER_*` placeholder in `.env
 `OWNER_DATA_ORIGIN=demo` for functional testing. The command creates the business, default settings,
 and its first owner account; it does not create products, sales, forecasts, or research results.
 `db:bootstrap-demo` remains available when an account is not needed by older API-only tests.
+
+npm run db:bootstrap-demo
+npm start
+```
+
+The server listens on `http://127.0.0.1:3001`. The optional bootstrap command creates only an empty,
+explicitly labelled demo business with ID `00000000-0000-4000-8000-000000000001`; it does not
+create products, sales, partner records, or research results.
 
 Configuration:
 
@@ -82,6 +91,7 @@ Configuration:
 `npm run dev` watches and restarts the PostgreSQL server during backend development. `npm start`
 runs it without watch mode. `npm run db:migrate` applies each new `*.up.sql` migration once and
 rejects an already-applied migration if its checksum changes.
+
 
 ## Authentication and permissions
 
@@ -103,6 +113,7 @@ Authentication is suitable for local development verification, but production de
 requires HTTPS, session cleanup, rate limiting, password reset/recovery, security review, and tested
 backup/restore.
 
+
 ## Test with curl or Postman
 
 Health check:
@@ -111,29 +122,10 @@ Health check:
 curl http://127.0.0.1:3001/api/v1/health
 ```
 
-Sign in and save the HTTP-only session cookie (replace the placeholders with the values used by the
-owner bootstrap):
-
-```bash
-curl -c cookies.txt -X POST http://127.0.0.1:3001/api/v1/auth/sign-in \
-  -H "Content-Type: application/json" \
-  -d '{"businessId":"00000000-0000-4000-8000-000000000001","email":"owner@example.test","password":"REPLACE_WITH_OWNER_PASSWORD"}'
-```
-
 Create a demonstration product:
 
 ```bash
 curl -X POST http://127.0.0.1:3001/api/v1/businesses/00000000-0000-4000-8000-000000000001/products \
-  -b cookies.txt \
-  -H "Content-Type: application/json" \
-  -d '{"sku":"DEMO-001","name":"Demo Product","category":"Demo","unit":"piece","currentStock":"10","leadTimeDays":2,"safetyStock":"3","unitCost":"25.50"}'
-```
-
-Copy the returned product `id`, then record a sale:
-
-```bash
-curl -X POST http://127.0.0.1:3001/api/v1/businesses/00000000-0000-4000-8000-000000000001/sales \
-  -b cookies.txt \
   -H "Content-Type: application/json" \
   -d '{"productId":"REPLACE_WITH_PRODUCT_ID","saleDate":"2026-09-25","quantity":"3"}'
 ```
@@ -141,8 +133,8 @@ curl -X POST http://127.0.0.1:3001/api/v1/businesses/00000000-0000-4000-8000-000
 Verify stock and the audit ledger:
 
 ```bash
-curl -b cookies.txt http://127.0.0.1:3001/api/v1/businesses/00000000-0000-4000-8000-000000000001/products
-curl -b cookies.txt http://127.0.0.1:3001/api/v1/businesses/00000000-0000-4000-8000-000000000001/inventory-movements
+curl http://127.0.0.1:3001/api/v1/businesses/00000000-0000-4000-8000-000000000001/products
+curl http://127.0.0.1:3001/api/v1/businesses/00000000-0000-4000-8000-000000000001/inventory-movements
 ```
 
 In Postman, use the same URLs, choose Body → raw → JSON for POST requests, and set
@@ -159,9 +151,9 @@ npm run demo
 
 It writes `data/stockcast-demo.sqlite`. SQLite is not the production database decision.
 
-The PostgreSQL server enforces sessions and roles; the optional SQLite demonstration server does
-not. Neither server is approved for public exposure or real partner records. HTTPS, rate limiting,
-account recovery, backup/restore, authorization review, and deployment checks are required first.
+The PostgreSQL and SQLite servers have no authentication and must not be exposed publicly or used
+for real partner records. Authentication, authorization, backup/restore, and deployment checks are
+required before partner use.
 
 ## Repository location
 

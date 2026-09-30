@@ -60,9 +60,3 @@ export const movementSchema = z.object({
     ),
   note: z.string().trim().max(500).nullable().optional().default(null),
 });
-
-export const signInSchema = z.object({
-  businessId: uuid,
-  email: z.string().trim().toLowerCase().email(),
-  password: z.string().min(1).max(1024),
-});

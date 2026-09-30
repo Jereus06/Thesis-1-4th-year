@@ -1,5 +1,4 @@
 import { loadConfig } from "./config.ts";
-import { AuthService } from "./auth.ts";
 import { createHttpHandler } from "./http.ts";
 import { createNodeServer } from "./node-server.ts";
 import { checkPostgres, createPostgresPool } from "./postgres-pool.ts";
@@ -11,8 +10,6 @@ const pool = createPostgresPool(config);
 const repository = new PostgresStockCastRepository(pool);
 const handler = createHttpHandler(new StockCastService(repository), {
   checkDatabase: () => checkPostgres(pool),
-  auth: new AuthService(pool),
-  secureCookies: config.nodeEnv === "production",
 });
 const server = createNodeServer(handler, config.corsOrigin);
 

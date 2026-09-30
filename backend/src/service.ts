@@ -82,13 +82,9 @@ export class StockCastService {
   async recordMovement(businessId: string, body: unknown, actorId: string | null = null) {
     const origin = await this.origin(businessId);
     const parsed = movementSchema.parse(body);
-    const delta = Number(parsed.quantityDelta);
-    if ((parsed.movementType === "receipt" || parsed.movementType === "return") && delta < 0)
-      throw new DomainError("conflict", `${parsed.movementType} must increase stock`);
-    if (parsed.movementType === "write_off" && delta > 0)
-      throw new DomainError("conflict", "A write-off must decrease stock");
-    if (parsed.movementType === "opening_balance")
-      throw new DomainError("conflict", "Opening balances are created with products");
+    if (parsed.movementType === "receipt" && Number(parsed.quantityDelta) < 0) {
+      throw new DomainError("conflict", "A receipt must increase stock");
+    }
     return this.repository.recordMovement({ businessId, origin, actorId, ...parsed });
   }
 }
