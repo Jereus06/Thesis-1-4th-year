@@ -16,20 +16,17 @@ Updated: 2026-09-30. Branch: `python-backend-migration`.
 
 ## Not yet complete
 
-- Dependency lock generation and runtime tests (network/package installation unavailable here).
-- An optional Python SQLite demonstration adapter is not implemented; the browser-local demo remains available.
 - Historical import preview/commit and inventory snapshot policy.
 - Idempotency execution, sale void/correction workflow, and exports.
 - Forecast run persistence, model artifacts, queue/worker/scheduler, and recommendation endpoints.
 - React authentication/API adapter and server-confirmed mutations.
 - PostgreSQL integration, concurrency, restart persistence, backup/restore, and recovery tests.
-- Full runtime verification of the Python-only backend.
+- Live PostgreSQL integration and clean-environment runtime verification.
 
 ## Resume order
 
-1. Install Python 3.12 dependencies and generate a hashed lock (`pip-compile --generate-hashes`).
-2. Run migrations against an isolated PostgreSQL test database and execute API tests.
-3. Complete import/idempotency/void/export endpoints.
-4. Complete forecast worker persistence and recommendations.
-5. Integrate the frontend in explicit `local-demo` and `api` modes.
-6. Verify backup/restore and deployment readiness.
+1. Run migrations and integration tests against an isolated PostgreSQL test database.
+2. Complete import/idempotency/void/export endpoints.
+3. Complete forecast worker persistence and recommendations.
+4. Integrate the frontend in explicit `local-demo` and `api` modes.
+5. Verify backup/restore and deployment readiness.

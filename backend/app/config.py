@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     )
 
     database_url: PostgresDsn
-    node_env: str = "development"
+    app_env: str = "development"
     host: str = "127.0.0.1"
     port: int = Field(default=3001, ge=1, le=65535)
     cors_origin: str = "http://localhost:5173"

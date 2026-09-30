@@ -85,7 +85,6 @@ def train_verified_xgboost(rows: Sequence[Observation], bounds: SplitBoundaries,
         {"max_depth": 3, "learning_rate": 0.1, "n_estimators": 120},
     ]
     selected = None
-    selected_model = None
     selected_validation = None
     for params in candidates:
         model = XGBRegressor(
@@ -96,7 +95,7 @@ def train_verified_xgboost(rows: Sequence[Observation], bounds: SplitBoundaries,
         predictions = np.clip(model.predict(x_validation), 0, None)
         metric = evaluate(y_validation.tolist(), predictions.tolist())
         if selected_validation is None or metric.mae < selected_validation.mae:
-            selected, selected_model, selected_validation = params, model, metric
+            selected, selected_validation = params, metric
 
     ma_validation = moving_average(y_train.tolist(), len(y_validation), min(7, len(y_train)))
     ma_metric = evaluate(y_validation.tolist(), ma_validation)
