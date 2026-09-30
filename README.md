@@ -17,7 +17,8 @@ npm install
 npm run dev
 ```
 
-5. Open the URL Vite prints (usually http://localhost:5173).
+5. Open the URL Vite prints (http://127.0.0.1:5173). The shared host name is intentional so
+   SameSite session cookies work with the local API on port 3001.
 
 Recommended extensions (prompted on first open): ESLint, Prettier, Tailwind CSS IntelliSense.
 
