@@ -1,0 +1,35 @@
+# Python backend migration checkpoint
+
+Updated: 2026-09-30. Branch: `python-backend-migration`.
+
+## Implemented in this checkpoint
+
+- Python package metadata for FastAPI, psycopg, PostgreSQL pooling, pytest, and official XGBoost.
+- FastAPI configuration, PostgreSQL lifecycle, live health check, CORS, sessions, and CSRF checks.
+- Existing API paths for sign-in/out/me, products, settings, sales, and inventory movements.
+- Atomic PostgreSQL product opening balances, sales, receipts, returns, adjustments, and write-offs.
+- Python migration runner and owner bootstrap using the existing SQL history.
+- Migration 003 for CSRF-token hashing on sessions.
+- Chronological XGBoost/Moving Average evaluation core using the official Python package.
+- Credentialed TypeScript API client with decimal/date field conversion; UI store wiring remains.
+- Reserved date-helper contract documented without implementing the groupmate’s task.
+
+## Not yet complete
+
+- Dependency lock generation and runtime tests (network/package installation unavailable here).
+- An optional Python SQLite demonstration adapter is not implemented; the browser-local demo remains available.
+- Historical import preview/commit and inventory snapshot policy.
+- Idempotency execution, sale void/correction workflow, and exports.
+- Forecast run persistence, model artifacts, queue/worker/scheduler, and recommendation endpoints.
+- React authentication/API adapter and server-confirmed mutations.
+- PostgreSQL integration, concurrency, restart persistence, backup/restore, and recovery tests.
+- Full runtime verification of the Python-only backend.
+
+## Resume order
+
+1. Install Python 3.12 dependencies and generate a hashed lock (`pip-compile --generate-hashes`).
+2. Run migrations against an isolated PostgreSQL test database and execute API tests.
+3. Complete import/idempotency/void/export endpoints.
+4. Complete forecast worker persistence and recommendations.
+5. Integrate the frontend in explicit `local-demo` and `api` modes.
+6. Verify backup/restore and deployment readiness.
