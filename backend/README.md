@@ -62,6 +62,16 @@ Never commit `.env` or a real password.
 ```bash
 npm install
 npm run db:migrate
+
+npm run db:bootstrap-owner
+npm start
+```
+
+Before running the owner bootstrap, replace every `OWNER_*` placeholder in `.env`. Use
+`OWNER_DATA_ORIGIN=demo` for functional testing. The command creates the business, default settings,
+and its first owner account; it does not create products, sales, forecasts, or research results.
+`db:bootstrap-demo` remains available when an account is not needed by older API-only tests.
+
 npm run db:bootstrap-demo
 npm start
 ```
@@ -82,6 +92,28 @@ Configuration:
 runs it without watch mode. `npm run db:migrate` applies each new `*.up.sql` migration once and
 rejects an already-applied migration if its checksum changes.
 
+
+## Authentication and permissions
+
+Sign-in uses the business ID, normalized email, and password. Passwords are stored as salted scrypt
+hashes. Successful sign-in creates a random server-side session and returns an HTTP-only,
+SameSite=Strict cookie. Sign-out deletes that session. The PostgreSQL server derives the actor and
+business membership from the session; it does not trust a client-supplied actor ID.
+
+| Action                                               | Owner | Staff |
+| ---------------------------------------------------- | ----- | ----- |
+| View products, settings, sales, and movement history | Yes   | Yes   |
+| Record a sale                                        | Yes   | Yes   |
+| Record a receipt or customer return                  | Yes   | Yes   |
+| Create/edit/archive products                         | Yes   | No    |
+| Change business settings                             | Yes   | No    |
+| Record adjustments or write-offs                     | Yes   | No    |
+
+Authentication is suitable for local development verification, but production deployment still
+requires HTTPS, session cleanup, rate limiting, password reset/recovery, security review, and tested
+backup/restore.
+
+
 ## Test with curl or Postman
 
 Health check:
@@ -94,14 +126,6 @@ Create a demonstration product:
 
 ```bash
 curl -X POST http://127.0.0.1:3001/api/v1/businesses/00000000-0000-4000-8000-000000000001/products \
-  -H "Content-Type: application/json" \
-  -d '{"sku":"DEMO-001","name":"Demo Product","category":"Demo","unit":"piece","currentStock":"10","leadTimeDays":2,"safetyStock":"3","unitCost":"25.50"}'
-```
-
-Copy the returned product `id`, then record a sale:
-
-```bash
-curl -X POST http://127.0.0.1:3001/api/v1/businesses/00000000-0000-4000-8000-000000000001/sales \
   -H "Content-Type: application/json" \
   -d '{"productId":"REPLACE_WITH_PRODUCT_ID","saleDate":"2026-09-25","quantity":"3"}'
 ```
