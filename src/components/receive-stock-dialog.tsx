@@ -25,6 +25,7 @@ export function ReceiveStockDialog({
 }) {
   const receiveStock = useAppStore((s) => s.receiveStock);
   const [qty, setQty] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const suggested = row?.reorderQty ?? 0;
 
@@ -37,12 +38,15 @@ export function ReceiveStockDialog({
       return;
     }
     try {
+      setSaving(true);
       await receiveStock(row.product.id, n);
       toast.success(`Received ${num(n)} ${row.product.unit} of ${row.product.name}.`);
       onOpenChange(false);
       setQty("");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "The delivery could not be saved.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -70,13 +74,16 @@ export function ReceiveStockDialog({
               <Input
                 id="recv-qty"
                 type="number"
-                min={1}
+                min={0.001}
+                step={0.001}
                 placeholder={String(suggested)}
                 value={qty}
                 onChange={(e) => setQty(e.target.value)}
               />
             </div>
-            <Button type="submit">Add to inventory</Button>
+            <Button type="submit" disabled={saving}>
+              Add to inventory
+            </Button>
           </form>
         )}
       </DialogContent>

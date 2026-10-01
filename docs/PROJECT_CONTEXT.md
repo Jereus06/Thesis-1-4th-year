@@ -1,90 +1,86 @@
-# StockCast: project context for a new coding session
+# StockCast project context
 
-Last checked against the current branch: 2026-09-25. Read this alongside [`../AGENTS.md`](../AGENTS.md) and the current code. This is a status snapshot, not a substitute for inspecting source.
+Last checked against this branch: 2026-10-01. Read alongside [AGENTS.md](../AGENTS.md) and source.
 
-## What the system is for
+## Purpose and confirmed research context
 
-**Official thesis title:** Sales Forecasting and Inventory Optimization for Small Retail Businesses Using XGBoost Algorithm.
+Official thesis title: **Sales Forecasting and Inventory Optimization for Small Retail Businesses
+Using XGBoost Algorithm**.
 
-The intended completed system lets a small retail business maintain product and sales records, estimate product demand, evaluate the thesis's XGBoost model against a moving-average baseline, and use forecasts with lead time and safety stock to support restocking decisions. Forecasts support the owner's decision; they do not automatically place orders or guarantee sales.
+StockCast records products, sales, and stock movements, evaluates product demand forecasts, and
+supports owner restocking decisions. The team is still finding a partner business. Do not invent a
+partner, collected data, accuracy result, evaluator response, or deployed domain.
 
-The study will use real information from a partner business once one is confirmed. As of this snapshot the team is still finding that partner. Do not assume a specific store, collected data, customer interview, sample size, validated accuracy, or deployed service.
+Current Chapters 1–3 text mirrors are under `docs/thesis/`. Formal manuscript files are maintained
+outside the repository. Downloads under `public/thesis/` can lag current drafts.
 
-## What is actually in GitHub `main`
+## Application in this branch
 
-| Area           | Current implementation                                                                                                                                                                                                                                      | What is still open                                                                                                                                               |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Interface      | Vite, React 19, TypeScript, TanStack Router, Tailwind. Pages: Overview, Restock, Forecasts, Inventory, Strategies.                                                                                                                                          | Integrate and verify against a real backend when its contract is available.                                                                                      |
-| State          | Zustand in `src/lib/store.ts` persists the current UI state in browser `localStorage` (`stockcast-v5`). The backend now has PostgreSQL pool wiring, executable migrations, a server entry point, and the product/settings/sales/audited-movement API slice. | Authentication/access enforcement, deployment/recovery checks, remaining backend APIs, frontend integration, and migration of authorized data remain incomplete. |
-| Data           | `src/lib/data/seed.ts` generates an example product catalog and synthetic sales dated 2026-03-01 through 2026-09-19; `AS_OF` is 2026-09-20. The example store and its location are placeholders.                                                            | Real partner selection, permission, collection, cleaning, units, missing-day meaning, and sufficient sales history.                                              |
-| Forecasts      | `src/lib/forecast/` implements moving average, a custom TypeScript boosted-tree model labelled XGBoost in the UI, model combination, intervals, and sparse-product fallback.                                                                                | Confirm the thesis-required XGBoost algorithm/implementation, validate model selection and intervals, and report independent results on real data.               |
-| Restocking     | `src/lib/inventory/reorder.ts` computes daily demand, reorder point, target stock, a suggested quantity, and status.                                                                                                                                        | Agree operational rules and delivery/stock history with the real partner; reconcile suggested quantity with the desired reorder trigger.                         |
-| Thesis content | `docs/thesis/` now contains the current text mirrors of Chapters 1–3 supplied on 2026-09-24. `public/thesis/` still contains older downloadable thesis artifacts used by the Strategies page.                                                               | Use `docs/thesis/` for current thesis claims and coding context; refresh the public DOCX downloads separately when a deliberate binary-file update is made.      |
+| Area               | Source and behavior                                                                                                     |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| Startup            | `npm start` builds/starts Compose: PostgreSQL, one-time initialization, Python API, Python worker, and Caddy/frontend   |
+| Local and hosting  | Same Python API/PostgreSQL application; private environment values choose local HTTP or domain HTTPS                    |
+| Frontend           | React/TypeScript; API mode is the default; Vite development proxies API requests                                        |
+| Storage            | PostgreSQL persistent volume stores business records and forecasts; separate volume stores XGBoost JSON models          |
+| Sessions           | scrypt passwords, hashed cookie sessions, CSRF verification, business membership and owner/staff permissions            |
+| Inventory          | Product opening stock, sales, deliveries, and stock-count adjustments are audited and transactional                     |
+| Imports            | Inventory snapshots are atomic; historical SKU-mapped sales imports preserve current stock                              |
+| Exports            | Sales/stock-movement downloads use authenticated Python CSV endpoints                                                   |
+| Forecasts          | Official Python XGBoost, immutable queued inputs, chronological selection/testing, saved predictions/metrics/models     |
+| Restock            | Python reads the operating forecast or baseline and current stock; suggested quantity is zero above the reorder trigger |
+| Backups            | `npm run backup` creates a PostgreSQL dump; CI checks a separate restore and container recreation                       |
+| Optional prototype | Explicit `VITE_DATA_MODE=browser-demo` retains synthetic browser data and the custom TypeScript prototype               |
 
-### File map
+`OWNER_DATA_ORIGIN=demo` describes test-record provenance, not a separate application runtime.
+Choose `partner` only for authorized real business data. Fresh normal startup seeds an owner and
+business/settings but no generated product or sales history.
 
-- `src/routes/`: pages and user flows.
-- `src/components/`: reusable UI and dialogs.
-- `src/lib/types.ts`: current frontend data types, **not** an agreed backend or database contract.
-- `src/lib/store.ts`: sales, stock receipt, CSV import, product/settings updates, and local persistence.
-- `src/lib/data/seed.ts`, `src/lib/data/fallback.ts`: synthetic/demo records and fallback data.
-- `src/lib/forecast/`: data preparation, model training/selection, metrics, cache, and forecasts.
-- `src/lib/inventory/reorder.ts`: reorder point and quantity calculations.
-- `backend/db/`: PostgreSQL schema migration and an executable structural contract check; this is not a deployed database.
-- `backend/`: independently installable backend package maintained in this repository alongside the frontend and research documentation.
-- `backend/app/`: the Python FastAPI application, validation models, security, PostgreSQL repository, migration tooling, and forecasting code.
-- `backend/app/sqlite_demo.py`: runnable local demonstration API and file-backed persistence; not approved for partner data.
-- `backend/app/main.py`, `backend/app/db.py`, `backend/app/migrate.py`: PostgreSQL API, connection pool, connectivity check, and migration runner.
-- `docs/BACKEND_ARCHITECTURE.md`: proposed REST boundary, transaction rules, table relationships, and decisions that still require confirmation.
-- `docs/thesis/`: current Chapters 1–3 text mirrors supplied on 2026-09-24; use these for thesis requirements, methodology, status, and constraints.
-- `public/thesis/`: older downloadable files currently used by the Strategies page; do not treat them as newer than `docs/thesis/`.
+Older browser and SQLite records are not silently migrated. Explicit imports/restore transfer
+authorized records to the shared PostgreSQL application. Normal API mode uses a separate browser
+storage key so it does not overwrite the existing `stockcast-v5` demonstration.
 
-## Current behavior and integration boundaries
+## Forecast contract
 
-1. Starting with a fresh browser store seeds synthetic products and sales. The default `dataScenario` value is `partner`, but the seed is **not partner data**. A thin-data mode may substitute generated fallback sales. Any real-data mode must clearly show data provenance and avoid silently substituting demo records for research evaluation.
-2. `recordSale` appends a sale and decreases on-hand stock. `receiveStock` increases on-hand stock. `importSales` appends historical rows but does not change current stock. Before backend integration, confirm whether imports represent historic sales or new stock movements, how duplicate rows are handled, and the units/date format.
-3. The forecast pipeline starts from recorded sale dates and applies separate gates. The general minimum is 8 weeks (`MIN_WEEKS`), but ML eligibility requires at least **100 nonzero days per product** (`MIN_NONZERO_FOR_ML`), and only a limited top-N set qualifies. This matters especially for a new business with limited history: a product can pass the weeks check and still use the baseline/rule path. Zero-sale days and stockouts also require interpretation with the partner.
-4. The current reorder point is `dailyDemand × leadTimeDays + safetyStock`; target stock is `dailyDemand × (leadTimeDays + coverDays) + safetyStock`. The current suggested quantity is `max(0, ceil(targetStock − currentStock))` even when on-hand stock is above the reorder point; the status separately flags `reorder` when on-hand is at or below the point. Agree whether quantity should be zero unless the trigger is reached before presenting it as final business logic.
-5. The code uses a custom boosted-tree trainer in `src/lib/forecast/xgboost.ts`; equivalence to a standard XGBoost implementation has **not** been established. The displayed holdout is used in model stability/winner logic and interval calibration in `src/lib/forecast/pipeline.ts`, so its displayed error must not be described as an untouched final test. The aggregate model scores can also draw on different sets of products. A defensible real-data evaluation needs a chronological fit/validation/test design and model comparisons on matching observations.
-6. The frontend inventory CSV import is a local catalog/on-hand snapshot: it updates products with matching SKUs and adds new SKUs. It does not create sales or inventory-delivery records. The settings UI reports the date span calculated from currently stored sales, while the older `dataScenario` state remains an internal demo-only fallback control rather than a business-facing history selector.
+- Eight calendar weeks and 100 nonzero sales days are separate _training-only_ gates; top-N ranking
+  also uses training data only.
+- Validation chooses XGBoost parameters, ensemble weights, and operating method.
+- MA and XGBoost recursively predict matching final-test dates from the same fixed cutoff;
+  final-test actuals are not fed into those predictions or model selection.
+- An operating model is refitted on observed history after test evaluation with the frozen
+  configuration, then saves actual XGBoost future predictions.
+- Queued jobs snapshot daily sales, settings, and product IDs in the existing schema.
+- Dashboard ML comparisons use matching eligible products/date observations.
+- No calibrated prediction intervals or certified accuracy are claimed. All operational confidence
+  labels remain low pending research validation; `xgboost_verified` remains false.
+- Missing days currently mean zero sales. Confirm ledger completeness, stockout interpretation,
+  and that policy with the partner before research evaluation.
+- Refresh is explicit from the frontend; the worker continuously polls queued jobs. Failed and
+  interrupted jobs are recorded and can be refreshed.
 
-## Academic and delivery context
+The custom browser boosted-tree code is not the official XGBoost package and is isolated to
+demonstration mode. The normal frontend displays Python outputs and does not trigger that prototype.
 
-The teacher's midterm checklist is **Chapters 1–3, technical/research diagrams, a project plan, and working prototype/software**. The team prepared a project schedule, project context diagram, and expanded data flow diagram and replaced wireframes with screenshots of the frontend. The current frontend supports a prototype demonstration; it does **not** establish that real-partner data, backend integration, or a completed study have been delivered.
+## Boundaries and delivery checks
 
-Current chapter text is now checked into [`docs/thesis/`](./thesis/): [`Chapter_1.md`](./thesis/Chapter_1.md), [`Chapter_2.md`](./thesis/Chapter_2.md), and [`Chapter_3.md`](./thesis/Chapter_3.md). These mirrors came from the DOCX files supplied on 2026-09-24 and explicitly keep partner details and backend status open for later update. Use these files before editing thesis claims or coding against research requirements. The original DOCX files remain the formal-layout source because figures and Word formatting are not fully represented in Markdown.
+Existing SQL migrations are preserved. The owner retains database-design authority; no replacement
+schema or second TypeScript backend is introduced. The reserved `is_valid_iso_date` helper and its
+dedicated tests remain the groupmate's task.
 
-## Sensible next coding priorities
+The GitHub workflow runs clean frontend installation/typecheck/lint/build, Python tests with
+PostgreSQL, full web/API/worker smoke checks, backup restoration, and restart persistence. Local
+unit checks and an added workflow are not by themselves evidence of an actual hosted deployment;
+read the workflow outcome and record the target hosting verification separately.
 
-1. Keep demo versus real-data state visibly distinct, especially on pages with performance metrics or a fallback data set.
-2. Review the proposed PostgreSQL schema and API boundary with the team, then implement the HTTP service, authentication/access rules, transactional repositories, deployment, and recovery checks. Do not connect real partner data until those controls are confirmed and tested.
-3. Validate the actual XGBoost implementation and the independent evaluation protocol before making accuracy claims. Compare XGBoost, moving average, and any ensemble on identical product/date test points; track excluded products and fallback reasons.
-4. Test the full user flow with real data once the partner exists: sales, inventory receipt, import validation, forecast refresh, restock recommendations, and persistence. The separate draft PR #3 has preliminary build/browser flow checks, which are not yet part of `main`.
+Deployment account/DNS/storage settings and real-partner policies (corrections/voids, units,
+import mapping, retention, collection permission, and independent research cutoffs) use confirmed
+team/business requirements. They are not filled in with fictional research results.
 
-## Backend foundation added on 2026-09-24
+## File map
 
-The initial PostgreSQL contract contains businesses, users, products, sales, inventory movements,
-data imports, business settings, forecast runs, predictions, metrics, and reorder recommendations.
-It makes demo/partner provenance explicit, preserves chronological train/validation/final-test
-ranges, defaults XGBoost verification to false, and stores the inputs and outputs of each reorder
-calculation. The schema is a reviewable starting point supplied by the project owner, not proof of a
-deployed backend. The first API slice now validates and implements product, settings, manual-sale,
-and inventory-movement operations, including transactional stock changes in the PostgreSQL
-repository. PostgreSQL driver/pool wiring, executable migrations, and a server entry point now make
-that slice runnable against PostgreSQL. A loopback-only SQLite adapter remains available for local
-demonstrations; SQLite is not the production database decision. Authentication mechanics, the remaining API,
-deployment, backup/restore, and frontend integration remain incomplete; see
-[`BACKEND_ARCHITECTURE.md`](./BACKEND_ARCHITECTURE.md).
-
-On 2026-09-25, the project owner confirmed that backend development will remain in
-`https://github.com/Jereus06/Thesis-1-4th-year.git` under `backend/`, rather than moving to a
-separate repository. The backend retains its own package metadata so it can still be installed and
-checked independently within this repository.
-
-On 2026-09-30, the legacy TypeScript backend under `backend/src/` was retired. The backend runtime,
-tests, schema checks, migration command, owner bootstrap, local SQLite demonstration, and official
-XGBoost integration now use Python. TypeScript remains only in the React frontend.
-
-Update this document when the partner is confirmed, the HTTP backend is implemented, database
-contract decisions are revised, or evaluation rules change. Record confirmed facts and source
-locations instead of filling gaps with plausible examples.
+- `compose.yaml`, `Dockerfile`, `backend/Dockerfile`, `deploy/`, `scripts/`: startup/hosting/backup.
+- `backend/app/`: FastAPI, PostgreSQL repositories, worker, official model training, dashboard.
+- `backend/db/`: existing SQL migration history and package data.
+- `src/lib/api.ts`, `store.ts`, `use-api-forecast.ts`: normal frontend integration.
+- `src/lib/forecast/`: optional browser demonstration prototype.
+- `backend/tests/`, `.github/workflows/system.yml`: verification.
+- [README](../README.md), [backend README](../backend/README.md): run commands and contracts.

@@ -1,17 +1,13 @@
-"""Chronological Moving Average/XGBoost evaluation.
-
-This module uses the official ``xgboost`` Python package. It never uses final-test observations for
-parameter selection, ensemble weighting, or interval calibration. Callers must persist the returned
-configuration and results before presenting them as evidence.
-"""
+"""Official XGBoost with recursive evaluation from a fixed chronological cutoff."""
 
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, timedelta
 from math import sqrt
 from typing import Sequence
 
 import numpy as np
-from xgboost import XGBRegressor, __version__ as xgboost_version
+from xgboost import XGBRegressor
+from xgboost import __version__ as xgboost_version
 
 
 @dataclass(frozen=True)
@@ -38,9 +34,13 @@ def chronological_partitions(rows: Sequence[Observation], bounds: SplitBoundarie
     ordered = sorted(rows, key=lambda row: row.day)
     train = [row for row in ordered if row.day <= bounds.train_end]
     validation = [row for row in ordered if bounds.train_end < row.day <= bounds.validation_end]
-    final_test = [row for row in ordered if bounds.validation_end < row.day <= bounds.final_test_end]
+    final_test = [
+        row for row in ordered if bounds.validation_end < row.day <= bounds.final_test_end
+    ]
     if not train or not validation or not final_test:
-        raise ValueError("Training, validation, and final-test periods must all contain observations")
+        raise ValueError(
+            "Training, validation, and final-test periods must all contain observations"
+        )
     return train, validation, final_test
 
 
@@ -48,98 +48,147 @@ def evaluate(actual: Sequence[float], predicted: Sequence[float]) -> Metrics:
     if len(actual) != len(predicted) or not actual:
         raise ValueError("Metrics require matching, non-empty observations")
     errors = [a - p for a, p in zip(actual, predicted, strict=True)]
-    return Metrics(sum(abs(error) for error in errors) / len(errors), sqrt(sum(error**2 for error in errors) / len(errors)), len(errors))
+    return Metrics(
+        sum(abs(error) for error in errors) / len(errors),
+        sqrt(sum(error**2 for error in errors) / len(errors)),
+        len(errors),
+    )
 
 
 def moving_average(history: Sequence[float], horizon: int, window: int) -> list[float]:
-    values = list(history)
-    predictions: list[float] = []
+    if window < 1 or horizon < 0:
+        raise ValueError("Window must be positive and horizon nonnegative")
+    values, predictions = list(history), []
     for _ in range(horizon):
-        prediction = max(0.0, float(np.mean(values[-window:])))
+        prediction = max(0.0, float(np.mean(values[-window:]))) if values else 0.0
         predictions.append(prediction)
         values.append(prediction)
     return predictions
 
 
-def train_verified_xgboost(rows: Sequence[Observation], bounds: SplitBoundaries, *, seed: int = 42):
-    """Select a conservative XGBoost configuration on validation and evaluate test once.
+def _features(history: Sequence[float], day: date) -> list[float]:
+    return [
+        history[-1],
+        history[-7],
+        history[-14],
+        float(np.mean(history[-7:])),
+        float(np.mean(history[-30:])),
+        day.weekday(),
+        day.month,
+    ]
 
-    Features use only lagged quantities and calendar values. Products that do not have enough
-    lagged observations must be routed to the named Moving Average fallback by the caller.
-    """
+
+def _supervised(rows: Sequence[Observation]):
+    values = [row.quantity for row in rows]
+    features = [_features(values[:index], rows[index].day) for index in range(30, len(rows))]
+    return np.asarray(features), np.asarray(values[30:])
+
+
+def _fit(rows: Sequence[Observation], params: dict, seed: int) -> XGBRegressor:
+    features, targets = _supervised(rows)
+    if not len(targets):
+        raise ValueError("Training requires more than 30 daily observations")
+    model = XGBRegressor(
+        objective="reg:squarederror",
+        random_state=seed,
+        n_jobs=1,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        reg_lambda=1.5,
+        **params,
+    )
+    model.fit(features, targets)
+    return model
+
+
+def recursive_xgboost(model, history: Sequence[float], days: Sequence[date]) -> list[float]:
+    values, predictions = list(history), []
+    for day in days:
+        prediction = max(0.0, float(model.predict(np.asarray([_features(values, day)]))[0]))
+        values.append(prediction)
+        predictions.append(prediction)
+    return predictions
+
+
+def train_verified_xgboost(
+    rows: Sequence[Observation],
+    bounds: SplitBoundaries,
+    *,
+    seed: int = 42,
+    window: int = 7,
+    horizon: int = 14,
+):
+    """Select on validation, evaluate untouched test, then refit for future operations."""
     train, validation, final_test = chronological_partitions(rows, bounds)
-    all_rows = sorted(rows, key=lambda row: row.day)
-    features, targets, days = _supervised(all_rows)
-    train_mask = [day <= bounds.train_end for day in days]
-    validation_mask = [bounds.train_end < day <= bounds.validation_end for day in days]
-    test_mask = [bounds.validation_end < day <= bounds.final_test_end for day in days]
-    x_train, y_train = features[train_mask], targets[train_mask]
-    x_validation, y_validation = features[validation_mask], targets[validation_mask]
-    x_test, y_test = features[test_mask], targets[test_mask]
-    if min(len(y_train), len(y_validation), len(y_test)) == 0:
-        raise ValueError("Not enough lagged observations in every chronological split")
-
+    train_values = [row.quantity for row in train]
+    validation_actual = [row.quantity for row in validation]
+    validation_days = [row.day for row in validation]
     candidates = [
         {"max_depth": 3, "learning_rate": 0.05, "n_estimators": 150},
         {"max_depth": 4, "learning_rate": 0.05, "n_estimators": 200},
         {"max_depth": 3, "learning_rate": 0.1, "n_estimators": 120},
     ]
-    selected = None
-    selected_validation = None
+    selected = selected_metric = selected_predictions = None
     for params in candidates:
-        model = XGBRegressor(
-            objective="reg:squarederror", random_state=seed, n_jobs=1,
-            subsample=0.9, colsample_bytree=0.9, reg_lambda=1.5, **params,
-        )
-        model.fit(x_train, y_train)
-        predictions = np.clip(model.predict(x_validation), 0, None)
-        metric = evaluate(y_validation.tolist(), predictions.tolist())
-        if selected_validation is None or metric.mae < selected_validation.mae:
-            selected, selected_validation = params, metric
+        model = _fit(train, params, seed)
+        predictions = recursive_xgboost(model, train_values, validation_days)
+        metric = evaluate(validation_actual, predictions)
+        if selected_metric is None or metric.mae < selected_metric.mae:
+            selected, selected_metric, selected_predictions = params, metric, predictions
+    ma_validation = moving_average(train_values, len(validation), window)
+    ma_metric = evaluate(validation_actual, ma_validation)
+    inverse_xgb, inverse_ma = 1 / max(selected_metric.mae, 1e-9), 1 / max(ma_metric.mae, 1e-9)
+    weight = inverse_xgb / (inverse_xgb + inverse_ma)
+    ensemble_validation = [
+        weight * x + (1 - weight) * m
+        for x, m in zip(selected_predictions, ma_validation, strict=True)
+    ]
+    validation_metrics = {
+        "movingAverage": asdict(ma_metric),
+        "xgboost": asdict(selected_metric),
+        "ensemble": asdict(evaluate(validation_actual, ensemble_validation)),
+    }
+    operating_method = min(validation_metrics, key=lambda method: validation_metrics[method]["mae"])
 
-    ma_validation = moving_average(y_train.tolist(), len(y_validation), min(7, len(y_train)))
-    ma_metric = evaluate(y_validation.tolist(), ma_validation)
-    inverse_xgb = 1 / max(selected_validation.mae, 1e-9)
-    inverse_ma = 1 / max(ma_metric.mae, 1e-9)
-    xgb_weight = inverse_xgb / (inverse_xgb + inverse_ma)
+    # Both methods predict the entire test from the same train+validation cutoff.
+    fit_rows = [*train, *validation]
+    fit_values = [row.quantity for row in fit_rows]
+    evaluation_model = _fit(fit_rows, selected, seed)
+    test_actual = [row.quantity for row in final_test]
+    xgb_test = recursive_xgboost(evaluation_model, fit_values, [row.day for row in final_test])
+    ma_test = moving_average(fit_values, len(final_test), window)
+    ensemble_test = [weight * x + (1 - weight) * m for x, m in zip(xgb_test, ma_test, strict=True)]
+    test_predictions = {"xgboost": xgb_test, "movingAverage": ma_test, "ensemble": ensemble_test}
 
-    # Configuration and weights are now frozen. Refit without using final-test targets.
-    x_fit = np.concatenate([x_train, x_validation])
-    y_fit = np.concatenate([y_train, y_validation])
-    final_model = XGBRegressor(
-        objective="reg:squarederror", random_state=seed, n_jobs=1,
-        subsample=0.9, colsample_bytree=0.9, reg_lambda=1.5, **selected,
-    )
-    final_model.fit(x_fit, y_fit)
-    xgb_test = np.clip(final_model.predict(x_test), 0, None)
-    ma_test = np.asarray(moving_average(y_fit.tolist(), len(y_test), min(7, len(y_fit))))
-    ensemble_test = xgb_weight * xgb_test + (1 - xgb_weight) * ma_test
+    # This operational refit cannot alter the frozen selection or test results.
+    all_rows = [*fit_rows, *final_test]
+    operational_model = _fit(all_rows, selected, seed)
+    future_days = [bounds.final_test_end + timedelta(days=index + 1) for index in range(horizon)]
+    history = [row.quantity for row in all_rows]
+    future_xgb = recursive_xgboost(operational_model, history, future_days)
+    future_ma = moving_average(history, horizon, window)
     return {
         "implementation": "xgboost.XGBRegressor",
         "xgboostVersion": xgboost_version,
         "objective": "reg:squarederror",
         "seed": seed,
         "parameters": selected,
-        "xgbWeight": xgb_weight,
-        "validation": {"xgboost": asdict(selected_validation), "movingAverage": asdict(ma_metric)},
+        "xgbWeight": weight,
+        "operatingMethod": operating_method,
+        "validation": validation_metrics,
         "finalTest": {
-            "xgboost": asdict(evaluate(y_test.tolist(), xgb_test.tolist())),
-            "movingAverage": asdict(evaluate(y_test.tolist(), ma_test.tolist())),
-            "ensemble": asdict(evaluate(y_test.tolist(), ensemble_test.tolist())),
+            method: asdict(evaluate(test_actual, predictions))
+            for method, predictions in test_predictions.items()
         },
-        "model": final_model,
-        "testDays": [str(day) for day, include in zip(days, test_mask, strict=True) if include],
-        "testActual": y_test.tolist(),
-        "testPredictions": {"xgboost": xgb_test.tolist(), "movingAverage": ma_test.tolist(), "ensemble": ensemble_test.tolist()},
+        "model": operational_model,
+        "testDays": [str(row.day) for row in final_test],
+        "testActual": test_actual,
+        "testPredictions": test_predictions,
+        "futurePredictions": {
+            "xgboost": future_xgb,
+            "movingAverage": future_ma,
+            "ensemble": [
+                weight * x + (1 - weight) * m for x, m in zip(future_xgb, future_ma, strict=True)
+            ],
+        },
     }
-
-
-def _supervised(rows: Sequence[Observation]):
-    quantities = np.asarray([row.quantity for row in rows], dtype=float)
-    result, targets, days = [], [], []
-    for index in range(30, len(rows)):
-        day = rows[index].day
-        result.append([quantities[index - 1], quantities[index - 7], quantities[index - 14], quantities[index - 7:index].mean(), quantities[index - 30:index].mean(), day.weekday(), day.month])
-        targets.append(quantities[index])
-        days.append(day)
-    return np.asarray(result), np.asarray(targets), np.asarray(days)

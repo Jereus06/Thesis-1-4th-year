@@ -7,7 +7,7 @@ export function ConfidenceBadge({ level, score }: { level: ConfidenceLevel; scor
   return (
     <Badge variant={variant}>
       {confidenceLabel(level)}
-      {score != null ? ` · ${score}` : ""}
+      {score != null && Number.isFinite(score) ? ` · ${score}` : ""}
     </Badge>
   );
 }

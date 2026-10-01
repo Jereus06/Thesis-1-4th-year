@@ -10,3 +10,4 @@ python-multipart==0.0.20
 scikit-learn==1.6.1
 uvicorn[standard]==0.34.3
 xgboost==3.0.2
+tzdata==2025.2

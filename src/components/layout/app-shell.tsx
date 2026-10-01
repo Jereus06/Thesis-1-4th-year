@@ -1,15 +1,8 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import {
-  BookOpen,
-  LayoutDashboard,
-  LineChart,
-  PackagePlus,
-  Plus,
-  Warehouse,
-} from "lucide-react";
+import { BookOpen, LayoutDashboard, LineChart, PackagePlus, Plus, Warehouse } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { Toaster } from "sonner";
-import { ForecastProvider } from "@/components/forecast-context";
+import { Toaster, toast } from "sonner";
+import { ApiForecastProvider, ForecastProvider } from "@/components/forecast-context";
 import { RecordSaleDialog } from "@/components/record-sale-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +14,7 @@ import {
 import { requestBackgroundTrain } from "@/lib/forecast/job";
 import { localForecastCache } from "@/lib/forecast/persist";
 import { AS_OF } from "@/lib/data/seed";
-import { formatLong } from "@/lib/dates";
+import { formatLong, todayISO } from "@/lib/dates";
 import { useAppStore } from "@/lib/store";
 import type { PipelineResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -35,6 +28,17 @@ const NAV = [
 ] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const mode = useAppStore((s) => s.dataMode);
+  if (mode === "api")
+    return (
+      <ApiForecastProvider>
+        <ShellLayout>{children}</ShellLayout>
+      </ApiForecastProvider>
+    );
+  return <BrowserForecastShell>{children}</BrowserForecastShell>;
+}
+
+function BrowserForecastShell({ children }: { children: ReactNode }) {
   const [initial, setInitial] = useState<PipelineResult | null>(null);
 
   useEffect(() => {
@@ -86,7 +90,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="flex min-h-dvh flex-col items-center justify-center bg-bg px-6 text-fg">
         <p className="font-display text-4xl italic tracking-tight">StockCast</p>
         <p className="mt-2 max-w-sm text-center text-sm text-muted">
-          Loading cached forecasts for Cruz Mini Mart
+          Loading demonstration forecasts
         </p>
         <div className="splash-bar mt-6" />
       </div>
@@ -95,30 +99,42 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <ForecastProvider initialResult={initial}>
-      <div className="min-h-dvh bg-bg text-fg">
-        <div className="lg:grid lg:grid-cols-[16.5rem_1fr]">
-          <aside className="hidden min-h-dvh flex-col border-r border-border bg-sidebar lg:flex">
-            <div className="px-5 pt-8 pb-6">
-              <p className="font-display text-2xl italic tracking-tight">StockCast</p>
-              <p className="mt-1 text-xs tracking-wide text-muted uppercase">Demand & restock</p>
-            </div>
-            <SidebarStore />
-            <nav className="flex flex-1 flex-col gap-1 px-3 pt-6">
-              {NAV.map((item) => (
-                <NavLink key={item.to} {...item} />
-              ))}
-            </nav>
-            <p className="px-5 pb-6 text-xs text-muted">
-              Forecasts are decision-support only, not guarantees.
-            </p>
-          </aside>
+      <ShellLayout>{children}</ShellLayout>
+    </ForecastProvider>
+  );
+}
 
-          <div className="flex min-h-dvh flex-col pb-20 lg:pb-0">
-            <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-border bg-bg/90 px-4 py-3 backdrop-blur-sm lg:px-8">
-              <div className="min-w-0 lg:hidden">
-                <p className="font-display text-lg italic">StockCast</p>
-              </div>
-              <p className="hidden text-sm text-muted lg:block">{formatLong(AS_OF)}</p>
+function ShellLayout({ children }: { children: ReactNode }) {
+  const mode = useAppStore((s) => s.dataMode);
+  return (
+    <div className="min-h-dvh bg-bg text-fg">
+      <div className="lg:grid lg:grid-cols-[16.5rem_1fr]">
+        <aside className="hidden min-h-dvh flex-col border-r border-border bg-sidebar lg:flex">
+          <div className="px-5 pt-8 pb-6">
+            <p className="font-display text-2xl italic tracking-tight">StockCast</p>
+            <p className="mt-1 text-xs tracking-wide text-muted uppercase">Demand & restock</p>
+          </div>
+          <SidebarStore />
+          <nav className="flex flex-1 flex-col gap-1 px-3 pt-6">
+            {NAV.map((item) => (
+              <NavLink key={item.to} {...item} />
+            ))}
+          </nav>
+          <p className="px-5 pb-6 text-xs text-muted">
+            Forecasts are decision-support only, not guarantees.
+          </p>
+        </aside>
+
+        <div className="flex min-h-dvh flex-col pb-20 lg:pb-0">
+          <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-border bg-bg/90 px-4 py-3 backdrop-blur-sm lg:px-8">
+            <div className="min-w-0 lg:hidden">
+              <p className="font-display text-lg italic">StockCast</p>
+            </div>
+            <p className="hidden text-sm text-muted lg:block">
+              {formatLong(mode === "api" ? todayISO() : AS_OF)}
+            </p>
+            <div className="flex items-center gap-2">
+              {mode === "api" && <SignOutButton />}
               <RecordSaleDialog
                 trigger={
                   <Button size="sm">
@@ -127,33 +143,42 @@ export function AppShell({ children }: { children: ReactNode }) {
                   </Button>
                 }
               />
-            </header>
-            <main className="flex-1 px-4 py-6 lg:px-8 lg:py-8">{children}</main>
-          </div>
+            </div>
+          </header>
+          <main className="flex-1 px-4 py-6 lg:px-8 lg:py-8">{children}</main>
         </div>
-
-        <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/95 backdrop-blur-sm lg:hidden">
-          <ul className="grid grid-cols-5">
-            {NAV.map((item) => (
-              <li key={item.to}>
-                <MobileNavLink {...item} />
-              </li>
-            ))}
-          </ul>
-        </nav>
-        <Toaster position="top-center" richColors />
       </div>
-    </ForecastProvider>
+
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/95 backdrop-blur-sm lg:hidden">
+        <ul className="grid grid-cols-5">
+          {NAV.map((item) => (
+            <li key={item.to}>
+              <MobileNavLink {...item} />
+            </li>
+          ))}
+        </ul>
+      </nav>
+      <Toaster position="top-center" richColors />
+    </div>
   );
 }
 
 function SidebarStore() {
   const storeName = useAppStore((s) => s.settings.storeName);
+  const mode = useAppStore((s) => s.dataMode);
+  const origin = useAppStore((s) => s.dataOrigin);
   const location = useAppStore((s) => s.settings.storeLocation);
   return (
     <div className="mx-4 rounded-xl bg-surface px-3 py-3">
       <p className="text-sm font-medium">{storeName}</p>
       <p className="text-xs text-muted">{location}</p>
+      <p className="mt-2 text-xs text-muted">
+        {mode === "browser-demo"
+          ? "Browser demonstration"
+          : origin === "partner"
+            ? "Partner records"
+            : "Test records"}
+      </p>
     </div>
   );
 }
@@ -205,5 +230,18 @@ function MobileNavLink({
       <Icon className="size-5" />
       {label}
     </Link>
+  );
+}
+
+function SignOutButton() {
+  const signOut = useAppStore((s) => s.signOut);
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={() => void signOut().catch((error: Error) => toast.error(error.message))}
+    >
+      Sign out
+    </Button>
   );
 }

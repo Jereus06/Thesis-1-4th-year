@@ -17,6 +17,8 @@ export type ForecastState = {
   rows: ReorderRow[];
   status: TrainProgress["status"];
   progress: TrainProgress;
+  refresh: () => Promise<void>;
+  error?: string;
 };
 
 export function useForecastCompute(initialResult: PipelineResult): ForecastState {
@@ -98,5 +100,13 @@ export function useForecastCompute(initialResult: PipelineResult): ForecastState
     return buildReorderRows(products, result, settings);
   }, [products, result, settings]);
 
-  return { result, rows, status, progress };
+  return {
+    result,
+    rows,
+    status,
+    progress,
+    refresh: async () => {
+      requestBackgroundTrain();
+    },
+  };
 }

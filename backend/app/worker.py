@@ -1,12 +1,9 @@
-"""Forecast worker for queued PostgreSQL forecast runs.
-
-The worker claims one run at a time, evaluates eligible products with the official Python XGBoost
-runtime, persists like-for-like final-test predictions/metrics, and creates moving-average future
-predictions. It never labels a run as research-verified; that requires the team's external validation.
-"""
+"""Durable PostgreSQL forecast worker using the official CPU XGBoost runtime."""
 
 from __future__ import annotations
 
+import logging
+import shutil
 import time
 from datetime import date, timedelta
 from decimal import Decimal
@@ -27,24 +24,46 @@ from .forecasting import (
     train_verified_xgboost,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def daily_observations(rows: list[dict[str, Any]], start: date, end: date) -> list[Observation]:
     totals = {row["sale_date"]: float(row["quantity"]) for row in rows}
-    result = []
-    current = start
-    while current <= end:
-        result.append(Observation(current, totals.get(current, 0.0)))
-        current += timedelta(days=1)
-    return result
+    return [
+        Observation(start + timedelta(days=index), totals.get(start + timedelta(days=index), 0.0))
+        for index in range((end - start).days + 1)
+    ]
 
 
 def claim_run(conn: Connection) -> dict[str, Any] | None:
     with conn.transaction():
+        # Session advisory locks disappear when a worker disconnects or crashes.
+        for running in conn.execute(
+            "SELECT id FROM forecast_runs WHERE status='running' FOR UPDATE SKIP LOCKED"
+        ).fetchall():
+            acquired = conn.execute(
+                "SELECT pg_try_advisory_lock(hashtextextended(%s,0)) AS locked",
+                (str(running["id"]),),
+            ).fetchone()["locked"]
+            if acquired:
+                conn.execute(
+                    """UPDATE forecast_runs SET status='failed',completed_at=now(),
+                                failure_message='Worker interrupted; refresh to retry' WHERE id=%s""",
+                    (running["id"],),
+                )
+                conn.execute(
+                    "SELECT pg_advisory_unlock(hashtextextended(%s,0))", (str(running["id"]),)
+                )
         row = conn.execute(
             """SELECT * FROM forecast_runs WHERE status='queued' ORDER BY created_at,id
                FOR UPDATE SKIP LOCKED LIMIT 1"""
         ).fetchone()
         if not row:
+            return None
+        locked = conn.execute(
+            "SELECT pg_try_advisory_lock(hashtextextended(%s,0)) AS locked", (str(row["id"]),)
+        ).fetchone()["locked"]
+        if not locked:
             return None
         return conn.execute(
             """UPDATE forecast_runs SET status='running',started_at=now(),failure_message=NULL
@@ -53,18 +72,48 @@ def claim_run(conn: Connection) -> dict[str, Any] | None:
         ).fetchone()
 
 
+def training_eligibility(observations, run, settings, rank):
+    training = [item for item in observations if item.day <= run["training_end"]]
+    nonzero, days = sum(item.quantity > 0 for item in training), len(training)
+    eligible = (
+        days >= max(31, settings["minimum_history_weeks"] * 7)
+        and nonzero >= settings["minimum_nonzero_days"]
+        and rank < settings["top_n_products"]
+    )
+    reason = (
+        None
+        if eligible
+        else (
+            f"Training history: {days} days, {nonzero} nonzero days, rank {rank + 1}; "
+            f"requires {settings['minimum_history_weeks']} weeks, "
+            f"{settings['minimum_nonzero_days']} nonzero days and top {settings['top_n_products']}."
+        )
+    )
+    return eligible, days, nonzero, reason
+
+
 def process_run(conn: Connection, run: dict[str, Any]) -> None:
-    settings = conn.execute(
-        "SELECT * FROM business_settings WHERE business_id=%s", (run["business_id"],)
-    ).fetchone()
-    products = conn.execute(
-        """SELECT p.id,coalesce(sum(s.quantity),0) AS total_quantity FROM products p
-           LEFT JOIN sales s ON s.business_id=p.business_id AND s.product_id=p.id
-           AND s.sale_date BETWEEN %s AND %s
-           WHERE p.business_id=%s AND p.is_active GROUP BY p.id
-           ORDER BY total_quantity DESC,p.id""",
-        (run["training_start"], run["final_test_end"], run["business_id"]),
-    ).fetchall()
+    snapshot = run["data_snapshot"]
+    if not all(key in snapshot for key in ("dailySales", "settings", "products")):
+        raise ValueError(
+            "This older queued run has no immutable input snapshot; refresh to create one"
+        )
+    settings, series = snapshot["settings"], {}
+    for product_id in snapshot["products"]:
+        rows = [
+            {"sale_date": date.fromisoformat(item["date"]), "quantity": item["quantity"]}
+            for item in snapshot["dailySales"]
+            if item["productId"] == product_id
+        ]
+        series[product_id] = daily_observations(rows, run["training_start"], run["final_test_end"])
+    # Product ranking and the nonzero-day gate use training only.
+    products = sorted(
+        series,
+        key=lambda pid: (
+            -sum(item.quantity for item in series[pid] if item.day <= run["training_end"]),
+            pid,
+        ),
+    )
     bounds = SplitBoundaries(run["training_end"], run["validation_end"], run["final_test_end"])
     configuration = dict(run["configuration"])
     configuration.update(
@@ -73,88 +122,93 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
             "xgboostVersion": xgboost_version,
             "selectionSplit": "validation",
             "evaluationSplit": "final_test",
-            "futureMethod": "moving_average",
+            "evaluationProtocol": "recursive_fixed_cutoff",
+            "missingDayPolicy": "zero_sales",
+            "operationalRefitEnd": str(run["final_test_end"]),
+            "products": {},
         }
     )
-
+    artifacts = get_settings().artifact_dir / str(run["id"])
+    artifacts.mkdir(parents=True, exist_ok=True)
     with conn.transaction():
-        for product_index, product in enumerate(products):
-            sales = conn.execute(
-                """SELECT sale_date,sum(quantity) AS quantity FROM sales
-                   WHERE business_id=%s AND product_id=%s AND sale_date BETWEEN %s AND %s
-                   GROUP BY sale_date ORDER BY sale_date""",
-                (run["business_id"], product["id"], run["training_start"], run["final_test_end"]),
-            ).fetchall()
-            observations = daily_observations(sales, run["training_start"], run["final_test_end"])
-            nonzero = sum(item.quantity > 0 for item in observations)
-            history_days = (run["training_end"] - run["training_start"]).days + 1
-            eligible = (
-                history_days >= settings["minimum_history_weeks"] * 7
-                and nonzero >= settings["minimum_nonzero_days"]
-                and len(observations) >= 31
-                and product_index < settings["top_n_products"]
+        for rank, product_id in enumerate(products):
+            observations = series[product_id]
+            eligible, days, nonzero, reason = training_eligibility(
+                observations, run, settings, rank
             )
-            history = [item.quantity for item in observations if item.day <= run["validation_end"]]
-            test = [
-                item
-                for item in observations
-                if run["validation_end"] < item.day <= run["final_test_end"]
-            ]
-            ma_test = moving_average(history, len(test), settings["moving_average_window"])
-            _persist_predictions(conn, run, product["id"], test, "moving_average", ma_test)
-            _persist_metric(
-                conn,
-                run,
-                product["id"],
-                "moving_average",
-                evaluate([x.quantity for x in test], ma_test),
-            )
-
-            future_method = "moving_average"
-            future_reason = None
+            test = [item for item in observations if item.day > run["validation_end"]]
+            summary = {
+                "historyDays": days,
+                "nonzeroDays": nonzero,
+                "eligible": eligible,
+                "fallbackReason": reason,
+                "operatingMethod": "fallback",
+            }
             if eligible:
-                result = train_verified_xgboost(observations, bounds)
-                for method, metric in result["validation"].items():
-                    _persist_metric_values(
-                        conn,
-                        run,
-                        product["id"],
-                        "moving_average" if method == "movingAverage" else method,
-                        metric,
-                        "validation",
-                    )
-                for method in ("xgboost", "ensemble"):
-                    predictions = result["testPredictions"][method]
-                    _persist_predictions(conn, run, product["id"], test, method, predictions)
-                    metric = result["finalTest"][method]
-                    _persist_metric_values(conn, run, product["id"], method, metric)
+                result = train_verified_xgboost(
+                    observations,
+                    bounds,
+                    window=settings["moving_average_window"],
+                    horizon=run["forecast_horizon_days"],
+                )
+                summary.update(
+                    {
+                        "parameters": result["parameters"],
+                        "xgbWeight": result["xgbWeight"],
+                        "operatingMethod": result["operatingMethod"],
+                        "artifact": f"{run['id']}/{product_id}.json",
+                    }
+                )
+                result["model"].save_model(artifacts / f"{product_id}.json")
+                for split, metrics in (
+                    ("validation", result["validation"]),
+                    ("final_test", result["finalTest"]),
+                ):
+                    for method, metric in metrics.items():
+                        _persist_metric_values(
+                            conn, run, product_id, _method(method), metric, split
+                        )
+                for method, predictions in result["testPredictions"].items():
+                    _persist_predictions(conn, run, product_id, test, _method(method), predictions)
+                future_predictions = result["futurePredictions"]
             else:
-                future_method = "fallback"
-                future_reason = (
-                    f"Requires {settings['minimum_history_weeks']} calendar weeks and "
-                    f"{settings['minimum_nonzero_days']} nonzero days; found {history_days} and {nonzero}."
+                history = [
+                    item.quantity for item in observations if item.day <= run["validation_end"]
+                ]
+                ma = moving_average(history, len(test), settings["moving_average_window"])
+                _persist_predictions(conn, run, product_id, test, "moving_average", ma)
+                metric = evaluate([item.quantity for item in test], ma)
+                _persist_metric_values(
+                    conn,
+                    run,
+                    product_id,
+                    "moving_average",
+                    {"mae": metric.mae, "rmse": metric.rmse, "observations": metric.observations},
                 )
-
-            complete_history = [item.quantity for item in observations]
-            future = moving_average(
-                complete_history, run["forecast_horizon_days"], settings["moving_average_window"]
-            )
-            for index, prediction in enumerate(future, start=1):
-                conn.execute(
-                    """INSERT INTO forecast_predictions
-                    (business_id,forecast_run_id,product_id,prediction_date,method,dataset_split,
-                     predicted_quantity,fallback_reason) VALUES(%s,%s,%s,%s,%s,'future',%s,%s)""",
-                    (
-                        run["business_id"],
-                        run["id"],
-                        product["id"],
-                        run["final_test_end"] + timedelta(days=index),
-                        future_method,
-                        Decimal(str(prediction)),
-                        future_reason,
-                    ),
-                )
-
+                future_predictions = {
+                    "fallback": moving_average(
+                        [item.quantity for item in observations],
+                        run["forecast_horizon_days"],
+                        settings["moving_average_window"],
+                    )
+                }
+            for method, predictions in future_predictions.items():
+                for index, prediction in enumerate(predictions, start=1):
+                    conn.execute(
+                        """INSERT INTO forecast_predictions
+                        (business_id,forecast_run_id,product_id,prediction_date,method,dataset_split,
+                         predicted_quantity,fallback_reason) VALUES(%s,%s,%s,%s,%s,'future',%s,%s)""",
+                        (
+                            run["business_id"],
+                            run["id"],
+                            product_id,
+                            run["final_test_end"] + timedelta(days=index),
+                            _method(method),
+                            Decimal(str(prediction)),
+                            reason,
+                        ),
+                    )
+            configuration["products"][product_id] = summary
         conn.execute(
             """UPDATE forecast_runs SET status='completed',algorithm_version=%s,configuration=%s,
                completed_at=now(),xgboost_verified=false WHERE id=%s""",
@@ -162,7 +216,11 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
         )
 
 
-def _persist_predictions(conn, run, product_id, observations, method, predictions) -> None:
+def _method(method):
+    return "moving_average" if method == "movingAverage" else method
+
+
+def _persist_predictions(conn, run, product_id, observations, method, predictions):
     for observation, prediction in zip(observations, predictions, strict=True):
         conn.execute(
             """INSERT INTO forecast_predictions
@@ -180,17 +238,7 @@ def _persist_predictions(conn, run, product_id, observations, method, prediction
         )
 
 
-def _persist_metric(conn, run, product_id, method, metric) -> None:
-    _persist_metric_values(
-        conn,
-        run,
-        product_id,
-        method,
-        {"mae": metric.mae, "rmse": metric.rmse, "observations": metric.observations},
-    )
-
-
-def _persist_metric_values(conn, run, product_id, method, metric, split="final_test") -> None:
+def _persist_metric_values(conn, run, product_id, method, metric, split="final_test"):
     conn.execute(
         """INSERT INTO forecast_metrics
         (business_id,forecast_run_id,product_id,method,dataset_split,mae,rmse,observation_count)
@@ -209,28 +257,39 @@ def _persist_metric_values(conn, run, product_id, method, metric, split="final_t
 
 
 def run_once() -> bool:
-    with psycopg.connect(str(get_settings().database_url), row_factory=dict_row) as conn:
+    with psycopg.connect(
+        str(get_settings().database_url), row_factory=dict_row, autocommit=True
+    ) as conn:
         run = claim_run(conn)
         if not run:
             return False
         try:
             process_run(conn, run)
         except Exception as error:
-            conn.rollback()
-            conn.execute(
-                """UPDATE forecast_runs SET status='failed',failure_message=%s,completed_at=now()
-                   WHERE id=%s""",
-                (str(error)[:2000], run["id"]),
-            )
-            raise
+            # The prediction transaction rolls back; commit the failed state independently.
+            with conn.transaction():
+                conn.execute(
+                    """UPDATE forecast_runs SET status='failed',failure_message=%s,
+                                completed_at=now() WHERE id=%s""",
+                    (str(error)[:2000], run["id"]),
+                )
+            shutil.rmtree(get_settings().artifact_dir / str(run["id"]), ignore_errors=True)
+            logger.exception("Forecast run %s failed", run["id"])
+        finally:
+            conn.execute("SELECT pg_advisory_unlock(hashtextextended(%s,0))", (str(run["id"]),))
         return True
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO)
     settings = get_settings()
     while True:
-        if not run_once():
-            time.sleep(settings.forecast_poll_seconds)
+        try:
+            if run_once():
+                continue
+        except psycopg.Error:
+            logger.exception("Database unavailable; worker will retry")
+        time.sleep(settings.forecast_poll_seconds)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ import { api, type SessionUser } from "@/lib/api";
 import type { Product, Sale, Settings } from "@/lib/types";
 
 type Store = {
+  dataOrigin: "demo" | "partner";
   dataMode: "browser-demo" | "api";
   session: SessionUser | null;
   apiStatus: "idle" | "loading" | "ready" | "error";
@@ -21,19 +22,25 @@ type Store = {
   receiveStock: (productId: string, qty: number) => Promise<void>;
   updateProduct: (id: string, patch: Partial<Product>) => Promise<void>;
   addProduct: (product: Omit<Product, "id" | "sku"> & { sku?: string }) => Promise<void>;
-  importInventory: (rows: Omit<Product, "id">[]) => void;
+  importInventory: (rows: Omit<Product, "id">[]) => Promise<void>;
   updateSettings: (patch: Partial<Settings>) => Promise<void>;
-  importSales: (rows: Sale[]) => void;
+  importSales: (rows: Sale[]) => Promise<void>;
   resetDemo: () => void;
 };
+
+const dataMode = import.meta.env.VITE_DATA_MODE === "browser-demo" ? "browser-demo" : "api";
 
 export const useAppStore = create<Store>()(
   persist(
     (set, get) => ({
-      products: createSeedProducts(),
-      sales: createSeedSales(),
-      settings: defaultSettings,
-      dataMode: import.meta.env.VITE_DATA_MODE === "api" ? "api" : "browser-demo",
+      products: dataMode === "api" ? [] : createSeedProducts(),
+      sales: dataMode === "api" ? [] : createSeedSales(),
+      settings:
+        dataMode === "api"
+          ? { ...defaultSettings, storeName: "StockCast Store", storeLocation: "" }
+          : defaultSettings,
+      dataMode,
+      dataOrigin: "demo",
       session: null,
       apiStatus: "idle",
       apiError: null,
@@ -69,7 +76,7 @@ export const useAppStore = create<Store>()(
       },
       signOut: async () => {
         await api.signOut();
-        set({ session: null, apiStatus: "idle", apiError: null });
+        set({ session: null, products: [], sales: [], apiStatus: "idle", apiError: null });
       },
       recordSale: async (productId, date, qty) => {
         if (qty <= 0) return;
@@ -147,8 +154,14 @@ export const useAppStore = create<Store>()(
           ],
         });
       },
-      importInventory: (rows) => {
+      importInventory: async (rows) => {
         if (!rows.length) return;
+        if (get().dataMode === "api") {
+          const session = requireSession(get());
+          await api.importInventory(session.businessId, rows);
+          set({ products: await api.products(session.businessId) });
+          return;
+        }
         const importedBySku = new Map(rows.map((row) => [row.sku.toLowerCase(), row]));
         const existingSkus = new Set(get().products.map((product) => product.sku.toLowerCase()));
         const updated = get().products.map((product) => {
@@ -168,11 +181,30 @@ export const useAppStore = create<Store>()(
         }
         set({ settings });
       },
-      importSales: (rows) => {
+      importSales: async (rows) => {
         if (!rows.length) return;
+        if (get().dataMode === "api") {
+          const session = requireSession(get());
+          const byId = new Map(get().products.map((product) => [product.id, product.sku]));
+          const result = await api.importSales(
+            session.businessId,
+            rows.map((row) => ({
+              sku: byId.get(row.productId) ?? row.productId,
+              saleDate: row.date,
+              quantity: String(row.qty),
+            })),
+          );
+          set({ sales: await api.sales(session.businessId) });
+          if (result.rejectedRows)
+            throw new Error(
+              `Imported ${result.acceptedRows} rows; ${result.rejectedRows} rejected. Check the product SKUs.`,
+            );
+          return;
+        }
         set({ sales: [...get().sales, ...rows] });
       },
       resetDemo: () => {
+        if (get().dataMode !== "browser-demo") return;
         invalidatePipelineCache();
         set({
           products: createSeedProducts(),
@@ -182,13 +214,14 @@ export const useAppStore = create<Store>()(
       },
     }),
     {
-      name: "stockcast-v5",
+      name: dataMode === "browser-demo" ? "stockcast-v5" : "stockcast-api-ui",
       version: 5,
       partialize: (state) =>
         state.dataMode === "browser-demo"
           ? { products: state.products, sales: state.sales, settings: state.settings }
           : {},
       merge: (persisted, current) => {
+        if (current.dataMode === "api") return current;
         const p = (persisted ?? {}) as Partial<Store>;
         return {
           ...current,
@@ -206,10 +239,11 @@ function requireSession(store: Store): SessionUser {
 }
 
 async function loadApiState(session: SessionUser, set: (patch: Partial<Store>) => void) {
-  const [products, sales, rawSettings] = await Promise.all([
+  const [products, sales, rawSettings, business] = await Promise.all([
     api.products(session.businessId),
     api.sales(session.businessId),
     api.settings(session.businessId),
+    api.business(session.businessId),
   ]);
   const settings = {
     ...defaultSettings,
@@ -219,7 +253,16 @@ async function loadApiState(session: SessionUser, set: (patch: Partial<Store>) =
     minWeeks: Number(rawSettings.minimumHistoryWeeks),
     topNProducts: Number(rawSettings.topNProducts),
     cvFolds: Number(rawSettings.cvFolds),
-    storeName: session.displayName,
+    storeName: business.name,
+    storeLocation: business.location ?? "",
   };
-  set({ session, products, sales, settings, apiStatus: "ready", apiError: null });
+  set({
+    session,
+    products,
+    sales,
+    settings,
+    dataOrigin: business.dataOrigin,
+    apiStatus: "ready",
+    apiError: null,
+  });
 }

@@ -1,7 +1,8 @@
 from functools import lru_cache
 from pathlib import Path
+from uuid import UUID
 
-from pydantic import Field, PostgresDsn
+from pydantic import EmailStr, Field, PostgresDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,10 +17,16 @@ class Settings(BaseSettings):
     app_env: str = "development"
     host: str = "127.0.0.1"
     port: int = Field(default=3001, ge=1, le=65535)
-    cors_origin: str = "http://localhost:5173"
+    cors_origin: str = "http://127.0.0.1:5173"
     session_hours: int = Field(default=12, ge=1, le=168)
     artifact_dir: Path = Path("data/models")
     forecast_poll_seconds: int = Field(default=5, ge=1, le=3600)
+    owner_business_id: UUID = UUID("00000000-0000-4000-8000-000000000001")
+    owner_business_name: str = "StockCast Store"
+    owner_data_origin: str = "demo"
+    owner_email: EmailStr = "owner@example.com"
+    owner_display_name: str = "Store Owner"
+    owner_password: str = ""
 
 
 @lru_cache

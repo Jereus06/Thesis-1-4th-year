@@ -11,7 +11,7 @@ export function ApiGate({ children }: { children: ReactNode }) {
   const error = useAppStore((state) => state.apiError);
   const connect = useAppStore((state) => state.connectApi);
   const signIn = useAppStore((state) => state.signIn);
-  const [businessId, setBusinessId] = useState("");
+  const [businessId, setBusinessId] = useState("00000000-0000-4000-8000-000000000001");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
@@ -40,7 +40,7 @@ export function ApiGate({ children }: { children: ReactNode }) {
         <div>
           <h1 className="text-2xl font-semibold">Sign in to StockCast</h1>
           <p className="text-sm text-muted">
-            API mode uses the shared PostgreSQL business database.
+            Use the owner credentials saved in your .env file during setup.
           </p>
         </div>
         {error && (

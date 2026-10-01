@@ -5,8 +5,8 @@ Read [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) before changing this p
 ## Project and current status
 
 - Official thesis title: **Sales Forecasting and Inventory Optimization for Small Retail Businesses Using XGBoost Algorithm**.
-- This repository's `main` branch is a working **React frontend prototype** with generated demonstration sales, local browser storage, forecast demonstrations, and restock screens. It does not contain a production backend, a database, or an authentication service.
-- The team is still finding a real partner business and building the backend. The user is handling database design. Do not invent a partner's identity, data, database schema, backend routes, authentication model, or research results.
+- This branch uses a React/TypeScript frontend, Python/FastAPI API and forecasting worker, and PostgreSQL. Normal local/hosted startup is `npm start` through Docker Compose; the browser prototype remains an explicit optional demonstration mode.
+- The team is still finding a real partner business. The user owns database design. Preserve the existing API/database contract and migration history; do not invent partner details, collected data, or research results.
 - The demo setting `dataScenario: "partner"` does **not** mean the seeded sales came from a partner. The store name and location in `src/lib/data/seed.ts` are placeholders.
 
 ## Working on the code

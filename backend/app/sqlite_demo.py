@@ -28,7 +28,7 @@ from .security import Principal, hash_password, new_token, token_hash, verify_pa
 
 DEMO_BUSINESS_ID = "00000000-0000-4000-8000-000000000001"
 DEMO_OWNER_ID = "00000000-0000-4000-8000-000000000002"
-DEMO_EMAIL = "owner@example.test"
+DEMO_EMAIL = "owner@example.com"
 DEMO_PASSWORD = "stockcast-demo-password"
 DB_PATH = Path(os.getenv("STOCKCAST_DEMO_DB", "backend/data/stockcast-demo.sqlite3"))
 

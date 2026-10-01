@@ -1,8 +1,16 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 class ApiModel(BaseModel):
@@ -32,6 +40,7 @@ class ProductCreate(ApiModel):
 
 
 class ProductUpdate(ApiModel):
+    current_stock: Decimal | None = Field(default=None, ge=0, decimal_places=3)
     sku: str | None = Field(default=None, min_length=1, max_length=100)
     name: str | None = Field(default=None, min_length=1, max_length=200)
     category: str | None = Field(default=None, min_length=1, max_length=100)
@@ -40,6 +49,17 @@ class ProductUpdate(ApiModel):
     safety_stock: Decimal | None = Field(default=None, ge=0, decimal_places=3)
     unit_cost: Decimal | None = Field(default=None, ge=0, decimal_places=4)
     is_active: bool | None = None
+
+
+class InventoryImportCreate(ApiModel):
+    rows: list[ProductCreate] = Field(min_length=1, max_length=5000)
+
+    @model_validator(mode="after")
+    def unique_skus(self):
+        skus = [row.sku.strip().lower() for row in self.rows]
+        if len(skus) != len(set(skus)):
+            raise ValueError("Inventory import contains duplicate SKUs")
+        return self
 
 
 class SaleCreate(ApiModel):
@@ -57,6 +77,8 @@ class MovementCreate(ApiModel):
 
 
 class SettingsUpdate(ApiModel):
+    business_name: str | None = Field(default=None, min_length=1, max_length=200)
+    business_location: str | None = Field(default=None, max_length=300)
     moving_average_window: int = Field(gt=0)
     forecast_horizon_days: int = Field(gt=0)
     target_cover_days: int = Field(ge=0)
@@ -65,6 +87,15 @@ class SettingsUpdate(ApiModel):
     top_n_products: int = Field(gt=0)
     cv_folds: int = Field(ge=2)
     timezone: str = Field(min_length=1)
+
+    @field_validator("timezone")
+    @classmethod
+    def valid_timezone(cls, value):
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as error:
+            raise ValueError("Use a valid IANA timezone such as Asia/Manila") from error
+        return value
 
 
 class BusinessUpdate(ApiModel):
@@ -108,6 +139,10 @@ class ForecastRunCreate(ApiModel):
             raise ValueError(
                 "Training, validation, and final-test periods must be ordered and disjoint"
             )
+        if self.validation_start != self.training_end + timedelta(
+            days=1
+        ) or self.final_test_start != self.validation_end + timedelta(days=1):
+            raise ValueError("Chronological periods must be contiguous daily ranges")
         return self
 
 

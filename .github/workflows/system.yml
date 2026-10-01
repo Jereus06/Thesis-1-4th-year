@@ -1,0 +1,54 @@
+name: StockCast system checks
+on:
+  pull_request:
+  push:
+    branches: [main, codex/unified-startup]
+permissions:
+  contents: read
+jobs:
+  system:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+      - name: Configure disposable test installation
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          writeFileSync('.env', readFileSync('.env.example', 'utf8')
+            .replace('replace_with_a_random_hex_password', 'ci-db-password-123456')
+            .replace('replace_with_a_second_random_hex_password', 'ci-app-password-123456')
+            .replace('replace_with_at_least_12_characters', 'ci-owner-password-123456'));
+          JS
+      - name: Start the complete application with one command
+        run: npm start
+      - name: Python tests with real PostgreSQL
+        run: docker compose exec -T api sh -c 'STOCKCAST_TEST_DATABASE_URL="$DATABASE_URL" python -m pytest backend/tests -q --disable-warnings'
+      - name: Check the website, authenticated API, stock, imports, and XGBoost worker
+        run: docker compose exec -T api python -m backend.app.smoke
+      - name: Back up and verify restoration in a separate test database
+        run: |
+          npm run backup
+          docker compose exec -T database createdb -U stockcast_admin -O stockcast stockcast_restore_check
+          docker compose exec -T database pg_restore -U stockcast -d stockcast_restore_check --exit-on-error < backups/*.dump
+          restored_count=$(docker compose exec -T database psql -U stockcast -d stockcast_restore_check -tAc "SELECT count(*) FROM products WHERE sku='SMOKE-PERSIST'")
+          test "$restored_count" = 1
+      - name: Check records survive removing and recreating containers
+        run: |
+          npm run stop
+          npm start
+          docker compose exec -T api python -m backend.app.smoke --check-persistence
+      - name: Service logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 100
+      - name: Stop test installation
+        if: always()
+        run: docker compose down
