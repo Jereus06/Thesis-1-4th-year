@@ -26,7 +26,7 @@ initial owner account. The first start creates a private `.env` file and prints 
 
 - Optional Business ID: `00000000-0000-4000-8000-000000000001`
 - Email: `owner@example.com`
-- Password: the generated `OWNER_PASSWORD` in `.env`
+- Password: the generated `OWNER_PASSWORD` = `92a0ecce9eead6e8ec17abbe9fcd34071d16`
 
 Keep `.env` private and keep a copy of it. To choose your account details before first startup,
 run `npm run setup`, edit `.env`, then run `npm start`. Owner creation runs once per account;
