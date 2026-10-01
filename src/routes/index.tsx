@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AS_OF } from "@/lib/data/seed";
-import { formatLong } from "@/lib/dates";
+import { formatLong, todayISO } from "@/lib/dates";
 import { DISCLAIMER, modelLabel } from "@/lib/forecast/constants";
 import { metric, num, peso } from "@/lib/format";
 import { useAppStore } from "@/lib/store";
@@ -15,6 +15,7 @@ import { useAppStore } from "@/lib/store";
 export const Route = createFileRoute("/")({ component: Overview });
 
 function Overview() {
+  const mode = useAppStore((s) => s.dataMode);
   const products = useAppStore((s) => s.products);
   const storeName = useAppStore((s) => s.settings.storeName);
   const forecastHorizon = useAppStore((s) => s.settings.forecastHorizon);
@@ -37,7 +38,7 @@ function Overview() {
     <div className="page-enter mx-auto flex max-w-6xl flex-col gap-6">
       <header className="flex flex-col gap-2">
         <p className="text-xs font-medium tracking-widest text-muted uppercase">
-          {formatLong(AS_OF)}
+          {formatLong(mode === "api" ? todayISO() : AS_OF)}
         </p>
         <h1 className="font-display text-2xl font-medium tracking-tight sm:text-3xl md:text-4xl">
           Morning briefing
@@ -163,7 +164,7 @@ function Overview() {
                   rmse={result.maRmse}
                   active={result.winner === "ma" || result.winner === "rule"}
                 />
-                <p className="text-xs text-muted">{DISCLAIMER}</p>
+                <p className="text-xs text-muted">{result?.diagnostics.disclaimer ?? DISCLAIMER}</p>
               </>
             )}
             <Button variant="outline" asChild className="w-full">

@@ -1,8 +1,14 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { useForecastCompute, type ForecastState } from "@/lib/use-forecast";
 import type { PipelineResult } from "@/lib/types";
+import { useApiForecast } from "@/lib/use-api-forecast";
 
 const ForecastContext = createContext<ForecastState | null>(null);
+
+export function ApiForecastProvider({ children }: { children: ReactNode }) {
+  const value = useApiForecast();
+  return <ForecastContext.Provider value={value}>{children}</ForecastContext.Provider>;
+}
 
 export function ForecastProvider({
   children,

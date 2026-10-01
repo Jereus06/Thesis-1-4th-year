@@ -27,7 +27,10 @@ export function buildReorderRows(
       const reorderPoint = demandDuringLead + product.safetyStock;
       const targetStock =
         dailyDemand * (product.leadTimeDays + settings.coverDays) + product.safetyStock;
-      const reorderQty = Math.max(0, Math.ceil(targetStock - product.currentStock));
+      const reorderQty =
+        product.currentStock <= reorderPoint
+          ? Math.max(0, Math.ceil(targetStock - product.currentStock))
+          : 0;
       const daysOfCover = dailyDemand > 0 ? product.currentStock / dailyDemand : 99;
       const status = stockStatus(product.currentStock, reorderPoint, daysOfCover);
       const confidence: ConfidenceLevel = forecast?.confidence ?? "low";

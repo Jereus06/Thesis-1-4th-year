@@ -36,12 +36,14 @@ function RestockPage() {
   return (
     <div className="page-enter mx-auto flex max-w-6xl flex-col gap-6">
       <header>
-        <h1 className="font-display text-3xl font-medium tracking-tight">Restocking recommendations</h1>
+        <h1 className="font-display text-3xl font-medium tracking-tight">
+          Restocking recommendations
+        </h1>
         <p className="mt-2 max-w-2xl text-muted">
-          ROP = (average forecasted daily demand × supplier lead time) + safety stock. Top sellers
-          use the ensemble; slow movers use a simple reorder rule.
+          ROP = (average forecasted daily demand × supplier lead time) + safety stock. Suggested
+          quantities apply when stock reaches the reorder point.
         </p>
-        <p className="mt-2 text-xs text-muted">{DISCLAIMER}</p>
+        <p className="mt-2 text-xs text-muted">{result?.diagnostics.disclaimer ?? DISCLAIMER}</p>
       </header>
 
       <TrainingBanner />
@@ -90,7 +92,11 @@ function Section({
   return (
     <section className="flex flex-col gap-3">
       <h2 className="font-display text-xl font-medium">{title}</h2>
-      {has ? <div className="grid gap-3">{items}</div> : <p className="text-sm text-muted">{empty}</p>}
+      {has ? (
+        <div className="grid gap-3">{items}</div>
+      ) : (
+        <p className="text-sm text-muted">{empty}</p>
+      )}
     </section>
   );
 }
@@ -119,7 +125,9 @@ function RestockCard({ row, onReceive }: { row: ReorderRow; onReceive: () => voi
         </div>
         <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
           <p className="text-right">
-            <span className="block text-xs tracking-wide text-muted uppercase">Recommended qty</span>
+            <span className="block text-xs tracking-wide text-muted uppercase">
+              Recommended qty
+            </span>
             <span className="font-display text-3xl font-medium tabular">{num(row.reorderQty)}</span>
           </p>
           <Button

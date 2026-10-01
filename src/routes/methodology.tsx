@@ -27,10 +27,13 @@ import { useAppStore } from "@/lib/store";
 export const Route = createFileRoute("/methodology")({ component: MethodPage });
 
 function MethodPage() {
+  const mode = useAppStore((s) => s.dataMode);
   const { result, status } = useForecast();
   const d = result?.diagnostics;
   const ready = Boolean(result);
   const [tab, setTab] = useState("accuracy");
+
+  if (mode === "api") return <PythonMethods />;
 
   return (
     <div className="page-enter mx-auto flex max-w-3xl flex-col gap-6">
@@ -38,8 +41,8 @@ function MethodPage() {
         <h1 className="font-display text-3xl font-medium tracking-tight">Two strategies</h1>
         <p className="mt-2 text-muted">
           Accuracy is five reliability levels. Speed is five architecture techniques. They are
-          separate on purpose — one does not substitute for the other. Live evidence on this page
-          is taken from the current forecast run, not from slide copy.
+          separate on purpose — one does not substitute for the other. Live evidence on this page is
+          taken from the current forecast run, not from slide copy.
         </p>
       </header>
 
@@ -68,7 +71,9 @@ function MethodPage() {
         >
           <p className="font-mono text-xs tracking-wide text-muted uppercase">Strategy 2</p>
           <p className="mt-1 font-display text-xl font-medium">Five techniques</p>
-          <p className="mt-1 text-sm text-muted">Speed and architecture so the dashboard stays usable.</p>
+          <p className="mt-1 text-sm text-muted">
+            Speed and architecture so the dashboard stays usable.
+          </p>
         </button>
       </div>
 
@@ -150,7 +155,9 @@ function MethodPage() {
                   onClick={() => {
                     invalidatePipelineCache();
                     requestBackgroundTrain(true);
-                    toast.success("Background training started. Dashboard stays on the last cache.");
+                    toast.success(
+                      "Background training started. Dashboard stays on the last cache.",
+                    );
                   }}
                   disabled={status === "training"}
                 >
@@ -177,6 +184,81 @@ function MethodPage() {
   );
 }
 
+function PythonMethods() {
+  const { result, refresh, status } = useForecast();
+  const settings = useAppStore((s) => s.settings);
+  const session = useAppStore((s) => s.session);
+  return (
+    <div className="mx-auto grid max-w-3xl gap-6">
+      <header>
+        <h1 className="font-display text-3xl">Forecasting methodology</h1>
+        <p className="mt-2 text-muted">
+          The Python worker trains the official XGBoost model and saves forecasts, metrics, and
+          model files.
+        </p>
+      </header>
+      <TrainingBanner />
+      <Card>
+        <CardHeader>
+          <CardTitle>Chronological model evaluation</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <p>
+            Training, validation, and final testing use separate consecutive date ranges. Product
+            ranking and eligibility use training data only. Validation selects parameters, ensemble
+            weights, and the operating method.
+          </p>
+          <p>
+            Moving Average and XGBoost predict the same final-test dates recursively from the same
+            cutoff. Test actuals are not fed back into those predictions. Aggregate comparisons use
+            the same eligible products.
+          </p>
+          <p>
+            Minimum training history: {settings.minWeeks} weeks and 100 nonzero sales days. At most{" "}
+            {settings.topNProducts} products train with ML. Other products use the Python Moving
+            Average fallback.
+          </p>
+          <p>
+            Features: lag 1, lag 7, lag 14, mean 7, mean 30, weekday, and month. Missing calendar
+            days currently count as zero sales; confirm the ledger is complete before interpreting
+            the results.
+          </p>
+          <p>
+            After evaluation, the operating model is refitted on observed history with its frozen
+            configuration. Prediction intervals and confidence percentages are not claimed.
+          </p>
+          <p className="text-muted">{result?.diagnostics.disclaimer}</p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Saved forecasts and responsive pages</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <p>
+            Pages read saved PostgreSQL predictions. Refresh queues a separate Python worker;
+            inventory and sales remain usable during training. Official XGBoost model files are
+            saved in the model volume.
+          </p>
+          <p>
+            Record or import new history, then refresh forecasts. The last completed run remains
+            visible while the new run is pending.
+          </p>
+          {session?.role === "owner" && (
+            <Button
+              disabled={status === "training"}
+              onClick={() => void refresh().catch((error: Error) => toast.error(error.message))}
+            >
+              Refresh forecasts
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+      <ThesisPanel />
+    </div>
+  );
+}
+
 function LevelEvidence({ id }: { id: number }) {
   const { result } = useForecast();
   const products = useAppStore((s) => s.products);
@@ -196,7 +278,7 @@ function LevelEvidence({ id }: { id: number }) {
           `Grain: ${d.dailyProductCount} daily · ${d.weeklyProductCount} weekly (sparse >30% zeros)`,
           `ML scope: ${d.mlProductIds.length} of ${products.length} SKUs (top ${d.topN}, ≥100 non-zero days)`,
           d.usedFallbackDataset
-            ? d.fallbackReason ?? "Public retail fallback in use"
+            ? (d.fallbackReason ?? "Public retail fallback in use")
             : "Partner history used — no fallback",
         ]}
       />
@@ -233,7 +315,9 @@ function LevelEvidence({ id }: { id: number }) {
           `Ensemble used on ${d.ensembleUsedCount} SKUs`,
           `XGBoost unstable fallback: ${d.xgbUnstableCount} SKUs`,
           `Pooled winner: ${modelLabel(result.winner)}`,
-          ...d.ruleProductIds.slice(0, 3).map((id) => `${name(id)}: ${d.skippedReasons[id] ?? "rule"}`),
+          ...d.ruleProductIds
+            .slice(0, 3)
+            .map((id) => `${name(id)}: ${d.skippedReasons[id] ?? "rule"}`),
         ]}
       />
     );
@@ -291,7 +375,10 @@ function TechniqueEvidence({ id }: { id: number }) {
   if (id === 4) {
     return (
       <Evidence
-        items={[`n_splits = ${d.cvFolds} (configured ${CV_FOLDS})`, "Justified for short SME series"]}
+        items={[
+          `n_splits = ${d.cvFolds} (configured ${CV_FOLDS})`,
+          "Justified for short SME series",
+        ]}
       />
     );
   }

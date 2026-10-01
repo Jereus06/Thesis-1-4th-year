@@ -1,7 +1,10 @@
+import hashlib
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from psycopg import Connection
@@ -12,6 +15,7 @@ from .inventory import calculate_reorder
 from .schemas import (
     BusinessUpdate,
     ForecastRunCreate,
+    InventoryImportCreate,
     MovementCreate,
     ProductCreate,
     ProductUpdate,
@@ -47,6 +51,9 @@ class Repository:
     def __init__(self, conn: Connection):
         self.conn = conn
         self.conn.row_factory = dict_row
+
+    def business_day(self, business_id: str):
+        return datetime.now(ZoneInfo(self.get_settings(business_id)["timezone"])).date()
 
     def sign_in(self, business_id: UUID, email: str, password: str, hours: int):
         row = self.conn.execute(
@@ -132,6 +139,8 @@ class Repository:
         if not fields:
             raise HTTPException(422, "At least one field is required")
         if "name" in fields:
+            if fields["name"] is None or not fields["name"].strip():
+                raise HTTPException(422, "Business name is required")
             fields["name"] = fields["name"].strip()
         if "location" in fields and fields["location"] is not None:
             fields["location"] = fields["location"].strip() or None
@@ -167,11 +176,12 @@ class Repository:
                     """INSERT INTO inventory_movements
                     (business_id,product_id,movement_date,movement_type,quantity_delta,balance_after,
                      data_origin,note,recorded_by)
-                    SELECT %s,%s,CURRENT_DATE,'opening_balance',%s,%s,data_origin,
+                    SELECT %s,%s,%s,'opening_balance',%s,%s,data_origin,
                            'Initial product balance',%s FROM businesses WHERE id=%s""",
                     (
                         principal.business_id,
                         row["id"],
+                        self.business_day(principal.business_id),
                         data.current_stock,
                         data.current_stock,
                         principal.user_id,
@@ -185,6 +195,7 @@ class Repository:
         if not fields:
             raise HTTPException(422, "At least one field is required")
         names = {
+            "current_stock",
             "lead_time_days",
             "safety_stock",
             "unit_cost",
@@ -196,14 +207,62 @@ class Repository:
         }
         if not set(fields) <= names:
             raise HTTPException(422, "Unsupported product field")
-        assignments = ",".join(f"{name}=%s" for name in fields)
-        row = self.conn.execute(
-            f"UPDATE products SET {assignments} WHERE business_id=%s AND id=%s RETURNING *",
-            (*fields.values(), principal.business_id, product_id),
-        ).fetchone()
-        if not row:
-            raise HTTPException(404, "Product not found")
+        with self.conn.transaction():
+            previous = self.conn.execute(
+                "SELECT * FROM products WHERE business_id=%s AND id=%s FOR UPDATE",
+                (principal.business_id, product_id),
+            ).fetchone()
+            if not previous:
+                raise HTTPException(404, "Product not found")
+            assignments = ",".join(f"{name}=%s" for name in fields)
+            row = self.conn.execute(
+                f"UPDATE products SET {assignments} WHERE business_id=%s AND id=%s RETURNING *",
+                (*fields.values(), principal.business_id, product_id),
+            ).fetchone()
+            delta = row["current_stock"] - previous["current_stock"]
+            if delta:
+                self.conn.execute(
+                    """INSERT INTO inventory_movements
+                    (business_id,product_id,movement_date,movement_type,quantity_delta,
+                     balance_after,data_origin,note,recorded_by)
+                    SELECT %s,%s,%s,'adjustment',%s,%s,data_origin,%s,%s
+                    FROM businesses WHERE id=%s""",
+                    (
+                        principal.business_id,
+                        product_id,
+                        self.business_day(principal.business_id),
+                        delta,
+                        row["current_stock"],
+                        "Catalog stock count adjustment",
+                        principal.user_id,
+                        principal.business_id,
+                    ),
+                )
         return product_row(row)
+
+    def import_inventory(self, principal: Principal, data: InventoryImportCreate):
+        created = updated = 0
+        with self.conn.transaction():
+            # Serialize imports/catalog counts within a business; the whole snapshot is atomic.
+            self.conn.execute(
+                "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE", (principal.business_id,)
+            )
+            for item in data.rows:
+                existing = self.conn.execute(
+                    "SELECT id FROM products WHERE business_id=%s AND lower(sku)=lower(%s)",
+                    (principal.business_id, item.sku.strip()),
+                ).fetchone()
+                if existing:
+                    self.update_product(
+                        principal,
+                        existing["id"],
+                        ProductUpdate(**item.model_dump(), is_active=True),
+                    )
+                    updated += 1
+                else:
+                    self.create_product(principal, item)
+                    created += 1
+        return {"created": created, "updated": updated}
 
     def record_sale(self, principal: Principal, data: SaleCreate):
         with self.conn.transaction():
@@ -358,20 +417,30 @@ class Repository:
         }
 
     def put_settings(self, business_id: str, data: SettingsUpdate):
-        values = data.model_dump()
-        row = self.conn.execute(
-            """UPDATE business_settings SET moving_average_window=%s,forecast_horizon_days=%s,
-            target_cover_days=%s,minimum_history_weeks=%s,minimum_nonzero_days=%s,
-            top_n_products=%s,cv_folds=%s,timezone=%s WHERE business_id=%s RETURNING *""",
-            (*values.values(), business_id),
-        ).fetchone()
-        if not row:
-            raise HTTPException(404, "Settings not found")
+        values = data.model_dump(exclude={"business_name", "business_location"})
+        with self.conn.transaction():
+            row = self.conn.execute(
+                """UPDATE business_settings SET moving_average_window=%s,forecast_horizon_days=%s,
+                target_cover_days=%s,minimum_history_weeks=%s,minimum_nonzero_days=%s,
+                top_n_products=%s,cv_folds=%s,timezone=%s WHERE business_id=%s RETURNING *""",
+                (*values.values(), business_id),
+            ).fetchone()
+            if not row:
+                raise HTTPException(404, "Settings not found")
+            profile = {}
+            if data.business_name is not None:
+                profile["name"] = data.business_name
+            if data.business_location is not None:
+                profile["location"] = data.business_location
+            if profile:
+                self.update_business(business_id, BusinessUpdate(**profile))
         return self.get_settings(business_id)
 
     def create_sales_import(self, principal: Principal, data: SalesImportCreate):
         canonical = json.dumps(
-            data.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
+            {"source": data.source, "rows": [row.model_dump(mode="json") for row in data.rows]},
+            sort_keys=True,
+            separators=(",", ":"),
         ).encode()
         digest = hashlib.sha256(canonical).hexdigest()
         existing = self.conn.execute(
@@ -467,12 +536,37 @@ class Repository:
         return self._data_import(row)
 
     def create_forecast_run(self, principal: Principal, data: ForecastRunCreate):
+        self.conn.execute(
+            "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE", (principal.business_id,)
+        )
+        pending = self.conn.execute(
+            "SELECT id FROM forecast_runs WHERE business_id=%s AND status IN ('queued','running')",
+            (principal.business_id,),
+        ).fetchone()
+        if pending:
+            raise HTTPException(409, "A forecast run is already queued or running")
         snapshot = self.conn.execute(
             """SELECT count(*) AS sales_count,min(sale_date) AS first_sale_date,
                max(sale_date) AS last_sale_date FROM sales WHERE business_id=%s
                AND sale_date<=%s""",
             (principal.business_id, data.final_test_end),
         ).fetchone()
+        daily_rows = self.conn.execute(
+            """SELECT product_id,sale_date,sum(quantity) AS quantity FROM sales
+               WHERE business_id=%s AND sale_date BETWEEN %s AND %s
+               GROUP BY product_id,sale_date ORDER BY product_id,sale_date""",
+            (principal.business_id, data.training_start, data.final_test_end),
+        ).fetchall()
+        settings = self.conn.execute(
+            "SELECT * FROM business_settings WHERE business_id=%s", (principal.business_id,)
+        ).fetchone()
+        product_ids = [
+            str(row["id"])
+            for row in self.conn.execute(
+                "SELECT id FROM products WHERE business_id=%s AND is_active ORDER BY id",
+                (principal.business_id,),
+            ).fetchall()
+        ]
         row = self.conn.execute(
             """INSERT INTO forecast_runs
             (business_id,data_origin,status,algorithm_name,algorithm_version,xgboost_verified,
@@ -500,6 +594,20 @@ class Repository:
                         if snapshot["last_sale_date"]
                         else None,
                         "capturedAt": datetime.now(UTC).isoformat(),
+                        "products": product_ids,
+                        "settings": {
+                            key: value
+                            for key, value in settings.items()
+                            if key not in {"business_id", "updated_at", "created_at"}
+                        },
+                        "dailySales": [
+                            {
+                                "productId": str(row["product_id"]),
+                                "date": str(row["sale_date"]),
+                                "quantity": decimal_text(row["quantity"]),
+                            }
+                            for row in daily_rows
+                        ],
                     }
                 ),
                 principal.user_id,
@@ -507,6 +615,38 @@ class Repository:
             ),
         ).fetchone()
         return self._forecast_run(row)
+
+    def refresh_forecast(self, principal: Principal):
+        span = self.conn.execute(
+            "SELECT min(sale_date) AS start,max(sale_date) AS finish FROM sales WHERE business_id=%s",
+            (principal.business_id,),
+        ).fetchone()
+        if not span["start"]:
+            raise HTTPException(422, "Add or import sales before refreshing forecasts")
+        end = span["finish"]
+        if end > self.business_day(principal.business_id):
+            raise HTTPException(422, "Forecast history cannot include future-dated sales")
+        days = (end - span["start"]).days + 1
+        if days < 3:
+            raise HTTPException(
+                422,
+                "At least three calendar days are needed for train/validation/test; the baseline remains available",
+            )
+        holdout = max(1, min(14, days // 5))
+        settings = self.get_settings(principal.business_id)
+        return self.create_forecast_run(
+            principal,
+            ForecastRunCreate(
+                training_start=span["start"],
+                training_end=end - timedelta(days=2 * holdout),
+                validation_start=end - timedelta(days=2 * holdout - 1),
+                validation_end=end - timedelta(days=holdout),
+                final_test_start=end - timedelta(days=holdout - 1),
+                final_test_end=end,
+                forecast_horizon_days=settings["forecastHorizonDays"],
+                configuration={"requestedFrom": "web", "missingDayPolicy": "zero_sales"},
+            ),
+        )
 
     def list_forecast_runs(self, business_id: str, limit: int, offset: int):
         rows = self.conn.execute(

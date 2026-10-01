@@ -1,6 +1,6 @@
 import type { Product, Sale, Settings } from "@/lib/types";
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:3001/api/v1";
+const API_URL = import.meta.env.VITE_API_URL ?? "/api/v1";
 
 export class ApiError extends Error {
   constructor(
@@ -42,6 +42,12 @@ export const api = {
     }),
   signOut: () => request<{ signedOut: boolean }>("/auth/sign-out", { method: "POST" }),
   me: () => request<SessionUser>("/auth/me"),
+  business: (businessId: string) =>
+    request<{ name: string; location: string | null; dataOrigin: "demo" | "partner" }>(
+      `/businesses/${businessId}`,
+    ),
+  updateBusiness: (businessId: string, name: string, location: string) =>
+    request(`/businesses/${businessId}`, { method: "PATCH", body: { name, location } }),
   products: async (businessId: string) =>
     (await request<ApiProduct[]>(`/businesses/${businessId}/products`)).map(toProduct),
   createProduct: async (businessId: string, product: Omit<Product, "id">) =>
@@ -56,11 +62,31 @@ export const api = {
     toProduct(
       await request<ApiProduct>(`/businesses/${businessId}/products/${productId}`, {
         method: "PATCH",
-        body: withoutStock(patch),
+        body: patch,
       }),
     ),
   sales: async (businessId: string) =>
-    (await request<ApiSale[]>(`/businesses/${businessId}/sales`)).map(toSale),
+    (await allPages<ApiSale>(`/businesses/${businessId}/sales`)).map(toSale),
+  importInventory: (businessId: string, rows: Omit<Product, "id">[]) =>
+    request<{ created: number; updated: number }>(`/businesses/${businessId}/inventory-imports`, {
+      method: "POST",
+      body: { rows },
+      idempotencyKey: crypto.randomUUID(),
+    }),
+  importSales: (businessId: string, rows: { sku: string; saleDate: string; quantity: string }[]) =>
+    request<{ acceptedRows: number; rejectedRows: number; errors: unknown[] }>(
+      `/businesses/${businessId}/data-imports`,
+      {
+        method: "POST",
+        body: { source: "csv", rows },
+      },
+    ),
+  dashboard: (businessId: string) =>
+    request<ApiDashboard>(`/businesses/${businessId}/forecast-dashboard`),
+  refreshForecast: (businessId: string) =>
+    request<ApiForecastRun>(`/businesses/${businessId}/forecast-refresh`, { method: "POST" }),
+  exportUrl: (businessId: string, kind: "sales" | "inventory-movements") =>
+    `${API_URL}/businesses/${businessId}/exports/${kind}.csv`,
   recordSale: async (businessId: string, productId: string, date: string, qty: number) =>
     toSale(
       await request<ApiSale>(`/businesses/${businessId}/sales`, {
@@ -87,6 +113,8 @@ export const api = {
       method: "PUT",
       body: {
         movingAverageWindow: settings.maWindow,
+        businessName: settings.storeName,
+        businessLocation: settings.storeLocation,
         forecastHorizonDays: settings.forecastHorizon,
         targetCoverDays: settings.coverDays,
         minimumHistoryWeeks: settings.minWeeks,
@@ -117,13 +145,25 @@ async function request<T>(
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
   const payload = (await response.json().catch(() => null)) as
-    Envelope<T> | { detail?: string; error?: { code?: string; message?: string } } | null;
+    Envelope<T> | { detail?: unknown; error?: { code?: string; message?: string } } | null;
   if (!response.ok) {
     const failure = payload as {
-      detail?: string;
+      detail?: unknown;
       error?: { code?: string; message?: string };
     } | null;
-    const message = failure?.error?.message ?? failure?.detail;
+    const detail = failure?.detail;
+    const message =
+      failure?.error?.message ??
+      (typeof detail === "string"
+        ? detail
+        : Array.isArray(detail)
+          ? detail
+              .map(
+                (item: { loc?: string[]; msg?: string }) =>
+                  `${item.loc?.slice(1).join(".") ?? "Input"}: ${item.msg ?? "Invalid value"}`,
+              )
+              .join("; ")
+          : undefined);
     const code = failure?.error?.code;
     throw new ApiError(
       response.status,
@@ -157,7 +197,70 @@ function toSale(value: ApiSale): Sale {
     qty: Number(value.quantity),
   };
 }
-function withoutStock(patch: Partial<Product>) {
-  const { currentStock: _currentStock, id: _id, ...allowed } = patch;
-  return allowed;
+async function allPages<T>(path: string): Promise<T[]> {
+  const result: T[] = [];
+  for (let offset = 0; ; offset += 200) {
+    const page = await request<T[]>(`${path}?limit=200&offset=${offset}`);
+    result.push(...page);
+    if (page.length < 200) return result;
+  }
 }
+
+export type ApiForecastRun = {
+  id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  createdAt: string;
+  finalTestStart: string;
+  finalTestEnd: string;
+  failureMessage: string | null;
+  configuration: Record<string, unknown>;
+};
+export type ApiDashboard = {
+  stale: boolean;
+  run: ApiForecastRun | null;
+  latestRun: ApiForecastRun | null;
+  asOf: string;
+  message: string;
+  summaries: Record<
+    string,
+    {
+      historyDays: number;
+      nonzeroDays: number;
+      eligible: boolean;
+      operatingMethod: string;
+      fallbackReason?: string;
+      xgbWeight?: number;
+      parameters?: { max_depth: number; learning_rate: number; n_estimators: number };
+    }
+  >;
+  predictions: {
+    productId: string;
+    predictionDate: string;
+    method: string;
+    datasetSplit: string;
+    predictedQuantity: string;
+    actualQuantity: string | null;
+    lowerBound: string | null;
+    upperBound: string | null;
+  }[];
+  metrics: {
+    productId: string;
+    method: string;
+    datasetSplit: string;
+    mae: string;
+    rmse: string;
+    observationCount: number;
+  }[];
+  recommendations: {
+    productId: string;
+    method: string;
+    confidenceLevel: "low" | "medium" | "high";
+    daily_demand: string;
+    demand_during_lead_time: string;
+    reorder_point: string;
+    target_stock: string;
+    suggested_quantity: string;
+    days_of_cover: string | null;
+    status: "stockout" | "reorder" | "watch" | "healthy";
+  }[];
+};

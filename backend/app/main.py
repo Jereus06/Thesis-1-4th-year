@@ -1,9 +1,13 @@
+import csv
+import io
 from contextlib import asynccontextmanager
 from uuid import UUID
 
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from psycopg import Connection
+from psycopg.errors import CheckViolation, UniqueViolation
 
 from .config import Settings, get_settings
 from .db import close_pool, connection, database_ready, open_pool
@@ -11,6 +15,7 @@ from .repository import Repository
 from .schemas import (
     BusinessUpdate,
     ForecastRunCreate,
+    InventoryImportCreate,
     MovementCreate,
     ProductCreate,
     ProductUpdate,
@@ -31,7 +36,7 @@ async def lifespan(_: FastAPI):
 
 
 settings = get_settings()
-app = FastAPI(title="StockCast API", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="StockCast API", version="0.3.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.cors_origin],
@@ -39,6 +44,20 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Content-Type", "X-CSRF-Token", "Idempotency-Key"],
 )
+
+
+@app.exception_handler(UniqueViolation)
+def duplicate_record(_request, _error):
+    return JSONResponse(
+        status_code=409, content={"detail": "A record with this SKU or import key already exists"}
+    )
+
+
+@app.exception_handler(CheckViolation)
+def invalid_record(_request, _error):
+    return JSONResponse(
+        status_code=422, content={"detail": "A value violates a database validation rule"}
+    )
 
 
 def repo(conn: Connection = Depends(connection)) -> Repository:
@@ -121,11 +140,32 @@ def health():
 
 
 @app.post("/api/v1/auth/sign-in")
-def sign_in(data: SignIn, response: Response, repository: Repository = Depends(repo), config: Settings = Depends(get_settings)):
-    session, csrf, user = repository.sign_in(data.business_id, str(data.email), data.password, config.session_hours)
+def sign_in(
+    data: SignIn,
+    response: Response,
+    repository: Repository = Depends(repo),
+    config: Settings = Depends(get_settings),
+):
+    session, csrf, user = repository.sign_in(
+        data.business_id, str(data.email), data.password, config.session_hours
+    )
     secure = config.app_env == "production"
-    response.set_cookie("stockcast_session", session, httponly=True, secure=secure, samesite="strict", max_age=config.session_hours * 3600)
-    response.set_cookie("stockcast_csrf", csrf, httponly=False, secure=secure, samesite="strict", max_age=config.session_hours * 3600)
+    response.set_cookie(
+        "stockcast_session",
+        session,
+        httponly=True,
+        secure=secure,
+        samesite="strict",
+        max_age=config.session_hours * 3600,
+    )
+    response.set_cookie(
+        "stockcast_csrf",
+        csrf,
+        httponly=False,
+        secure=secure,
+        samesite="strict",
+        max_age=config.session_hours * 3600,
+    )
     return {"data": principal_data(user)}
 
 
@@ -228,6 +268,29 @@ def update_product(
     if user.role != "owner":
         raise HTTPException(403, "Owner role required")
     return {"data": repository.update_product(user, product_id, data)}
+
+
+@app.post("/api/v1/businesses/{business_id}/inventory-imports", status_code=201)
+def import_inventory(
+    business_id: str,
+    data: InventoryImportCreate,
+    repository: Repository = Depends(repo),
+    user: Principal = Depends(csrf_protected),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    business_user(business_id, user)
+    if user.role != "owner":
+        raise HTTPException(403, "Owner role required")
+    return {
+        "data": write_once(
+            repository,
+            user,
+            idempotency_key,
+            "import_inventory",
+            data,
+            lambda: repository.import_inventory(user, data),
+        )
+    }
 
 
 @app.get("/api/v1/businesses/{business_id}/settings")
@@ -418,6 +481,30 @@ def forecast_run(
 ):
     business_user(business_id, user)
     return {"data": repository.get_forecast_run(business_id, run_id)}
+
+
+@app.post("/api/v1/businesses/{business_id}/forecast-refresh", status_code=202)
+def refresh_forecast(
+    business_id: str,
+    repository: Repository = Depends(repo),
+    user: Principal = Depends(csrf_protected),
+):
+    business_user(business_id, user)
+    if user.role != "owner":
+        raise HTTPException(403, "Owner role required")
+    return {"data": repository.refresh_forecast(user)}
+
+
+@app.get("/api/v1/businesses/{business_id}/forecast-dashboard")
+def forecast_dashboard(
+    business_id: str,
+    repository: Repository = Depends(repo),
+    user: Principal = Depends(principal),
+):
+    business_user(business_id, user)
+    from .dashboard import dashboard
+
+    return {"data": dashboard(repository, business_id)}
 
 
 @app.get("/api/v1/businesses/{business_id}/forecast-runs/{run_id}/predictions")

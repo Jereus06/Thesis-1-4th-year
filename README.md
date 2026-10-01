@@ -1,65 +1,144 @@
 # StockCast
 
-Sales forecasting and inventory optimization for small retail businesses. This repository contains
-the React demonstration frontend and an in-progress Python/FastAPI/PostgreSQL backend. New coding
-sessions should read [AGENTS.md](AGENTS.md), the [project context](docs/PROJECT_CONTEXT.md), and the
-[completion checklist](docs/COMPLETION_CHECKLIST.md) first.
+Sales Forecasting and Inventory Optimization for Small Retail Businesses Using XGBoost Algorithm.
 
-## Open in VS Code
+StockCast uses a React/TypeScript frontend, one Python/FastAPI backend, PostgreSQL, and a separate
+Python forecasting worker. The same application runs on a laptop and on a server using Docker
+Compose. Normal startup opens an empty business catalog; add products and authorized sales records
+through the interface.
 
-1. Clone or download this repository.
-2. File → Open Folder → select the repository root.
-3. Open the integrated terminal (`Ctrl+\`` / `Cmd+\``).
-4. Install dependencies and start the dev server:
+## Run on your laptop
+
+One-time prerequisites: Node.js 24 or newer and Docker Desktop with Linux containers running.
+Open the repository folder in VS Code, open its terminal, and run:
 
 ```bash
-npm install
-npm run dev
+npm start
 ```
 
-5. Open the URL Vite prints (http://127.0.0.1:5173). The shared host name is intentional so
-   SameSite session cookies work with the local API on port 3001.
+You do not need to install Python, PostgreSQL, or frontend packages manually for this startup.
+Docker builds the frontend and Python runtime, waits for PostgreSQL, applies migrations, creates
+the initial owner, and starts the website, API, and forecast worker. The first build downloads
+dependencies and can take several minutes.
 
-Recommended extensions (prompted on first open): ESLint, Prettier, Tailwind CSS IntelliSense.
+Open **http://localhost:8080**. The first start creates a private `.env` file and prints the sign-in
+details:
 
-## Scripts
+- Business ID: `00000000-0000-4000-8000-000000000001`
+- Email: `owner@example.com`
+- Password: the generated `OWNER_PASSWORD` in `.env`
 
-| Command                | What it does                        |
-| ---------------------- | ----------------------------------- |
-| `npm run dev`          | Dev server with hot reload          |
-| `npm run build`        | Typecheck + production build        |
-| `npm run preview`      | Serve the production build          |
-| `npm run typecheck`    | TypeScript only                     |
-| `npm run lint`         | ESLint                              |
-| `npm run backend:dev`  | FastAPI backend in reload mode      |
-| `npm run backend:test` | Python backend tests                |
-| `npm run db:migrate`   | Apply pending PostgreSQL migrations |
+Keep `.env` private and keep a copy of it. To choose your account details before first startup,
+run `npm run setup`, edit `.env`, then run `npm start`. Owner creation runs once per account;
+restarting the app preserves its existing password.
 
-## Stack
+| Command             | Purpose                                        |
+| ------------------- | ---------------------------------------------- |
+| `npm start`         | Build and start the complete application       |
+| `npm run stop`      | Stop containers; saved database records remain |
+| `npm run logs`      | Follow service logs                            |
+| `npm run backup`    | Save a PostgreSQL backup under `backups/`      |
+| `docker compose ps` | Inspect service status                         |
 
-- Vite + React 19 + TypeScript
-- TanStack Router (file routes in `src/routes/`)
-- Tailwind CSS v4
-- Zustand (`src/lib/store.ts`) — the current frontend demonstration persists in `localStorage`
-- Python 3.12, FastAPI, psycopg, and PostgreSQL under `backend/`
-- In-browser custom boosted-tree prototype (currently labeled XGBoost in the UI) and moving-average forecast (`src/lib/forecast/`); the model and final evaluation still require validation.
+## Where records are saved
 
-The backend provides PostgreSQL migrations, product/settings/sales/movement APIs, and an
-authentication foundation, but the frontend is not yet connected to it and production security is
-not complete. Demo products and synthetic sales are seeded in `src/lib/data/seed.ts`; displayed
-metrics are not results from a real partner business.
+Products, sales, stock movements, imports, settings, accounts, forecast runs, predictions, and
+metrics are saved in PostgreSQL. Docker keeps the database in the persistent
+`stockcast_postgres_data` volume, including on Windows through Docker Desktop. Official XGBoost
+model files are saved in `stockcast_model_data`. Containers can be recreated without clearing
+those volumes.
 
-## Layout
+Browser demonstration records use the separate `stockcast-v5` browser storage key. Older SQLite
+records remain in their original SQLite files. Import an authorized inventory snapshot and
+historical sales explicitly to transfer records to the PostgreSQL application. Historical sales
+imports add history; inventory counts are saved as audited stock adjustments.
 
+## Use the system
+
+1. Sign in and add products in **Inventory**.
+2. Record sales and deliveries. A sale deducts stock; a delivery increases stock.
+3. Import inventory or historical sales using the documented CSV columns in the interface.
+4. Open **Forecasts → Refresh forecasts**. The Python worker saves the run and its outputs.
+5. Review **Restock**. Suggested quantities apply when stock reaches the reorder point.
+6. Export sales or stock movements from Inventory, and make database backups.
+
+XGBoost eligibility requires enough _training_ history: eight calendar weeks and 100 nonzero sales
+days by default. Short histories still receive a Python Moving Average baseline. Refresh uses
+separate chronological training, validation, and final-test periods; fewer than three calendar
+days can use the baseline but cannot form all three evaluation periods.
+
+The worker uses the official CPU XGBoost package, selects its configuration and operating method
+on validation, evaluates identical final-test dates for all compared methods, then refits for
+future operations. Saved runs retain their input snapshot, model parameters, weights, predictions,
+and metrics. New records or settings prompt a forecast refresh. See
+[backend/README.md](backend/README.md) for the evaluation contract.
+
+## Host online
+
+Use a Linux server/container host that supports Docker Compose and persistent disks. A domain
+points visitors to that server; the Python API, worker, and PostgreSQL must run there.
+
+1. Download or clone this version of the repository on the server.
+2. Install Docker Compose and Node.js 24 or newer.
+3. Run `npm run setup` and edit the private `.env` before starting:
+   ```dotenv
+   APP_ENV=production
+   APP_ADDRESS=stockcast.your-domain.com
+   HTTP_PORT=80
+   HTTPS_PORT=443
+   CORS_ORIGIN=https://stockcast.your-domain.com
+   ```
+   Set your owner name/email/password and record provenance. Use URL-safe generated database
+   passwords. Choose `OWNER_DATA_ORIGIN=partner` only for authorized real business records.
+4. Point the domain's DNS A/AAAA records to the server and allow incoming ports 80 and 443.
+5. Run **`npm start`**. Caddy obtains and renews HTTPS certificates for the configured public domain.
+6. Open your HTTPS URL and sign in with your configured owner credentials.
+
+PostgreSQL is reachable only inside the Compose network. The application database role has no
+superuser, role-creation, or database-creation privileges. Hosting account setup, DNS, disk
+allocation, and backup retention are configured on the chosen server.
+
+The local and hosted installations have separate databases. Move records through a deliberate
+backup/restore or import when transferring to a host.
+
+## Back up and check recovery
+
+Run `npm run backup`. This produces a PostgreSQL custom-format dump that preserves tables, records,
+and migration checksums. Copy the dump and your private configuration to your chosen backup
+location. Copy trained model files separately:
+
+```bash
+docker compose cp worker:/app/data/models backups/models
 ```
-src/
-  routes/          pages (overview, restock, forecasts, inventory, strategies)
-  components/      UI and dialogs
-  lib/forecast/    training pipeline, XGBoost, metrics
-  lib/inventory/   reorder-point logic
-  lib/data/        seed + fallback series
-  lib/store.ts     app state
-public/thesis/     documents used by the Strategies page (may lag latest drafts)
-backend/           Python API, PostgreSQL migrations, and backend tests
-docs/              architecture, project context, thesis mirrors, completion checklist
+
+You can check a dump by restoring it into a separate database. Replace the filename below with
+the backup you created:
+
+```bash
+docker compose exec database createdb -U stockcast_admin -O stockcast stockcast_restore_check
+docker compose cp backups/your-backup.dump database:/tmp/stockcast-backup.dump
+docker compose exec database pg_restore -U stockcast -d stockcast_restore_check --exit-on-error /tmp/stockcast-backup.dump
+docker compose exec database psql -U stockcast -d stockcast_restore_check -c "SELECT count(*) FROM products;"
 ```
+
+The CI workflow checks backup restoration and persistence after container recreation. A live
+hosting cutover and recovery drill use the deployment's own storage and credentials.
+
+## Development and verification
+
+For frontend hot reload, run `npm ci`, then `npm run dev`. Vite proxies `/api` to the Python API on
+port 3001; see [backend/README.md](backend/README.md) for running Python directly with a PostgreSQL
+development database.
+
+The old browser prototype is an explicit optional mode: put
+`VITE_DATA_MODE=browser-demo` in `.env.local` before `npm run dev`. It keeps synthetic browser data
+and its custom boosted-tree demonstrations separate from the Python application. Container builds
+use API mode by default.
+
+Checks: `npm run typecheck`, `npm run lint`, `npm run build`, and
+`python -m pytest backend/tests`. [.github/workflows/system.yml](.github/workflows/system.yml) runs
+the full Compose installation with real PostgreSQL and the Python worker.
+
+Read [AGENTS.md](AGENTS.md), [project context](docs/PROJECT_CONTEXT.md), and
+[implementation checklist](docs/COMPLETION_CHECKLIST.md) before code changes. Real partner data,
+permission, and research outcomes are documented separately from implementation checks.

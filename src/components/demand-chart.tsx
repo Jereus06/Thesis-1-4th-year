@@ -24,8 +24,12 @@ export function DemandChart({ points }: { points: ForecastPoint[] }) {
 
   const data = points.map((p) => ({
     ...p,
+    ma: Number.isFinite(p.ma) ? p.ma : null,
+    xgb: Number.isFinite(p.xgb) ? p.xgb : null,
+    ensemble: Number.isFinite(p.ensemble) ? p.ensemble : null,
+    p10: Number.isFinite(p.p10) ? p.p10 : null,
     label: formatShort(p.date),
-    interval: Math.max(0, p.p90 - p.p10),
+    interval: Number.isFinite(p.p90 - p.p10) ? Math.max(0, p.p90 - p.p10) : null,
   }));
 
   return (

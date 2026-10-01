@@ -12,6 +12,7 @@ import { formatShort, parseDate } from "@/lib/dates";
 import { num, peso } from "@/lib/format";
 import { useAppStore } from "@/lib/store";
 import type { Product, Sale } from "@/lib/types";
+import { api } from "@/lib/api";
 
 export const Route = createFileRoute("/inventory")({ component: InventoryPage });
 
@@ -53,6 +54,8 @@ function ProductsPanel() {
   const [open, setOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [inventoryCsv, setInventoryCsv] = useState("");
+  const [importing, setImporting] = useState(false);
+  const session = useAppStore((s) => s.session);
   const [query, setQuery] = useState("");
   const filteredProducts = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -64,16 +67,23 @@ function ProductsPanel() {
     );
   }, [products, query]);
 
-  function importInventoryCsv() {
-    const rows = parseInventoryCsv(inventoryCsv);
-    if (!rows.length) {
-      toast.error("No valid inventory rows. Check the required CSV columns and values.");
-      return;
+  async function importInventoryCsv() {
+    try {
+      const rows = parseInventoryCsv(inventoryCsv);
+      if (!rows.length) {
+        toast.error("No valid inventory rows. Check the required CSV columns and values.");
+        return;
+      }
+      setImporting(true);
+      await importInventory(rows);
+      toast.success(`Imported ${rows.length} inventory rows.`);
+      setInventoryCsv("");
+      setImportOpen(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Import failed");
+    } finally {
+      setImporting(false);
     }
-    importInventory(rows);
-    toast.success(`Imported ${rows.length} inventory rows.`);
-    setInventoryCsv("");
-    setImportOpen(false);
   }
 
   return (
@@ -91,6 +101,14 @@ function ProductsPanel() {
           />
         </div>
         <div className="flex flex-wrap gap-2">
+          {session && (
+            <a
+              className="self-center text-sm text-primary underline"
+              href={api.exportUrl(session.businessId, "inventory-movements")}
+            >
+              Export stock movements
+            </a>
+          )}
           <Button variant="outline" onClick={() => setImportOpen((value) => !value)}>
             {importOpen ? "Close import" : "Import inventory"}
           </Button>
@@ -122,7 +140,7 @@ function ProductsPanel() {
               }
             />
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={importInventoryCsv}>
+              <Button variant="outline" onClick={importInventoryCsv} disabled={importing}>
                 Import inventory
               </Button>
               <CsvFileButton onLoad={setInventoryCsv} />
@@ -142,7 +160,9 @@ function ProductsPanel() {
         {filteredProducts.length === 0 && (
           <Card>
             <CardContent className="text-sm text-muted">
-              No products match “{query.trim()}”.
+              {products.length
+                ? `No products match “${query.trim()}”.`
+                : "Your catalog is empty. Add a product or import an inventory snapshot."}
             </CardContent>
           </Card>
         )}
@@ -156,19 +176,27 @@ function ProductEditor({
   onSave,
 }: {
   product: Product;
-  onSave: (patch: Partial<Product>) => void;
+  onSave: (patch: Partial<Product>) => Promise<void>;
 }) {
   const [lead, setLead] = useState(String(product.leadTimeDays));
   const [ss, setSs] = useState(String(product.safetyStock));
   const [stock, setStock] = useState(String(product.currentStock));
+  const [saving, setSaving] = useState(false);
 
-  function save() {
-    onSave({
-      leadTimeDays: Math.max(1, Number(lead) || 1),
-      safetyStock: Math.max(0, Number(ss) || 0),
-      currentStock: Math.max(0, Number(stock) || 0),
-    });
-    toast.success(`Updated ${product.name}`);
+  async function save() {
+    setSaving(true);
+    try {
+      await onSave({
+        leadTimeDays: Math.max(0, Number(lead) || 0),
+        safetyStock: Math.max(0, Number(ss) || 0),
+        currentStock: Math.max(0, Number(stock) || 0),
+      });
+      toast.success(`Updated ${product.name}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -181,9 +209,9 @@ function ProductEditor({
           </p>
         </div>
         <Field label="On hand" value={stock} onChange={setStock} />
-        <Field label="Lead time (days)" value={lead} onChange={setLead} />
+        <Field label="Lead time (days)" value={lead} onChange={setLead} step={1} />
         <Field label="Safety stock" value={ss} onChange={setSs} />
-        <Button variant="secondary" onClick={save}>
+        <Button variant="secondary" onClick={save} disabled={saving}>
           Save
         </Button>
       </CardContent>
@@ -195,15 +223,23 @@ function Field({
   label,
   value,
   onChange,
+  step = 0.001,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  step?: number;
 }) {
   return (
     <div className="grid gap-1.5">
       <Label>{label}</Label>
-      <Input type="number" min={0} value={value} onChange={(e) => onChange(e.target.value)} />
+      <Input
+        type="number"
+        min={0}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </div>
   );
 }
@@ -212,7 +248,7 @@ function AddProductForm({
   onAdd,
   onDone,
 }: {
-  onAdd: (p: Omit<Product, "id" | "sku"> & { sku?: string }) => void;
+  onAdd: (p: Omit<Product, "id" | "sku"> & { sku?: string }) => Promise<void>;
   onDone: () => void;
 }) {
   const [name, setName] = useState("");
@@ -222,21 +258,29 @@ function AddProductForm({
   const [lead, setLead] = useState("3");
   const [ss, setSs] = useState("5");
   const [cost, setCost] = useState("10");
+  const [saving, setSaving] = useState(false);
 
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
-    onAdd({
-      name: name.trim(),
-      category,
-      unit,
-      currentStock: Number(stock) || 0,
-      leadTimeDays: Number(lead) || 3,
-      safetyStock: Number(ss) || 0,
-      unitCost: Number(cost) || 0,
-    });
-    toast.success(`Added ${name.trim()}`);
-    onDone();
+    setSaving(true);
+    try {
+      await onAdd({
+        name: name.trim(),
+        category,
+        unit,
+        currentStock: Number(stock) || 0,
+        leadTimeDays: Number(lead),
+        safetyStock: Number(ss) || 0,
+        unitCost: Number(cost) || 0,
+      });
+      toast.success(`Added ${name.trim()}`);
+      onDone();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -278,7 +322,9 @@ function AddProductForm({
             <Input type="number" value={cost} onChange={(e) => setCost(e.target.value)} />
           </div>
           <div className="md:col-span-2">
-            <Button type="submit">Add to catalog</Button>
+            <Button type="submit" disabled={saving}>
+              Add to catalog
+            </Button>
           </div>
         </form>
       </CardContent>
@@ -291,21 +337,30 @@ function SalesPanel() {
   const products = useAppStore((s) => s.products);
   const importSales = useAppStore((s) => s.importSales);
   const [csv, setCsv] = useState("");
+  const [importing, setImporting] = useState(false);
+  const session = useAppStore((s) => s.session);
   const nameById = useMemo(
     () => Object.fromEntries(products.map((p) => [p.id, p.name])),
     [products],
   );
   const recent = [...sales].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 40);
 
-  function importCsv() {
-    const rows = parseCsv(csv, products);
-    if (!rows.length) {
-      toast.error("No matching rows. Use Date, Product, Quantity.");
-      return;
+  async function importCsv() {
+    try {
+      const rows = parseCsv(csv, products);
+      if (!rows.length) {
+        toast.error("No matching rows. Use Date, Product, Quantity.");
+        return;
+      }
+      setImporting(true);
+      await importSales(rows);
+      toast.success(`Imported ${rows.length} sales rows.`);
+      setCsv("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Import failed");
+    } finally {
+      setImporting(false);
     }
-    importSales(rows);
-    toast.success(`Imported ${rows.length} sales rows.`);
-    setCsv("");
   }
 
   return (
@@ -313,7 +368,18 @@ function SalesPanel() {
       <Card>
         <CardHeader>
           <CardTitle>Recent sales</CardTitle>
-          <CardDescription>{num(sales.length)} locally stored sales rows.</CardDescription>
+          <CardDescription>
+            {num(sales.length)} sales rows ·{" "}
+            {session ? "saved in PostgreSQL" : "browser demonstration"}
+          </CardDescription>
+          {session && (
+            <a
+              className="text-sm text-primary underline"
+              href={api.exportUrl(session.businessId, "sales")}
+            >
+              Export sales CSV
+            </a>
+          )}
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -354,7 +420,7 @@ function SalesPanel() {
             }
           />
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={importCsv}>
+            <Button variant="outline" onClick={importCsv} disabled={importing}>
               Import rows
             </Button>
             <CsvFileButton onLoad={setCsv} />
@@ -402,9 +468,16 @@ function parseInventoryCsv(text: string): Omit<Product, "id">[] {
       .map((part) => part.trim());
     const values = [stockRaw, leadRaw, safetyRaw, costRaw].map(Number);
     if (!sku || !name || !category || !unit || values.some((value) => !Number.isFinite(value)))
-      continue;
+      throw new Error(`Invalid inventory row: ${line}`);
     const [currentStock, leadTimeDays, safetyStock, unitCost] = values;
-    if (currentStock < 0 || leadTimeDays < 1 || safetyStock < 0 || unitCost < 0) continue;
+    if (
+      currentStock < 0 ||
+      !Number.isInteger(leadTimeDays) ||
+      leadTimeDays < 0 ||
+      safetyStock < 0 ||
+      unitCost < 0
+    )
+      throw new Error(`Invalid inventory quantities: ${sku}`);
     rows.push({
       sku,
       name,
@@ -428,17 +501,17 @@ function parseCsv(text: string, products: Product[]): Sale[] {
   for (const line of lines) {
     if (/^date/i.test(line)) continue;
     const parts = line.split(",").map((p) => p.trim());
-    if (parts.length < 3) continue;
+    if (parts.length !== 3) throw new Error(`Expected Date, Product, Quantity: ${line}`);
     const [date, productKey, qtyRaw] = parts;
     const qty = Number(qtyRaw);
-    if (!date || !Number.isFinite(qty) || qty <= 0) continue;
+    if (!date || !Number.isFinite(qty) || qty <= 0) throw new Error(`Invalid sales row: ${line}`);
     const match = products.find(
       (p) =>
         p.name.toLowerCase() === productKey.toLowerCase() ||
         p.sku.toLowerCase() === productKey.toLowerCase() ||
         p.id === productKey,
     );
-    if (!match) continue;
+    if (!match) throw new Error(`Unknown product: ${productKey}`);
     rows.push({
       id: `imp-${match.id}-${date}-${rows.length}-${Date.now()}`,
       productId: match.id,
@@ -454,6 +527,22 @@ function SettingsPanel() {
   const sales = useAppStore((s) => s.sales);
   const updateSettings = useAppStore((s) => s.updateSettings);
   const resetDemo = useAppStore((s) => s.resetDemo);
+  const mode = useAppStore((s) => s.dataMode);
+  const [draft, setDraft] = useState(settings);
+  const [saving, setSaving] = useState(false);
+  const edit = (patch: Partial<typeof settings>) =>
+    setDraft((current) => ({ ...current, ...patch }));
+  async function saveSettings() {
+    setSaving(true);
+    try {
+      await updateSettings(draft);
+      toast.success("Settings saved.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
   const history = useMemo(() => getSalesHistory(sales), [sales]);
 
   return (
@@ -467,23 +556,20 @@ function SettingsPanel() {
       <CardContent className="grid max-w-xl gap-4">
         <div className="grid gap-1.5">
           <Label>Store name</Label>
-          <Input
-            value={settings.storeName}
-            onChange={(e) => updateSettings({ storeName: e.target.value })}
-          />
+          <Input value={draft.storeName} onChange={(e) => edit({ storeName: e.target.value })} />
         </div>
         <div className="grid gap-1.5">
           <Label>Location</Label>
           <Input
-            value={settings.storeLocation}
-            onChange={(e) => updateSettings({ storeLocation: e.target.value })}
+            value={draft.storeLocation}
+            onChange={(e) => edit({ storeLocation: e.target.value })}
           />
         </div>
         <div className="grid gap-1.5">
           <Label>Forecast horizon</Label>
           <Select
-            value={String(settings.forecastHorizon)}
-            onChange={(e) => updateSettings({ forecastHorizon: Number(e.target.value) })}
+            value={String(draft.forecastHorizon)}
+            onChange={(e) => edit({ forecastHorizon: Number(e.target.value) })}
           >
             {[7, 14, 21, 30].map((n) => (
               <option key={n} value={n}>
@@ -495,8 +581,8 @@ function SettingsPanel() {
         <div className="grid gap-1.5">
           <Label>Cover days after delivery</Label>
           <Select
-            value={String(settings.coverDays)}
-            onChange={(e) => updateSettings({ coverDays: Number(e.target.value) })}
+            value={String(draft.coverDays)}
+            onChange={(e) => edit({ coverDays: Number(e.target.value) })}
           >
             {[3, 7, 10, 14].map((n) => (
               <option key={n} value={n}>
@@ -542,8 +628,8 @@ function SettingsPanel() {
           <div className="grid gap-1.5">
             <Label>Moving Average window (days)</Label>
             <Select
-              value={String(settings.maWindow)}
-              onChange={(e) => updateSettings({ maWindow: Number(e.target.value) })}
+              value={String(draft.maWindow)}
+              onChange={(e) => edit({ maWindow: Number(e.target.value) })}
             >
               {[3, 7, 14].map((n) => (
                 <option key={n} value={n}>
@@ -555,8 +641,8 @@ function SettingsPanel() {
           <div className="grid gap-1.5">
             <Label>ML product limit</Label>
             <Select
-              value={String(settings.topNProducts)}
-              onChange={(e) => updateSettings({ topNProducts: Number(e.target.value) })}
+              value={String(draft.topNProducts)}
+              onChange={(e) => edit({ topNProducts: Number(e.target.value) })}
             >
               {[5, 8, 12, 20].map((n) => (
                 <option key={n} value={n}>
@@ -570,15 +656,20 @@ function SettingsPanel() {
             </p>
           </div>
         </div>
-        <Button
-          variant="outline"
-          onClick={() => {
-            resetDemo();
-            toast.success("Demo data restored.");
-          }}
-        >
-          Reset demo data
+        <Button onClick={saveSettings} disabled={saving}>
+          {saving ? "Saving…" : "Save settings"}
         </Button>
+        {mode === "browser-demo" && (
+          <Button
+            variant="outline"
+            onClick={() => {
+              resetDemo();
+              toast.success("Demo data restored.");
+            }}
+          >
+            Reset demo data
+          </Button>
+        )}
       </CardContent>
     </Card>
   );

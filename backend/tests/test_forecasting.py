@@ -31,3 +31,37 @@ def test_xgboost_training_uses_identical_final_test_observations():
     assert result["finalTest"]["movingAverage"]["observations"] == 20
     assert result["finalTest"]["ensemble"]["observations"] == 20
     assert len(result["testDays"]) == len(result["testActual"]) == 20
+
+
+def test_final_test_actuals_cannot_change_selection_or_test_predictions():
+    start = date(2025, 1, 1)
+    rows = [Observation(start + timedelta(days=i), 12 + i % 7) for i in range(100)]
+    bounds = SplitBoundaries(
+        start + timedelta(days=59), start + timedelta(days=79), start + timedelta(days=99)
+    )
+    original = train_verified_xgboost(rows, bounds, horizon=7)
+    changed = train_verified_xgboost(
+        [Observation(row.day, row.quantity if i < 80 else 1000 + i) for i, row in enumerate(rows)],
+        bounds,
+        horizon=7,
+    )
+    assert changed["parameters"] == original["parameters"]
+    assert changed["xgbWeight"] == original["xgbWeight"]
+    assert changed["operatingMethod"] == original["operatingMethod"]
+    assert changed["testPredictions"] == original["testPredictions"]
+    assert len(original["futurePredictions"]["xgboost"]) == 7
+
+
+def test_nonzero_eligibility_excludes_validation_and_final_test():
+    from app.worker import training_eligibility
+
+    start = date(2025, 1, 1)
+    rows = [Observation(start + timedelta(days=i), 1 if i >= 60 else 0) for i in range(160)]
+    eligible, days, nonzero, _ = training_eligibility(
+        rows,
+        {"training_end": start + timedelta(days=59)},
+        {"minimum_history_weeks": 8, "minimum_nonzero_days": 100, "top_n_products": 8},
+        0,
+    )
+    assert not eligible
+    assert (days, nonzero) == (60, 0)

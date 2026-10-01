@@ -1,28 +1,25 @@
-# StockCast completion checklist
+# StockCast implementation and verification checklist
 
-Last reviewed: 2026-09-30. “Complete” means the repository contains implementation plus automated
-or recorded workflow evidence. External research and deployment work is not marked complete from
-code alone.
+Reviewed against this branch: 2026-10-01. Implementation, executable checks, and external research
+or hosting evidence are distinct records.
 
-| Requirement                                       | Status                   | Evidence / blocker                                                                                                                                               |
-| ------------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PostgreSQL schema, pool, migration runner, server | Complete locally in code | `backend/db/`, `backend/app/main.py`, and `backend/app/db.py`; live PostgreSQL rerun is still required in the target environment.                                |
-| Reproducible Python package installation          | In progress              | Python metadata and requirements exist; a clean-environment install still needs to be recorded.                                                                  |
-| Authentication and owner/staff authorization      | In progress              | Session/password implementation and permission enforcement exist; dependency installation and live PostgreSQL workflow tests remain blocked in this environment. |
-| Products/settings/sales/receipts API              | Partial                  | Core writes, authentication, offset paging, and optional idempotency keys exist; sale correction/void policy still requires confirmation.                        |
-| Frontend/API integration                          | Partial                  | Explicit API mode supports sign-in and server-backed products, sales, receipts, and settings; import/forecast/recommendation views still use demo state.          |
-| Safe historical imports                           | Partial                  | Validated SKU-mapped historical imports preserve row errors and do not mutate stock; file preview/UI and partner-specific mapping remain.                        |
-| Verified XGBoost                                  | Blocked externally       | No verified XGBoost runtime is installed; partner data and preregistered evaluation cutoffs are unavailable.                                                     |
-| Forecast persistence and worker                   | Partial                  | Queue/read APIs and a Python worker persist product-level validation/final-test results and future baseline forecasts; deployment scheduling remains.            |
-| Conditional reorder recommendations               | Partial                  | The API persists rule-v1 snapshots and returns zero suggested quantity above the reorder trigger; forecast-linked generation remains.                            |
-| Exports                                           | Partial                  | Authenticated CSV exports exist for sales and inventory movements; UI download actions and partner review remain.                                                |
-| Backup/restore verification                       | Blocked externally       | Requires an available PostgreSQL instance and selected deployment environment.                                                                                   |
-| Real partner evaluation                           | Blocked externally       | Partner, permission, records, evaluator responses, and research outcomes remain pending.                                                                         |
+| Requirement                 | Implementation                                                                            | Verification                                                                                     |
+| --------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Shared local/hosted startup | `npm start`; PostgreSQL, migrations, owner, API, worker, frontend                         | Compose CI starts the same command                                                               |
+| Clean installation          | Frontend lockfile repaired; Python package discovery/migration data configured            | Clean npm installation/build and Python package checks                                           |
+| Authentication/access       | Session/password/CSRF, business isolation, owner/staff enforcement                        | PostgreSQL API integration tests                                                                 |
+| Inventory and sales         | Transactional writes, idempotency, audited stock counts/deliveries                        | API tests and full-stack smoke check                                                             |
+| Frontend integration        | Products, sales, deliveries, imports, profile/settings, exports, Python forecasts/restock | Typecheck/lint/build and authenticated web/API checks                                            |
+| Historical imports          | Validated SKU mapping, content hash, stored outcomes, stock preserved                     | PostgreSQL test and smoke check                                                                  |
+| Official XGBoost            | Python CPU package; validation selection and recursive final testing                      | Real training, test-data perturbation check, worker smoke check                                  |
+| Saved forecast outputs      | Immutable input snapshot, model JSON, parameters/weights, metrics and future predictions  | Queue/worker/API checks                                                                          |
+| Worker failure recovery     | Failed status commits; later runs continue; session locks detect interruption             | PostgreSQL failure/next-job integration check                                                    |
+| Restock trigger             | Current stock and operating forecast/baseline; zero quantity above ROP                    | Formula tests and dashboard checks                                                               |
+| Backups/restart persistence | PostgreSQL dump, persistent database/model volumes                                        | CI separate-database restore and container recreation                                            |
+| Hosted URL/TLS              | Caddy/domain environment configuration                                                    | Verify DNS/HTTPS and recovery on the chosen host                                                 |
+| Partner research            | Provenance and evaluation fields preserve separation                                      | Confirm partner, permission, ledger interpretation, evaluation cutoffs and results with the team |
+| Groupmate helper            | Standalone ISO-date helper remains reserved                                               | [Task contract](../backend/docs/RESERVED_DATE_HELPER.md)                                         |
 
-## Non-negotiable boundaries
-
-- Generated records are `demo`, never partner evidence.
-- The custom browser boosted-tree module is not verified XGBoost.
-- Final-test data cannot select parameters, ensemble weights, eligibility, or intervals.
-- Real partner storage cannot begin before authentication, authorization, backup, restore, and
-  retention arrangements are tested.
+An executed successful workflow is implementation evidence; a listed CI check is not a fabricated
+pass. Actual hosting and research outcomes are recorded after they occur. The browser prototype's
+custom booster is not the official XGBoost runtime.

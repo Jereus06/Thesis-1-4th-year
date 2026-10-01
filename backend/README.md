@@ -1,98 +1,119 @@
 # StockCast Python backend
 
-This directory is the independently installable Python 3.12 backend for StockCast. It uses FastAPI,
-Pydantic, psycopg, PostgreSQL, and the official Python `xgboost` package. The React frontend remains
-separate at the repository root and is not yet connected to this API.
+Python 3.12, FastAPI, psycopg, PostgreSQL, and the official XGBoost package implement the backend.
+TypeScript remains in the React frontend. The laptop and hosted application both run
+`backend.app.main`; `npm start` manages PostgreSQL, migrations, owner initialization, and the worker.
+See the [root README](../README.md) for that single-command startup and hosting configuration.
 
-The backend currently provides:
+## Run Python directly for development
 
-- the existing reversible PostgreSQL migration history;
-- cookie sessions, CSRF protection, and owner/staff authorization;
-- product, settings, manual-sale, and audited inventory-movement endpoints;
-- transactional PostgreSQL stock updates and an executable migration runner;
-- chronological moving-average/XGBoost evaluation utilities; and
-- an explicit SQLite demonstration API for local-only synthetic workflows.
-
-It is not production-ready and contains no real partner data or verified research results. Historical
-imports, sale corrections, idempotent writes, forecast persistence/workers, deployment, and tested
-backup/recovery remain incomplete.
-
-## Requirements and installation
-
-- Python 3.12 or 3.13
-- PostgreSQL 15 or newer for the primary API
-
-From the repository root, create and activate a virtual environment, then install the backend:
+Use Python 3.12 or 3.13 and a dedicated PostgreSQL database. From the repository root:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows PowerShell: .venv\\Scripts\\Activate.ps1
-python -m pip install -r backend/requirements-dev.txt
 ```
 
-Copy `backend/.env.example` to `backend/.env`, replace the local database password, and replace all
-`OWNER_*` placeholders before bootstrapping an account. Never commit `.env` or real credentials.
-
-## PostgreSQL setup and commands
-
-Create the local role/database using your own password:
-
-```sql
-CREATE ROLE stockcast WITH LOGIN PASSWORD 'replace_with_a_local_password';
-CREATE DATABASE stockcast OWNER stockcast;
-```
-
-Run commands from the repository root:
+Activate it with `.venv\Scripts\Activate.ps1` on Windows PowerShell or
+`source .venv/bin/activate` on Linux/macOS, then:
 
 ```bash
-python -m backend.app.migrate
-python -m backend.app.bootstrap_owner
+python -m pip install -r backend/requirements-lock.txt
+python -m pip install --no-deps -e "./backend[forecast,test]"
+```
+
+Copy `backend/.env.example` to `backend/.env`, then set `DATABASE_URL` and the initial
+`OWNER_*` values for your development database. Both settings and owner initialization read this
+file. Existing owner passwords are preserved across initialization.
+
+```bash
+python -m backend.app.initialize
 python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 3001 --reload
 ```
 
-The migration runner applies sorted `*.up.sql` files under `backend/db/migrations`, records SHA-256
-checksums, serializes migration runs with a PostgreSQL advisory lock, and rejects changes to already
-applied migrations.
+In another activated terminal, start the worker:
 
-Useful checks:
+```bash
+python -m backend.app.worker
+```
+
+Run `npm run dev` for the frontend. It uses the Vite API proxy, so sign-in and CSRF cookies use
+the frontend origin. Docker packages the tested dependencies and uses the CPU-only official
+XGBoost distribution to avoid GPU libraries on ordinary laptops.
+
+## Implemented API workflows
+
+Routes are under `/api/v1`. Business routes enforce session membership; catalog changes, imports,
+settings, and forecast refresh require the owner role.
+
+- Session sign-in, sign-out, and current user; scrypt passwords, hashed session tokens, CSRF checks.
+- Business profile and forecasting/restock settings.
+- Product creation and editing, with audited opening balances and stock-count adjustments.
+- Atomic sales/stock changes and receipt, adjustment, return, and write-off movements.
+- Paginated sales and stock ledgers; idempotency keys for supported write operations.
+- Atomic inventory snapshot imports; historical SKU-mapped sales imports with row outcomes.
+- Authenticated sales and inventory-movement CSV exports.
+- Persisted forecast queue, run details, predictions, metrics, and a read-only dashboard.
+- Python restock calculations using current stock and the saved operating forecast or baseline.
+- Persisted rule-based recommendation snapshots through the existing generation endpoint.
+
+Historical sales imports preserve current stock. Inventory snapshots update catalog/counts and
+record changes in the movement ledger. CSV content hashes prevent an identical historical import
+from being submitted again.
+
+The migration runner retains the existing SQL history, serializes migrations with an advisory lock,
+stores checksums, and rejects changes to previously applied migration files.
+
+## Forecast evaluation and persistence
+
+A forecast run snapshots active product IDs, aggregated daily quantities, and model settings in
+the existing `data_snapshot` JSON field. The worker reads that snapshot, so edits made while a
+run waits in the queue do not change its inputs.
+
+Training, validation, and final-test ranges are consecutive and disjoint. Training-only sales
+determine product ranking and the calendar-week/nonzero-day gates. For eligible products:
+
+1. Fit official `xgboost.XGBRegressor` candidates on training data.
+2. Predict the full validation range recursively from the training cutoff.
+3. Choose parameters, inverse-validation-MAE ensemble weights, and operating method on validation.
+4. Refit on training plus validation and forecast all final-test dates recursively from that cutoff.
+   Moving Average uses the same full observed cutoff history and the same test observations.
+5. Save final-test metrics, then refit the operating model on all observed history with the frozen
+   configuration for future predictions.
+6. Save MA/XGBoost/ensemble future predictions, per-product configuration, and official JSON model files.
+
+Short-history or out-of-scope products use a named Moving Average fallback. The dashboard aggregates
+ML comparisons over matching eligible product/date observations. No final-test observation selects
+parameters, weights, eligibility, or intervals. Prediction intervals are not fabricated.
+
+Current data interpretation treats missing calendar days as zero sales; the ledger must be complete
+and this policy must be confirmed for actual partner data. The implementation uses fixed
+chronological validation rather than cross-validation/early stopping. The historical function name
+`train_verified_xgboost` refers to the official package integration; it does not certify thesis
+accuracy. `xgboost_verified` remains false until the team's research validation supports that claim.
+
+The worker uses session advisory locks to distinguish live jobs from interrupted workers. Failed
+runs commit their failed status independently; the worker continues with later jobs. Opening a page
+reads predictions, and **Refresh forecasts** explicitly queues another run.
+
+## Tests
 
 ```bash
 python -m pytest backend/tests
-python -m backend.app.check_schema
-python -m ruff check backend/app backend/tests
 ```
 
-The root `package.json` exposes convenience commands such as `npm run backend:dev`,
-`npm run backend:test`, and `npm run db:migrate`; these invoke Python and do not constitute a Node
-backend.
+PostgreSQL integration tests use temporary schemas and require
+`STOCKCAST_TEST_DATABASE_URL` pointing to a dedicated test database. Without it, those tests skip;
+unit/model/SQLite checks still run. The Compose CI workflow provides PostgreSQL, executes all tests,
+checks a complete HTTP workflow and actual XGBoost output, and verifies database restart/restore.
 
-## Optional SQLite demonstration
+`python -m backend.app.smoke` is a CI check that creates synthetic records in an empty test
+installation. It is not a production initialization step and is not called by `npm start`.
 
-For a local demonstration without PostgreSQL:
+## Optional older demonstration adapter
 
-```bash
-python -m uvicorn backend.app.sqlite_demo:app --host 127.0.0.1 --port 3001
-```
+`backend/app/sqlite_demo.py` is retained for older synthetic demonstrations and their tests. It
+uses its own SQLite file and limited API surface. Normal laptop/host startup uses PostgreSQL.
+Browser demonstration mode remains separately available as described in the root README.
 
-The demo writes `backend/data/stockcast-demo.sqlite3`, creates only an explicitly labelled demo
-business, and never imports frontend `localStorage`. Its built-in development credentials are
-constants in `backend/app/sqlite_demo.py`. Do not expose it publicly or use it for partner data.
-
-## Authentication and permissions
-
-Sign-in uses business ID, normalized email, and password. Passwords use salted scrypt hashes.
-Successful sign-in creates a server-side session plus HTTP-only session and double-submit CSRF
-cookies. State-changing authenticated requests require `X-CSRF-Token`.
-
-| Action                                               | Owner | Staff |
-| ---------------------------------------------------- | ----- | ----- |
-| View products, settings, sales, and movement history | Yes   | Yes   |
-| Record a sale                                        | Yes   | Yes   |
-| Record a receipt or customer return                  | Yes   | Yes   |
-| Create/edit/archive products                         | Yes   | No    |
-| Change business settings                             | Yes   | No    |
-| Record adjustments or write-offs                     | Yes   | No    |
-
-Production still requires HTTPS, rate limiting, session cleanup, password recovery, security review,
-and verified backup/restore. The team must confirm the final API/data contract and partner policies
-before storing real business records.
+The groupmate's standalone ISO-date helper remains reserved in
+[docs/RESERVED_DATE_HELPER.md](docs/RESERVED_DATE_HELPER.md); API request dates use Pydantic validation.

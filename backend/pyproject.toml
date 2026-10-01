@@ -1,6 +1,6 @@
 [project]
 name = "stockcast-backend"
-version = "0.2.0"
+version = "0.3.0"
 description = "FastAPI and PostgreSQL backend for StockCast"
 requires-python = ">=3.12,<3.14"
 dependencies = [
@@ -10,6 +10,7 @@ dependencies = [
   "psycopg[binary,pool]>=3.2,<4",
   "python-multipart>=0.0.20,<1",
   "uvicorn[standard]>=0.34,<1",
+  "tzdata>=2025.2,<2027",
 ]
 
 [project.optional-dependencies]
@@ -28,3 +29,14 @@ pythonpath = ["."]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*", "db*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+db = ["migrations/*.sql"]
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"

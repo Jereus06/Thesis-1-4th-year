@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { DISCLAIMER, modelLabel } from "@/lib/forecast/constants";
 import { metric, num } from "@/lib/format";
 import { useAppStore } from "@/lib/store";
@@ -18,7 +19,10 @@ export const Route = createFileRoute("/forecasts")({ component: ForecastsPage })
 
 function ForecastsPage() {
   const products = useAppStore((s) => s.products);
-  const { result, status } = useForecast();
+  const mode = useAppStore((s) => s.dataMode);
+  const session = useAppStore((s) => s.session);
+  const window = useAppStore((s) => s.settings.maWindow);
+  const { result, status, refresh } = useForecast();
   const ready = Boolean(result);
   const mlFirst =
     products.find((p) => result?.byProduct[p.id]?.trainedWithMl)?.id ?? products[0]?.id ?? "";
@@ -59,18 +63,29 @@ function ForecastsPage() {
         <div>
           <h1 className="font-display text-3xl font-medium tracking-tight">Forecast evaluation</h1>
           <p className="mt-2 max-w-2xl text-muted">
-            Chronological holdout. XGBoost uses a short feature set (no product IDs). The operational
-            line is the validation-weighted ensemble unless XGBoost is unstable.
+            {mode === "api"
+              ? "Python XGBoost and Moving Average use separate chronological training, validation, and final-test periods. The operating method is selected on validation."
+              : "Demonstration model evaluation using synthetic sales."}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={copyTable}
-          disabled={!ready}
-          className="text-sm font-medium text-primary underline-offset-4 hover:underline disabled:text-muted"
-        >
-          Copy MAE / RMSE table
-        </button>
+        <div className="flex items-center gap-4">
+          {(mode === "browser-demo" || session?.role === "owner") && (
+            <Button
+              disabled={status === "training"}
+              onClick={() => void refresh().catch((error: Error) => toast.error(error.message))}
+            >
+              {status === "training" ? "Forecast queued…" : "Refresh forecasts"}
+            </Button>
+          )}
+          <button
+            type="button"
+            onClick={copyTable}
+            disabled={!ready}
+            className="text-sm font-medium text-primary underline-offset-4 hover:underline disabled:text-muted"
+          >
+            Copy MAE / RMSE table
+          </button>
+        </div>
       </header>
 
       <TrainingBanner />
@@ -89,7 +104,11 @@ function ForecastsPage() {
           mae={result?.xgbMae}
           rmse={result?.xgbRmse}
           winner={ready ? result?.winner === "xgb" : false}
-          note={ready ? `${result?.treesUsed} trees after early stopping` : "Background fit"}
+          note={
+            mode === "api"
+              ? "Official Python XGBoost · saved model"
+              : "Prototype boosted-tree model"
+          }
           ready={ready}
         />
         <Score
@@ -97,7 +116,7 @@ function ForecastsPage() {
           mae={result?.maMae}
           rmse={result?.maRmse}
           winner={ready ? result?.winner === "ma" || result?.winner === "rule" : false}
-          note="7-day window baseline"
+          note={`${window}-day window baseline`}
           ready={ready}
         />
       </section>
@@ -130,14 +149,12 @@ function ForecastsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {ready ? (
-            <DemandChart points={chartPoints} />
-          ) : (
-            <Skeleton className="h-72 w-full" />
-          )}
+          {ready ? <DemandChart points={chartPoints} /> : <Skeleton className="h-72 w-full" />}
           <p className="mt-3 text-xs text-muted">
-            Shaded band is the 10th–90th percentile interval. Ink is actual holdout demand.{" "}
-            {DISCLAIMER}
+            {mode === "api"
+              ? "Actuals are from the final-test period. Baseline-only products display no XGBoost score. Prediction intervals have not been calibrated."
+              : "Shaded band is the demonstration interval."}{" "}
+            {result?.diagnostics.disclaimer ?? DISCLAIMER}
           </p>
         </CardContent>
       </Card>
