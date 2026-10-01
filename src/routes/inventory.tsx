@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Search } from "lucide-react";
+import { AccountAccessCard } from "@/components/account-access-card";
 import { useMemo, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -39,7 +40,10 @@ function InventoryPage() {
           <SalesPanel />
         </TabsContent>
         <TabsContent value="settings">
-          <SettingsPanel />
+          <div className="grid gap-6">
+            <AccountAccessCard />
+            <SettingsPanel />
+          </div>
         </TabsContent>
       </Tabs>
     </div>

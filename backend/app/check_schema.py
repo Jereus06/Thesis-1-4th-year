@@ -19,6 +19,9 @@ TABLES = (
     "reorder_recommendations",
     "sessions",
     "idempotency_keys",
+    "google_identities",
+    "oauth_flows",
+    "google_pending",
 )
 
 

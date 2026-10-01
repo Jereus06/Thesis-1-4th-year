@@ -34,8 +34,36 @@ export type SessionUser = {
   role: "owner" | "staff";
 };
 
+export type AuthOptions = {
+  signUpEnabled: boolean;
+  googleEnabled: boolean;
+};
+
+export type BusinessRegistration = {
+  businessName: string;
+  businessLocation?: string;
+  dataOrigin: "demo" | "partner";
+};
+
+export type SignUpRequest = BusinessRegistration & {
+  displayName: string;
+  email: string;
+  password: string;
+};
+
+export type GooglePending = { email: string; displayName: string };
+
 export const api = {
-  signIn: (businessId: string, email: string, password: string) =>
+  authOptions: () => request<AuthOptions>("/auth/options"),
+  signUp: (details: SignUpRequest) =>
+    request<SessionUser>("/auth/sign-up", { method: "POST", body: details }),
+  startGoogle: (intent: "sign-in" | "link") =>
+    request<{ url: string }>("/auth/google/start", { method: "POST", body: { intent } }),
+  googlePending: () => request<GooglePending | null>("/auth/google/pending"),
+  completeGoogle: (details: BusinessRegistration) =>
+    request<SessionUser>("/auth/google/complete", { method: "POST", body: details }),
+
+  signIn: (businessId: string | undefined, email: string, password: string) =>
     request<SessionUser>("/auth/sign-in", {
       method: "POST",
       body: { businessId, email, password },

@@ -8,6 +8,9 @@ x-backend: &backend
     DATABASE_URL: postgresql://stockcast:${APP_DB_PASSWORD:?Run npm start or configure .env}@database:5432/stockcast
     APP_ENV: ${APP_ENV:-development}
     CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+    GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+    GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+    GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
     ARTIFACT_DIR: /app/data/models
     OWNER_BUSINESS_ID: ${OWNER_BUSINESS_ID:-00000000-0000-4000-8000-000000000001}
     OWNER_BUSINESS_NAME: ${OWNER_BUSINESS_NAME:-StockCast Store}
@@ -44,6 +47,10 @@ services:
 
   api:
     <<: *backend
+    environment:
+      <<: *backend-env
+      # The API port is private; Caddy supplies the authenticated client address.
+      FORWARDED_ALLOW_IPS: "*"
     volumes:
       - model_data:/app/data/models
     depends_on:

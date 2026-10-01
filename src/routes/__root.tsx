@@ -8,6 +8,10 @@ export const Route = createRootRoute({
 
 function RootLayout() {
   return (
-    <ApiGate><AppShell><Outlet /></AppShell></ApiGate>
+    <ApiGate>
+      <AppShell>
+        <Outlet />
+      </AppShell>
+    </ApiGate>
   );
 }

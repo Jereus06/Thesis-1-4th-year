@@ -45,7 +45,8 @@ XGBoost distribution to avoid GPU libraries on ordinary laptops.
 Routes are under `/api/v1`. Business routes enforce session membership; catalog changes, imports,
 settings, and forecast refresh require the owner role.
 
-- Session sign-in, sign-out, and current user; scrypt passwords, hashed session tokens, CSRF checks.
+- Public owner-store registration, email/password sign-in, optional Google access and intentional connection.
+- Session sign-out and current user; scrypt passwords, hashed session tokens, CSRF/Origin checks.
 - Business profile and forecasting/restock settings.
 - Product creation and editing, with audited opening balances and stock-count adjustments.
 - Atomic sales/stock changes and receipt, adjustment, return, and write-off movements.
@@ -62,6 +63,80 @@ from being submitted again.
 
 The migration runner retains the existing SQL history, serializes migrations with an advisory lock,
 stores checksums, and rejects changes to previously applied migration files.
+
+## Authentication contract
+
+The frontend uses the same authenticated `SessionUser` response and cookie session for password
+and Google access. The server checks active business membership on login and protected requests.
+Email-only login selects an unambiguous valid account; optional `businessId` still selects a
+legacy account when matching credentials belong to multiple businesses.
+
+| Method | Path under `/api/v1`    | Request / response                                                                            |
+| ------ | ----------------------- | --------------------------------------------------------------------------------------------- |
+| `GET`  | `/auth/options`         | `{data:{signUpEnabled:true,googleEnabled:boolean}}`                                           |
+| `POST` | `/auth/sign-in`         | `{email,password,businessId?}` -> session user and cookies                                    |
+| `POST` | `/auth/sign-up`         | `{displayName,email,password,businessName,businessLocation?,dataOrigin}` -> new owner/session |
+| `POST` | `/auth/sign-out`        | End the current session; CSRF required                                                        |
+| `GET`  | `/auth/me`              | Current session user                                                                          |
+| `POST` | `/auth/google/start`    | `{intent:"sign-in"\|"link"}` -> `{data:{url}}`; link requires a session and CSRF              |
+| `GET`  | `/auth/google/callback` | Registered provider callback; redirects to the website root                                   |
+| `GET`  | `/auth/google/pending`  | `{data:null}` or verified `{data:{email,displayName}}`                                        |
+| `POST` | `/auth/google/complete` | `{businessName,businessLocation?,dataOrigin}` plus pending cookie -> new owner/session        |
+
+Signup validates passwords at 12 to 128 characters, trimmed names at 1 to 160, and optional
+location at up to 240. `dataOrigin` must be `demo` or `partner`. It creates a business, its
+default settings, an owner, and a session atomically. No products, sales, stock, or forecasts are
+seeded. Public registration reserves an email across stores using an advisory transaction lock;
+existing business-scoped email uniqueness and historical accounts remain unchanged.
+
+Google uses an authorization-code flow with browser-bound state, PKCE, and nonce checks.
+The backend verifies Google's ID token, audience/issuer, nonce, and verified email, and uses
+the stable Google subject to identify the connected account. Provider tokens are handled only
+on the server. A first verified Google identity receives a ten-minute pending setup before
+store creation. An existing password account must explicitly connect Google while authenticated;
+matching email alone never links it. The website exposes connection in Inventory Settings for
+owners and staff.
+
+Migration `004_public_auth` adds `google_identities`, `oauth_flows`, and `google_pending` without
+rewriting migrations 001-003 or merging existing users/businesses. One Google identity maps to
+one user, and each user has at most one connected Google identity.
+
+Sessions use hashed opaque tokens and an HTTP-only cookie, with the existing readable CSRF cookie
+and token header for authenticated writes. Default expiry is 12 hours; valid cookies restore the
+frontend session. Browser auth POSTs validate their Origin against `CORS_ORIGIN`. Production
+cookies require HTTPS. Password signup does not verify email, and password recovery/change and
+staff invitations are not implemented.
+
+### Optional Google configuration
+
+Configure `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` only in the
+server's private environment; never in browser `VITE_` variables. `CORS_ORIGIN` is the exact
+public website origin. The callback must share that origin and be
+`/api/v1/auth/google/callback`, with no query, fragment, or trailing slash. Local HTTP is accepted
+only for development loopback origins; hosting requires HTTPS.
+
+| Mode             | Website / `CORS_ORIGIN`             | Registered `GOOGLE_REDIRECT_URI`                                |
+| ---------------- | ----------------------------------- | --------------------------------------------------------------- |
+| Compose default  | `http://localhost:8080`             | `http://localhost:8080/api/v1/auth/google/callback`             |
+| Vite development | `http://localhost:5173`             | `http://localhost:5173/api/v1/auth/google/callback`             |
+| Hosted example   | `https://stockcast.your-domain.com` | `https://stockcast.your-domain.com/api/v1/auth/google/callback` |
+
+Use Google Cloud's Web application OAuth client and register the matching callback. Configure
+Branding/Audience and review test users, publishing, and applicable verification before rollout.
+See [the manual](../docs/USER_GUIDE.md#18-configuration-and-hosting) and
+[Google's web-server OAuth documentation](https://developers.google.com/identity/protocols/oauth2/web-server).
+The implementation requests `openid email profile` and does not provide silent automatic consent.
+Actual live OAuth must be checked using the installation's credentials; provider mocks do not
+prove that setup.
+
+### Attempt limits
+
+Each API process holds bounded in-memory counters: five registration attempts per hour per client
+IP, ten password-login attempts per minute per IP/email, ten Google starts per minute per IP, and
+a shared 120 throttled auth writes per minute per IP. HTTP 429 includes `Retry-After`.
+Counters are not shared between replicas and reset with the process. Use coordinated gateway
+limits for multiple API processes/replicas and configure trusted proxy handling for the actual
+client address. These limits do not add email verification or password recovery.
 
 ## Forecast evaluation and persistence
 

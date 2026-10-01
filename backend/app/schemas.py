@@ -23,7 +23,7 @@ class ApiModel(BaseModel):
 
 
 class SignIn(ApiModel):
-    business_id: UUID
+    business_id: UUID | None = None
     email: EmailStr
     password: str = Field(min_length=1, max_length=1024)
 

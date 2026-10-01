@@ -1,11 +1,11 @@
 # StockCast backend architecture and API contract
 
-Status: **the PostgreSQL driver, migration runner, connection pool, and first runnable
-HTTP/service/repository slice are implemented; authentication and production deployment are not**.
+Status: **the React client, Python/FastAPI API and worker, PostgreSQL persistence, cookie sessions,
+public registration, and optional Google access are implemented**. Normal startup uses Docker
+Compose. A real hosted deployment and live Google configuration still require verification.
 
-This document describes the intended boundary between the existing browser demonstration and the
-backend under development. It is not evidence of a deployed service, partner data, verified
-XGBoost, or forecast accuracy.
+This document describes the current application boundary and contract. Implementation is not
+evidence of partner data, validated thesis accuracy, or a completed hosted deployment.
 
 ## Technology and component boundaries
 
@@ -30,8 +30,8 @@ row, and initial owner; it does not create sales, products, forecasts, or resear
 
 ### Runnable local demonstration
 
-`backend/app/sqlite_demo.py` provides a loopback-only, file-backed demonstration of the same current
-API slice. It creates an explicitly labelled demo business and must not be exposed publicly or used
+`backend/app/sqlite_demo.py` provides an older loopback-only, file-backed demonstration with a
+limited API surface. It creates an explicitly labelled demo business and must not be exposed publicly or used
 for partner data. SQLite is not the production database decision.
 
 ## Data ownership and provenance
@@ -41,10 +41,45 @@ sales, movement, and forecast records distinguish `demo` from `partner` data. De
 be copied into a partner business or included in research metrics. Creating the first real partner
 business, its retention rules, and its users requires partner permission and team confirmation.
 
-The implemented local authentication foundation models `owner` and `staff`, salted password hashes,
-server-side sessions, cookies, CSRF checks, and route permissions. The final deployment still needs
-HTTPS, rate limiting, password recovery, session cleanup, security review, and partner approval, so
-the API must not yet be presented as ready to hold real business data.
+Public registration records an explicit provenance choice and creates an empty separate owner
+store. An authorized-business choice does not invent a research partner or override collection
+permission, retention, deployment review, or the team's data policies.
+
+## Authentication and public registration
+
+`backend/app/auth_routes.py` implements email registration/login and optional Google OAuth;
+`auth_repository.py` extends the existing repository for account/session/identity operations.
+The existing business-scoped permissions and session-user response remain the API boundary.
+
+Public signup creates a separate business, default settings, owner, and session atomically.
+Its catalog and history start empty. It requires explicit `demo` or `partner` record provenance
+and a previously unregistered email; this does not establish a thesis partner. Passwords are
+12 to 128 characters, trimmed names 1 to 160, and optional location at most 240. Existing users
+and their business-scoped email uniqueness remain; legacy ambiguous credentials can still use
+an optional Business ID during login.
+
+Google uses authorization-code exchange, PKCE, one-time browser-bound state, verified ID tokens,
+and a nonce. First-use setup is held server-side for ten minutes. Google subjects connect to
+users deliberately; matching email never links a password account automatically. Authenticated
+owners and staff can connect Google from Inventory Settings. Provider tokens stay on the server.
+
+Additive migration `004_public_auth` stores one-to-one `google_identities`, temporary
+`oauth_flows`, and `google_pending` setup. Migrations 001-003 and existing tenant rows are preserved.
+The user retains database-design authority; this feature does not replace the relational model.
+
+Sessions use opaque hashed tokens, HTTP-only cookies, the existing CSRF cookie/header, and
+business membership checks. Default cookie/session expiry is 12 hours. Authentication POSTs
+validate the browser Origin. Optional server-only `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+and `GOOGLE_REDIRECT_URI` enable Google only when the callback matches `CORS_ORIGIN` and
+`/api/v1/auth/google/callback`. Production uses HTTPS.
+
+Per-process attempt limits cover five registrations/hour/IP, ten password logins/minute/IP/email,
+ten Google starts/minute/IP, and a shared 120 throttled auth writes/minute/IP. Multiple API
+processes require coordinated gateway limits and configured client-address proxy handling.
+Email verification for password signup, password recovery/change, and staff invitations remain
+unimplemented. See [the backend authentication contract](../backend/README.md#authentication-contract)
+and [the user guide's Google setup](USER_GUIDE.md#18-configuration-and-hosting).
+Live Google OAuth still requires verification using the deployment's registered credentials.
 
 ## Transaction rules
 
@@ -61,9 +96,9 @@ the API must not yet be presented as ready to hold real business data.
 - **Recommendation generation:** save the exact demand, stock, lead time, safety stock, coverage,
   method, formula version, reorder point, target, quantity, and status used at that time.
 
-Idempotency keys and the exact insufficient-stock/concurrency response remain HTTP service design
-work. Imports can use a file SHA-256 plus source row number to detect retries, subject to the
-partner's confirmed import workflow.
+Supported API writes accept idempotency keys; stock changes reject insufficient stock and commit
+balances with their audit records. Historical imports use a file SHA-256 and retain source row
+numbers to detect identical retries. Real correction/import policy still needs partner confirmation.
 
 ## Relational model
 
@@ -86,14 +121,22 @@ partner's confirmed import workflow.
 
 The initial migration is in [`../backend/db/migrations/001_initial_schema.up.sql`](../backend/db/migrations/001_initial_schema.up.sql).
 
-## Proposed REST API (`/api/v1`)
+## REST API (`/api/v1`)
 
-All collection responses should use cursor pagination. Dates are ISO `YYYY-MM-DD`; timestamps are
-RFC 3339 UTC values. Quantities and currency cross the JSON boundary as decimal strings unless the
-team adopts and documents a safe integer unit convention.
+Paginated ledgers use `limit` and `offset`. Dates are ISO `YYYY-MM-DD`; timestamps are RFC 3339
+UTC values. Quantities and currency cross the JSON boundary as decimal strings.
 
 | Method  | Path                                                         | Purpose                                                           |
 | ------- | ------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `GET`   | `/auth/options`                                              | Read public registration and configured Google availability.      |
+| `POST`  | `/auth/sign-up`                                              | Create a separate empty owner store with explicit provenance.     |
+| `POST`  | `/auth/sign-in`                                              | Email/password login with optional legacy Business ID.            |
+| `POST`  | `/auth/sign-out`                                             | End the current cookie session with CSRF verification.            |
+| `GET`   | `/auth/me`                                                   | Read the authenticated session user.                              |
+| `POST`  | `/auth/google/start`                                         | Start sign-in or authenticated Google connection.                 |
+| `GET`   | `/auth/google/callback`                                      | Consume Google response and return to the website.                |
+| `GET`   | `/auth/google/pending`                                       | Read verified pending first-store setup, or null.                 |
+| `POST`  | `/auth/google/complete`                                      | Complete verified first-store setup and issue a session.          |
 | `GET`   | `/businesses/{businessId}`                                   | Read business identity and explicit data origin.                  |
 | `PATCH` | `/businesses/{businessId}`                                   | Update confirmed business display fields.                         |
 | `GET`   | `/businesses/{businessId}/settings`                          | Read forecast/reorder settings.                                   |
@@ -101,7 +144,7 @@ team adopts and documents a safe integer unit convention.
 | `GET`   | `/businesses/{businessId}/products`                          | List/filter products.                                             |
 | `POST`  | `/businesses/{businessId}/products`                          | Create a product and, when nonzero, an opening-balance movement.  |
 | `GET`   | `/businesses/{businessId}/products/{productId}`              | Read a product.                                                   |
-| `PATCH` | `/businesses/{businessId}/products/{productId}`              | Update product metadata, never stock directly.                    |
+| `PATCH` | `/businesses/{businessId}/products/{productId}`              | Update metadata; stock-count changes record audited adjustments.  |
 | `GET`   | `/businesses/{businessId}/sales`                             | List sales ordered by date and stable ID.                         |
 | `POST`  | `/businesses/{businessId}/sales`                             | Transactionally post a current manual sale and stock movement.    |
 | `GET`   | `/businesses/{businessId}/inventory-movements`               | Read the stock audit ledger.                                      |
@@ -123,25 +166,27 @@ Authentication uses server-side sessions, HTTP-only session cookies, a readable 
 cookie, and owner/staff authorization. The forecast worker is a separate private process invoked with
 `python -m backend.app.worker`; it is intentionally not exposed as a browser endpoint.
 
-## Frontend integration sequence
+## Frontend integration
 
-1. Add API DTOs and a persistence interface without changing forecasting domain types.
-2. Keep a clearly labelled local demo implementation of that interface.
-3. Add a server implementation only after the HTTP contract, authentication, and decimal encoding
-   are confirmed.
-4. Migrate product/settings reads first, then audited sales and inventory transactions, imports, and
-   finally forecast runs/recommendations.
-5. Test export, backup, restore, authorization, concurrency, and provenance before storing partner
-   records. Do not automatically upload existing `stockcast-v5` browser data.
+The default frontend restores `/auth/me` from its cookie, then loads only that user's business,
+products, sales, and settings. Signup and Google completion use the same session-user contract.
+Forecast pages read saved Python outputs; refresh queues worker jobs explicitly. Decimal API
+quantities become frontend numbers at the existing client boundary.
+
+The optional browser demonstration uses separate storage and synthetic data. Existing
+`stockcast-v5` records are never automatically uploaded to the PostgreSQL application.
+Authorization, transactions, export, backup, restore, and provenance require deployment checks
+before collecting real partner records.
 
 ## Still to confirm
 
 - Partner identity, consent, retention period, product units, timezone, stockout meaning, and source
   file format.
-- Authentication provider, session transport, password responsibility, and the exact owner/staff
-  permission matrix.
-- API framework, deployment target, database hosting, encryption, backup schedule, and restore test.
-- Whether sales may drive stock negative, how returns are represented, and whether outstanding
-  purchase orders/backorders will later be modeled.
-- The verified XGBoost runtime and the preregistered split dates/eligibility rules after a real-data
-  audit. The current browser booster remains unverified.
+- Real deployment credentials and Google rollout, staff provisioning, account recovery/verification
+  policy, and any partner-specific changes to the existing owner/staff permissions.
+- Deployment target, database hosting, encryption, backup schedule, and restore verification.
+- Real correction/return procedures and whether outstanding purchase orders/backorders will later
+  be modeled. Current stock transactions enforce nonnegative balances.
+- Preregistered research split dates/eligibility rules after a real-data audit and independent
+  evaluation of the official Python XGBoost integration. The optional browser booster remains
+  a custom unverified prototype.

@@ -3,7 +3,13 @@ import { persist } from "zustand/middleware";
 import { createSeedProducts, createSeedSales, defaultSettings } from "@/lib/data/seed";
 import { todayISO } from "@/lib/dates";
 import { invalidatePipelineCache } from "@/lib/forecast/cache";
-import { api, type SessionUser } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  type BusinessRegistration,
+  type SessionUser,
+  type SignUpRequest,
+} from "@/lib/api";
 import type { Product, Sale, Settings } from "@/lib/types";
 
 type Store = {
@@ -16,7 +22,9 @@ type Store = {
   sales: Sale[];
   settings: Settings;
   connectApi: () => Promise<void>;
-  signIn: (businessId: string, email: string, password: string) => Promise<void>;
+  signIn: (businessId: string | undefined, email: string, password: string) => Promise<void>;
+  signUp: (details: SignUpRequest) => Promise<void>;
+  completeGoogle: (details: BusinessRegistration) => Promise<void>;
   signOut: () => Promise<void>;
   recordSale: (productId: string, date: string, qty: number) => Promise<void>;
   receiveStock: (productId: string, qty: number) => Promise<void>;
@@ -51,13 +59,17 @@ export const useAppStore = create<Store>()(
           const session = await api.me();
           await loadApiState(session, set);
         } catch (error) {
+          const anonymous = error instanceof ApiError && error.status === 401;
           set({
             session: null,
-            apiStatus:
-              error instanceof Error && "status" in error && error.status === 401
-                ? "idle"
-                : "error",
-            apiError: error instanceof Error ? error.message : "Unable to connect",
+            products: [],
+            sales: [],
+            apiStatus: anonymous ? "idle" : "error",
+            apiError: anonymous
+              ? null
+              : error instanceof Error
+                ? error.message
+                : "Unable to connect",
           });
         }
       },
@@ -70,6 +82,32 @@ export const useAppStore = create<Store>()(
           set({
             apiStatus: "error",
             apiError: error instanceof Error ? error.message : "Sign-in failed",
+          });
+          throw error;
+        }
+      },
+      signUp: async (details) => {
+        set({ apiStatus: "loading", apiError: null });
+        try {
+          const session = await api.signUp(details);
+          await loadApiState(session, set);
+        } catch (error) {
+          set({
+            apiStatus: "error",
+            apiError: error instanceof Error ? error.message : "Account creation failed",
+          });
+          throw error;
+        }
+      },
+      completeGoogle: async (details) => {
+        set({ apiStatus: "loading", apiError: null });
+        try {
+          const session = await api.completeGoogle(details);
+          await loadApiState(session, set);
+        } catch (error) {
+          set({
+            apiStatus: "error",
+            apiError: error instanceof Error ? error.message : "Google account setup failed",
           });
           throw error;
         }

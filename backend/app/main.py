@@ -9,7 +9,9 @@ from fastapi.responses import JSONResponse
 from psycopg import Connection
 from psycopg.errors import CheckViolation, UniqueViolation
 
-from .config import Settings, get_settings
+from .auth_repository import AuthRepository
+from .auth_routes import create_auth_router
+from .config import get_settings
 from .db import close_pool, connection, database_ready, open_pool
 from .repository import Repository
 from .schemas import (
@@ -23,7 +25,6 @@ from .schemas import (
     SaleCreate,
     SalesImportCreate,
     SettingsUpdate,
-    SignIn,
 )
 from .security import Principal, token_hash
 
@@ -61,7 +62,7 @@ def invalid_record(_request, _error):
 
 
 def repo(conn: Connection = Depends(connection)) -> Repository:
-    return Repository(conn)
+    return AuthRepository(conn)
 
 
 def current_session(
@@ -139,34 +140,7 @@ def health():
     return {"status": "ok", "database": "connected"}
 
 
-@app.post("/api/v1/auth/sign-in")
-def sign_in(
-    data: SignIn,
-    response: Response,
-    repository: Repository = Depends(repo),
-    config: Settings = Depends(get_settings),
-):
-    session, csrf, user = repository.sign_in(
-        data.business_id, str(data.email), data.password, config.session_hours
-    )
-    secure = config.app_env == "production"
-    response.set_cookie(
-        "stockcast_session",
-        session,
-        httponly=True,
-        secure=secure,
-        samesite="strict",
-        max_age=config.session_hours * 3600,
-    )
-    response.set_cookie(
-        "stockcast_csrf",
-        csrf,
-        httponly=False,
-        secure=secure,
-        samesite="strict",
-        max_age=config.session_hours * 3600,
-    )
-    return {"data": principal_data(user)}
+app.include_router(create_auth_router(repo))
 
 
 @app.post("/api/v1/auth/sign-out")

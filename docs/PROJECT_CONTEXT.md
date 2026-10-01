@@ -16,20 +16,24 @@ outside the repository. Downloads under `public/thesis/` can lag current drafts.
 
 ## Application in this branch
 
-| Area               | Source and behavior                                                                                                     |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| Startup            | `npm start` builds/starts Compose: PostgreSQL, one-time initialization, Python API, Python worker, and Caddy/frontend   |
-| Local and hosting  | Same Python API/PostgreSQL application; private environment values choose local HTTP or domain HTTPS                    |
-| Frontend           | React/TypeScript; API mode is the default; Vite development proxies API requests                                        |
-| Storage            | PostgreSQL persistent volume stores business records and forecasts; separate volume stores XGBoost JSON models          |
-| Sessions           | scrypt passwords, hashed cookie sessions, CSRF verification, business membership and owner/staff permissions            |
-| Inventory          | Product opening stock, sales, deliveries, and stock-count adjustments are audited and transactional                     |
-| Imports            | Inventory snapshots are atomic; historical SKU-mapped sales imports preserve current stock                              |
-| Exports            | Sales/stock-movement downloads use authenticated Python CSV endpoints                                                   |
-| Forecasts          | Official Python XGBoost, immutable queued inputs, chronological selection/testing, saved predictions/metrics/models     |
-| Restock            | Python reads the operating forecast or baseline and current stock; suggested quantity is zero above the reorder trigger |
-| Backups            | `npm run backup` creates a PostgreSQL dump; CI checks a separate restore and container recreation                       |
-| Optional prototype | Explicit `VITE_DATA_MODE=browser-demo` retains synthetic browser data and the custom TypeScript prototype               |
+| Area               | Source and behavior                                                                                                                                         |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Startup            | `npm start` builds/starts Compose: PostgreSQL, one-time initialization, Python API, Python worker, and Caddy/frontend                                       |
+| Local and hosting  | Same Python API/PostgreSQL application; private environment values choose local HTTP or domain HTTPS                                                        |
+| Frontend           | React/TypeScript; API mode is the default; Vite development proxies API requests                                                                            |
+| Storage            | PostgreSQL persistent volume stores business records and forecasts; separate volume stores XGBoost JSON models                                              |
+| Sessions           | scrypt passwords, 12-hour default hashed cookie sessions, CSRF/Origin checks, business membership and owner/staff permissions                               |
+| Registration       | Email/password signup creates a separate empty owner store with explicit data provenance; email login retains optional legacy Business ID selection         |
+| Google access      | Optional server-configured authorization-code/PKCE flow, verified Google identity, first-store setup, and intentional connection from Inventory Settings    |
+| Inventory          | Product opening stock, sales, deliveries, and stock-count adjustments are audited and transactional                                                         |
+| Imports            | Inventory snapshots are atomic; historical SKU-mapped sales imports preserve current stock                                                                  |
+| Exports            | Sales/stock-movement downloads use authenticated Python CSV endpoints                                                                                       |
+| Forecasts          | Official Python XGBoost, immutable queued inputs, chronological selection/testing, saved predictions/metrics/models                                         |
+| Restock            | Python reads the operating forecast or baseline and current stock; suggested quantity is zero above the reorder trigger                                     |
+| Backups            | `npm run backup` creates a PostgreSQL dump; CI checks a separate restore and container recreation                                                           |
+| User guide         | Strategies User guide tab with search, expandable topics, and manual download from docs/USER_GUIDE.md; legacy /guide redirects inside the authenticated app |
+| System evaluation  | Strategies Evaluation tab restores five selected quality ratings; API drafts are browser-local per business/user, demo drafts keep their existing storage   |
+| Optional prototype | Explicit `VITE_DATA_MODE=browser-demo` retains synthetic browser data and the custom TypeScript prototype                                                   |
 
 `OWNER_DATA_ORIGIN=demo` describes test-record provenance, not a separate application runtime.
 Choose `partner` only for authorized real business data. Fresh normal startup seeds an owner and
@@ -38,6 +42,38 @@ business/settings but no generated product or sales history.
 Older browser and SQLite records are not silently migrated. Explicit imports/restore transfer
 authorized records to the shared PostgreSQL application. Normal API mode uses a separate browser
 storage key so it does not overwrite the existing `stockcast-v5` demonstration.
+
+## Account and Google access contract
+
+Each public signup creates its own owner store with default settings and an empty catalog.
+The existing PostgreSQL UUID default generates the Business ID for both password registration
+and first-time Google store setup; Inventory Settings exposes it in Your account. The
+**Records you plan to use** field chooses test/demo or authorized-real-business provenance.
+Both choices retain the same application features and empty-store behavior; neither generates
+records or establishes a partner or research result. Signup passwords are 12 to 128 characters.
+New emails are reserved across businesses; existing tenant users remain intact and can use
+optional Business ID login when credentials are ambiguous.
+
+Password sign-in/registration offer an unchecked **Ask this browser to save my email and
+password** option. After successful authentication, StockCast requests the native password
+manager through a feature-detected Credential Management API in a secure top-level context.
+Standard field names and username/current-password/new-password autocomplete preserve normal
+browser password-manager support. Constructor/store failures never fail or delay a successful
+sign-in. The browser controls saving, prompts, and autofill and can offer its normal prompt
+even when StockCast's explicit request is unchecked. StockCast does not persist these
+credentials in application browser storage; browser-owned saving is separate from the
+12-hour default cookie session. Google-only registration has no StockCast password to save.
+
+Google is optional and configured only on the server. Browser-bound state, PKCE, nonce, and
+verified provider identity precede a real cookie session. First-use store setup expires after
+ten minutes. Existing password users intentionally connect Google from Inventory Settings;
+matching email alone never links accounts. Session restoration normally lasts 12 hours, and
+Google may require account selection/consent after it expires.
+
+Authentication writes have per-process attempt limits; multiple API replicas need coordinated
+gateway limits. Password signup has no email verification, password recovery/change, or staff
+invitations. Deployment-specific credentials and live Google OAuth still require actual testing.
+See [backend authentication details](../backend/README.md#authentication-contract).
 
 ## Forecast contract
 
@@ -62,8 +98,10 @@ demonstration mode. The normal frontend displays Python outputs and does not tri
 
 ## Boundaries and delivery checks
 
-Existing SQL migrations are preserved. The owner retains database-design authority; no replacement
-schema or second TypeScript backend is introduced. The reserved `is_valid_iso_date` helper and its
+Existing SQL migrations 001-003 are preserved; additive `004_public_auth` adds Google identity,
+OAuth flow, and pending-setup tables without replacing existing users or business-scoped emails.
+The owner retains database-design authority; no replacement schema or second TypeScript backend
+is introduced. The reserved `is_valid_iso_date` helper and its
 dedicated tests remain the groupmate's task.
 
 The GitHub workflow runs clean frontend installation/typecheck/lint/build, Python tests with
@@ -78,7 +116,11 @@ team/business requirements. They are not filled in with fictional research resul
 ## File map
 
 - `compose.yaml`, `Dockerfile`, `backend/Dockerfile`, `deploy/`, `scripts/`: startup/hosting/backup.
+- [User guide](USER_GUIDE.md), `src/components/user-guide.tsx`, `src/lib/user-guide.ts`: the Strategies guide reader; `src/routes/guide.tsx` keeps old links working.
+- `src/components/system-evaluation.tsx`, `src/lib/iso-eval.ts`: shared Strategies evaluation and browser-local rating drafts.
 - `backend/app/`: FastAPI, PostgreSQL repositories, worker, official model training, dashboard.
+- `backend/app/auth_routes.py`, `auth_repository.py`, `google_auth.py`: public signup, optional Google access, and existing cookie sessions.
+- `src/components/api-gate.tsx`, `account-access-card.tsx`: sign-in/store onboarding and intentional Google connection.
 - `backend/db/`: existing SQL migration history and package data.
 - `src/lib/api.ts`, `store.ts`, `use-api-forecast.ts`: normal frontend integration.
 - `src/lib/forecast/`: optional browser demonstration prototype.

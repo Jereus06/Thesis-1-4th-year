@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useForecast } from "@/components/forecast-context";
 import { ThesisPanel } from "@/components/thesis-panel";
+import { UserGuide } from "@/components/user-guide";
+import { SystemEvaluation } from "@/components/system-evaluation";
 import { TrainingBanner } from "@/components/training-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,29 +15,66 @@ import { requestBackgroundTrain } from "@/lib/forecast/job";
 import { LEVELS, TECHNIQUES } from "@/lib/forecast/strategies";
 import { DEFAULT_XGB } from "@/lib/forecast/xgboost";
 import { metric, num } from "@/lib/format";
-import {
-  ISO_ITEMS,
-  emptyIsoScores,
-  isoAverage,
-  loadIsoScores,
-  saveIsoScores,
-  type IsoScores,
-} from "@/lib/iso-eval";
 import { useAppStore } from "@/lib/store";
 
-export const Route = createFileRoute("/methodology")({ component: MethodPage });
+const STRATEGY_TABS = [
+  "methodology",
+  "accuracy",
+  "speed",
+  "thesis",
+  "models",
+  "guide",
+  "evaluation",
+] as const;
+type StrategyTab = (typeof STRATEGY_TABS)[number];
+const API_TABS: readonly StrategyTab[] = ["methodology", "thesis", "guide", "evaluation"];
+const DEMO_TABS: readonly StrategyTab[] = [
+  "accuracy",
+  "speed",
+  "thesis",
+  "models",
+  "guide",
+  "evaluation",
+];
+
+function isStrategyTab(value: unknown): value is StrategyTab {
+  return typeof value === "string" && STRATEGY_TABS.includes(value as StrategyTab);
+}
+
+export const Route = createFileRoute("/methodology")({
+  validateSearch: (search: Record<string, unknown>): { tab?: StrategyTab } => ({
+    tab: isStrategyTab(search.tab) ? search.tab : undefined,
+  }),
+  component: MethodPage,
+});
 
 function MethodPage() {
   const mode = useAppStore((s) => s.dataMode);
   const { result, status } = useForecast();
   const d = result?.diagnostics;
   const ready = Boolean(result);
-  const [tab, setTab] = useState("accuracy");
+  const requestedTab = Route.useSearch().tab;
+  const navigate = Route.useNavigate();
+  const allowedTabs = mode === "api" ? API_TABS : DEMO_TABS;
+  const tab =
+    requestedTab && allowedTabs.includes(requestedTab)
+      ? requestedTab
+      : mode === "api"
+        ? "methodology"
+        : "accuracy";
 
-  if (mode === "api") return <PythonMethods />;
+  function setTab(value: string) {
+    if (isStrategyTab(value)) void navigate({ search: { tab: value }, hash: "" });
+  }
+
+  if (mode === "api") return <PythonMethods tab={tab} onTabChange={setTab} />;
 
   return (
-    <div className="page-enter mx-auto flex max-w-3xl flex-col gap-6">
+    <div
+      className={
+        "page-enter mx-auto flex flex-col gap-6 " + (tab === "guide" ? "max-w-6xl" : "max-w-3xl")
+      }
+    >
       <header>
         <h1 className="font-display text-3xl font-medium tracking-tight">Two strategies</h1>
         <p className="mt-2 text-muted">
@@ -85,7 +123,8 @@ function MethodPage() {
           <TabsTrigger value="speed">Speed</TabsTrigger>
           <TabsTrigger value="thesis">Thesis text</TabsTrigger>
           <TabsTrigger value="models">Models</TabsTrigger>
-          <TabsTrigger value="iso">ISO 25010</TabsTrigger>
+          <TabsTrigger value="guide">User guide</TabsTrigger>
+          <TabsTrigger value="evaluation">Evaluation</TabsTrigger>
         </TabsList>
 
         <TabsContent value="accuracy">
@@ -176,85 +215,130 @@ function MethodPage() {
           <ModelsPanel />
         </TabsContent>
 
-        <TabsContent value="iso">
-          <IsoSurvey />
+        <TabsContent value="guide">
+          <UserGuide />
+        </TabsContent>
+        <TabsContent value="evaluation">
+          <SystemEvaluation />
         </TabsContent>
       </Tabs>
     </div>
   );
 }
 
-function PythonMethods() {
+function PythonMethods({
+  tab,
+  onTabChange,
+}: {
+  tab: StrategyTab;
+  onTabChange: (value: string) => void;
+}) {
   const { result, refresh, status } = useForecast();
-  const settings = useAppStore((s) => s.settings);
-  const session = useAppStore((s) => s.session);
+  const settings = useAppStore((state) => state.settings);
+  const session = useAppStore((state) => state.session);
   return (
-    <div className="mx-auto grid max-w-3xl gap-6">
+    <div
+      className={tab === "guide" ? "mx-auto grid max-w-6xl gap-6" : "mx-auto grid max-w-3xl gap-6"}
+    >
       <header>
-        <h1 className="font-display text-3xl">Forecasting methodology</h1>
+        <h1 className="font-display text-3xl">Strategies</h1>
         <p className="mt-2 text-muted">
-          The Python worker trains the official XGBoost model and saves forecasts, metrics, and
-          model files.
+          Explore the forecasting methodology, supporting thesis text, user guide, and system
+          evaluation.
         </p>
       </header>
       <TrainingBanner />
-      <Card>
-        <CardHeader>
-          <CardTitle>Chronological model evaluation</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <p>
-            Training, validation, and final testing use separate consecutive date ranges. Product
-            ranking and eligibility use training data only. Validation selects parameters, ensemble
-            weights, and the operating method.
-          </p>
-          <p>
-            Moving Average and XGBoost predict the same final-test dates recursively from the same
-            cutoff. Test actuals are not fed back into those predictions. Aggregate comparisons use
-            the same eligible products.
-          </p>
-          <p>
-            Minimum training history: {settings.minWeeks} weeks and 100 nonzero sales days. At most{" "}
-            {settings.topNProducts} products train with ML. Other products use the Python Moving
-            Average fallback.
-          </p>
-          <p>
-            Features: lag 1, lag 7, lag 14, mean 7, mean 30, weekday, and month. Missing calendar
-            days currently count as zero sales; confirm the ledger is complete before interpreting
-            the results.
-          </p>
-          <p>
-            After evaluation, the operating model is refitted on observed history with its frozen
-            configuration. Prediction intervals and confidence percentages are not claimed.
-          </p>
-          <p className="text-muted">{result?.diagnostics.disclaimer}</p>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Saved forecasts and responsive pages</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <p>
-            Pages read saved PostgreSQL predictions. Refresh queues a separate Python worker;
-            inventory and sales remain usable during training. Official XGBoost model files are
-            saved in the model volume.
-          </p>
-          <p>
-            Record or import new history, then refresh forecasts. The last completed run remains
-            visible while the new run is pending.
-          </p>
-          {session?.role === "owner" && (
-            <Button
-              disabled={status === "training"}
-              onClick={() => void refresh().catch((error: Error) => toast.error(error.message))}
-            >
-              Refresh forecasts
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-      <ThesisPanel />
+      <Tabs value={tab} onValueChange={onTabChange}>
+        <TabsList
+          className="w-full max-w-full justify-start overflow-x-auto"
+          aria-label="Strategies sections"
+        >
+          <TabsTrigger className="shrink-0" value="methodology">
+            Methodology
+          </TabsTrigger>
+          <TabsTrigger className="shrink-0" value="thesis">
+            Thesis text
+          </TabsTrigger>
+          <TabsTrigger className="shrink-0" value="guide">
+            User guide
+          </TabsTrigger>
+          <TabsTrigger className="shrink-0" value="evaluation">
+            Evaluation
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="methodology">
+          <div className="grid gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Chronological model evaluation</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <p>
+                  Training, validation, and final testing use separate consecutive date ranges.
+                  Product ranking and eligibility use training data only. Validation selects
+                  parameters, ensemble weights, and the operating method.
+                </p>
+                <p>
+                  Moving Average and XGBoost predict the same final-test dates recursively from the
+                  same cutoff. Test actuals are not fed back into those predictions. Aggregate
+                  comparisons use the same eligible products.
+                </p>
+                <p>
+                  Minimum training history: {settings.minWeeks} weeks and 100 nonzero sales days. At
+                  most {settings.topNProducts} products train with ML. Other products use the Python
+                  Moving Average fallback.
+                </p>
+                <p>
+                  Features: lag 1, lag 7, lag 14, mean 7, mean 30, weekday, and month. Missing
+                  calendar days currently count as zero sales; confirm the ledger is complete before
+                  interpreting the results.
+                </p>
+                <p>
+                  After evaluation, the operating model is refitted on observed history with its
+                  frozen configuration. Prediction intervals and confidence percentages are not
+                  claimed.
+                </p>
+                <p className="text-muted">{result?.diagnostics.disclaimer}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Saved forecasts and responsive pages</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <p>
+                  Pages read saved PostgreSQL predictions. Refresh queues a separate Python worker;
+                  inventory and sales remain usable during training. Official XGBoost model files
+                  are saved in the model volume.
+                </p>
+                <p>
+                  Record or import new history, then refresh forecasts. The last completed run
+                  remains visible while the new run is pending.
+                </p>
+                {session?.role === "owner" && (
+                  <Button
+                    disabled={status === "training"}
+                    onClick={() =>
+                      void refresh().catch((error: Error) => toast.error(error.message))
+                    }
+                  >
+                    Refresh forecasts
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+        <TabsContent value="thesis">
+          <ThesisPanel />
+        </TabsContent>
+        <TabsContent value="guide">
+          <UserGuide />
+        </TabsContent>
+        <TabsContent value="evaluation">
+          <SystemEvaluation />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
@@ -516,102 +600,6 @@ function Param({ k, v }: { k: string; v: string }) {
     <div className="rounded-xl bg-surface-2 px-3 py-2">
       <dt className="text-muted">{k}</dt>
       <dd>{v}</dd>
-    </div>
-  );
-}
-
-function IsoSurvey() {
-  const [scores, setScores] = useState<IsoScores>(emptyIsoScores);
-  const average = isoAverage(scores);
-
-  useEffect(() => {
-    setScores(loadIsoScores());
-  }, []);
-
-  function setScore(id: keyof IsoScores, value: number) {
-    setScores((prev) => ({ ...prev, [id]: value }));
-  }
-
-  function save() {
-    saveIsoScores(scores);
-    toast.success("Saved ISO 25010 ratings for this session.");
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>System evaluation form</CardTitle>
-        <CardDescription>
-          Rate the prototype 1–5 on each ISO/IEC 25010:2023 characteristic.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-5">
-        <div className="grid gap-3 text-sm">
-          <Iso
-            k="Functional suitability"
-            v="Forecasts, ensemble, ROP, restock quantities, confidence flags, CSV import."
-          />
-          <Iso
-            k="Reliability"
-            v="Chronological splits, early stopping, MA fallback, cached serving path."
-          />
-          <Iso
-            k="Interaction capability"
-            v="Owner language, restock queue first, confidence and disclaimer in plain words."
-          />
-          <Iso
-            k="Performance efficiency"
-            v="Dashboard serves cache immediately; XGBoost trains on top-N SKUs in the background."
-          />
-          <Iso
-            k="Maintainability"
-            v="Accuracy levels and speed techniques are separate modules from the dashboard."
-          />
-        </div>
-        {ISO_ITEMS.map((item) => (
-          <fieldset key={item.id} className="grid gap-2">
-            <legend className="text-sm font-medium">{item.title}</legend>
-            <p className="text-xs text-muted">{item.prompt}</p>
-            <div className="flex flex-wrap gap-2">
-              {[1, 2, 3, 4, 5].map((n) => {
-                const active = scores[item.id] === n;
-                return (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => setScore(item.id, n)}
-                    className={
-                      active
-                        ? "flex size-11 items-center justify-center rounded-lg bg-primary text-sm font-medium text-primary-foreground"
-                        : "flex size-11 items-center justify-center rounded-lg border border-border bg-surface text-sm font-medium hover:bg-surface-2"
-                    }
-                  >
-                    {n}
-                  </button>
-                );
-              })}
-            </div>
-          </fieldset>
-        ))}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-muted">
-            Mean score:{" "}
-            <span className="font-medium text-fg tabular">
-              {average == null ? "—" : num(average, 2)} / 5
-            </span>
-          </p>
-          <Button onClick={save}>Save ratings</Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function Iso({ k, v }: { k: string; v: string }) {
-  return (
-    <div>
-      <p className="font-medium">{k}</p>
-      <p className="text-muted">{v}</p>
     </div>
   );
 }

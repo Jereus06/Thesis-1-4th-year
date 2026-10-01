@@ -21,10 +21,10 @@ Docker builds the frontend and Python runtime, waits for PostgreSQL, applies mig
 the initial owner, and starts the website, API, and forecast worker. The first build downloads
 dependencies and can take several minutes.
 
-Open **http://localhost:8080**. The first start creates a private `.env` file and prints the sign-in
-details:
+Open **http://localhost:8080**. Choose **Create account** for your own empty store, or use the
+initial owner account. The first start creates a private `.env` file and prints its setup details:
 
-- Business ID: `00000000-0000-4000-8000-000000000001`
+- Optional Business ID: `00000000-0000-4000-8000-000000000001`
 - Email: `owner@example.com`
 - Password: the generated `OWNER_PASSWORD` in `.env`
 
@@ -40,6 +40,39 @@ restarting the app preserves its existing password.
 | `npm run backup`    | Save a PostgreSQL backup under `backups/`      |
 | `docker compose ps` | Inspect service status                         |
 
+## Accounts and Google sign-in
+
+**Create account** lets each new user create an owner account and a separate store with an empty
+catalog. Enter your name, store name, email, and a 12 to 128 character password, then choose
+test-record or authorized-business-record provenance. Registration does not generate inventory,
+sales, or research data. Public signup uses a previously unregistered email on this installation.
+
+Existing users sign in with email/password. **Choose a specific business** retains an optional
+Business ID for older accounts whose credentials match multiple stores. Active cookie sessions
+restore automatically for their lifetime, normally 12 hours.
+
+Google is optional. Configure server-only `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+`GOOGLE_REDIRECT_URI`, and the exact website `CORS_ORIGIN`; the Google button appears only when
+the configuration is complete and valid. The default Compose callback is
+`http://localhost:8080/api/v1/auth/google/callback`, with
+`CORS_ORIGIN=http://localhost:8080`. Hosted callbacks use the real HTTPS origin.
+
+Follow [the manual's Google setup and hosting instructions](docs/USER_GUIDE.md#18-configuration-and-hosting),
+including Google Cloud's Web application client, consent/Audience configuration, and current
+testing/publishing rules. Google may require account selection or consent. A first Google user
+finishes store setup; a connected user signs in to the existing account.
+
+Password users connect Google intentionally from **Inventory > Settings > Your account**.
+Matching emails do not automatically connect identities. This preserves the signed-in user's
+store and owner/staff permissions.
+
+Email verification for password signup, password recovery/change, and staff invitations are not
+implemented. Per-process authentication attempt limits are documented in
+[the backend README](backend/README.md#authentication-contract); multiple API replicas need shared
+gateway limits. Successful live Google OAuth still needs verification with the deployment's
+registered credentials. Other people need access to the same running website; a localhost URL
+works only on that person's computer.
+
 ## Where records are saved
 
 Products, sales, stock movements, imports, settings, accounts, forecast runs, predictions, and
@@ -54,6 +87,13 @@ historical sales explicitly to transfer records to the PostgreSQL application. H
 imports add history; inventory counts are saved as audited stock adjustments.
 
 ## Use the system
+
+Open **Strategies > User guide** for the searchable guide covering every current page,
+daily workflows, CSV formats, forecasts, restock calculations, setup, backups, hosting, and
+troubleshooting. The manual can also be downloaded there and its source is
+[the complete user guide](docs/USER_GUIDE.md). **Strategies > Evaluation** restores the earlier
+five-criterion rating form. Ratings are browser-saved drafts, separate for each signed-in
+business/account; they are not uploaded to the server.
 
 1. Sign in and add products in **Inventory**.
 2. Record sales and deliveries. A sale deducts stock; a delivery increases stock.
@@ -92,7 +132,7 @@ points visitors to that server; the Python API, worker, and PostgreSQL must run 
    passwords. Choose `OWNER_DATA_ORIGIN=partner` only for authorized real business records.
 4. Point the domain's DNS A/AAAA records to the server and allow incoming ports 80 and 443.
 5. Run **`npm start`**. Caddy obtains and renews HTTPS certificates for the configured public domain.
-6. Open your HTTPS URL and sign in with your configured owner credentials.
+6. Open your HTTPS URL and sign in with your configured owner credentials or create a separate store account.
 
 PostgreSQL is reachable only inside the Compose network. The application database role has no
 superuser, role-creation, or database-creation privileges. Hosting account setup, DNS, disk

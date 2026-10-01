@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from uuid import UUID
 
-from pydantic import EmailStr, Field, PostgresDsn
+from pydantic import EmailStr, Field, PostgresDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     port: int = Field(default=3001, ge=1, le=65535)
     cors_origin: str = "http://127.0.0.1:5173"
     session_hours: int = Field(default=12, ge=1, le=168)
+    google_client_id: str = ""
+    google_client_secret: SecretStr = SecretStr("")
+    google_redirect_uri: str = ""
     artifact_dir: Path = Path("data/models")
     forecast_poll_seconds: int = Field(default=5, ge=1, le=3600)
     owner_business_id: UUID = UUID("00000000-0000-4000-8000-000000000001")
