@@ -38,6 +38,7 @@ restarting the app preserves its existing password.
 | `npm run stop`      | Stop containers; saved database records remain |
 | `npm run logs`      | Follow service logs                            |
 | `npm run backup`    | Save a PostgreSQL backup under `backups/`      |
+| `npm run benchmark` | Measure the read-only API and export JSON      |
 | `docker compose ps` | Inspect service status                         |
 
 ## Accounts and Google sign-in
@@ -182,3 +183,11 @@ the full Compose installation with real PostgreSQL and the Python worker.
 Read [AGENTS.md](AGENTS.md), [project context](docs/PROJECT_CONTEXT.md), and
 [implementation checklist](docs/COMPLETION_CHECKLIST.md) before code changes. Real partner data,
 permission, and research outcomes are documented separately from implementation checks.
+
+## Data quality and performance
+
+**Data quality** lets authenticated users distinguish confirmed zero-sale dates from closures,
+incomplete ledgers, and documented full or partial stockouts. Corrections retain an audit trail and
+can be exported as CSV. Absent dates are not silently treated as zero demand. See
+[the benchmark procedure](docs/PERFORMANCE_BENCHMARK.md) for safe Windows Docker Desktop and Linux
+VPS commands. Benchmark output is synthetic operational evidence, not client or research results.

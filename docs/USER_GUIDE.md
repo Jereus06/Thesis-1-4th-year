@@ -119,9 +119,9 @@ registered on this installation must sign in instead.
 
 This field labels the source of the records you plan to add later.
 
-| Choice                          | When to choose it                                                     |
-| ------------------------------- | --------------------------------------------------------------------- |
-| **Test records**                | Practice records, invented examples, or other test data               |
+| Choice                          | When to choose it                                                      |
+| ------------------------------- | ---------------------------------------------------------------------- |
+| **Test records**                | Practice records, invented examples, or other test data                |
 | **Authorized business records** | Real records from a business that has given you permission to use them |
 
 Both choices create the same application features and a separate empty store. Choosing Test
@@ -470,7 +470,7 @@ Eight weeks contain 56 calendar days, so eight weeks alone cannot provide 100 di
 days. Validation and final-test days are kept separate and cannot satisfy the training gates.
 Products that fail these checks use the Python Moving Average fallback.
 
-Missing calendar dates currently count as zero sales. An unrecorded day or a stockout can differ
+Missing calendar dates do not count as zero sales. A confirmed zero must be recorded on the Data quality screen. An unrecorded day or a stockout can differ
 from genuine zero demand; confirm ledger completeness and the interpretation of such days with
 the future partner before using results for research or purchasing decisions.
 
@@ -994,3 +994,13 @@ ledger completeness, treatment of missing days and stockouts, correction/void pr
 authorized data collection/import mapping, backup retention, deployment settings, and independent
 research evaluation cutoffs. The guide does not invent those decisions or claim an approved
 manuscript, completed partner evaluation, or certified model accuracy.
+
+## Reviewing and correcting data quality
+
+Open **Quality** to record a confirmed zero, closure, incomplete record, full stockout, or partial
+stockout for one product or all products. Add the evidence or correction reason in the note. Saving
+a later classification updates the current review while retaining both values in the audit log.
+Removing a classification is also audited. Use **Export audit CSV** for review. Confirmed zeros may
+be model targets; the other classifications and unclassified absent dates are excluded rather than
+converted into demand. The conservative XGBoost path requires complete calendar-spaced training
+lags and explains a Moving Average fallback when that evidence is unavailable.

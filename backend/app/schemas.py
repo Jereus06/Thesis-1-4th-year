@@ -149,3 +149,17 @@ class ForecastRunCreate(ApiModel):
 class RecommendationGenerate(ApiModel):
     recommendation_date: date
     lookback_days: int = Field(default=28, ge=7, le=365)
+
+
+class DataQualityUpsert(ApiModel):
+    product_id: UUID | None = None
+    classification_date: date
+    classification: str = Field(
+        pattern="^(confirmed_zero|business_closed|full_stockout|partial_stockout|incomplete)$"
+    )
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class DataQualityDelete(ApiModel):
+    product_id: UUID | None = None
+    classification_date: date

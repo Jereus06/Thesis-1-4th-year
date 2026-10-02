@@ -1,6 +1,6 @@
 # StockCast project context
 
-Last checked against this branch: 2026-10-01. Read alongside [AGENTS.md](../AGENTS.md) and source.
+Last checked against this branch: 2026-10-02. Read alongside [AGENTS.md](../AGENTS.md) and source.
 
 ## Purpose and confirmed research context
 
@@ -30,6 +30,7 @@ outside the repository. Downloads under `public/thesis/` can lag current drafts.
 | Exports            | Sales/stock-movement downloads use authenticated Python CSV endpoints                                                                                       |
 | Forecasts          | Official Python XGBoost, immutable queued inputs, chronological selection/testing, saved predictions/metrics/models                                         |
 | Restock            | Python reads the operating forecast or baseline and current stock; suggested quantity is zero above the reorder trigger                                     |
+| Data quality       | Missing/incomplete dates, explicit zeros, closures, and stockouts have reviewed classifications, audit history, and CSV export                              |
 | Backups            | `npm run backup` creates a PostgreSQL dump; CI checks a separate restore and container recreation                                                           |
 | User guide         | Strategies User guide tab with search, expandable topics, and manual download from docs/USER_GUIDE.md; legacy /guide redirects inside the authenticated app |
 | System evaluation  | Strategies Evaluation tab restores five selected quality ratings; API drafts are browser-local per business/user, demo drafts keep their existing storage   |
@@ -88,8 +89,8 @@ See [backend authentication details](../backend/README.md#authentication-contrac
 - Dashboard ML comparisons use matching eligible products/date observations.
 - No calibrated prediction intervals or certified accuracy are claimed. All operational confidence
   labels remain low pending research validation; `xgboost_verified` remains false.
-- Missing days currently mean zero sales. Confirm ledger completeness, stockout interpretation,
-  and that policy with the partner before research evaluation.
+- Absent dates are not zero-filled. Audited `confirmed_zero` dates are eligible observations; closures, incomplete records, and full/partial stockouts are excluded. XGBoost conservatively requires a complete observed-or-confirmed-zero daily training sequence so calendar lag spacing is preserved. Confirm this policy with the partner before research evaluation.
+- The Data quality screen records store-wide or product-specific classifications with an immutable audit log and CSV export. Forecast-run snapshots retain the classifications used by the worker.
 - Refresh is explicit from the frontend; the worker continuously polls queued jobs. Failed and
   interrupted jobs are recorded and can be refreshed.
 
