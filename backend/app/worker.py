@@ -16,7 +16,7 @@ from psycopg.types.json import Jsonb
 from xgboost import __version__ as xgboost_version
 
 from .config import get_settings
-from .data_quality import observed_daily_values
+from .data_quality import POLICY_VERSION, observed_daily_values
 from .forecasting import (
     Observation,
     SplitBoundaries,
@@ -150,6 +150,12 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
             "products": {},
         }
     )
+    modeling_timing = {
+        "trainingMs": 0.0,
+        "validationMs": 0.0,
+        "evaluationMs": 0.0,
+        "totalModelingMs": 0.0,
+    }
     artifacts = get_settings().artifact_dir / str(run["id"])
     artifacts.mkdir(parents=True, exist_ok=True)
     with conn.transaction():
@@ -241,6 +247,10 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                         run["forecast_horizon_days"],
                         settings["moving_average_window"],
                     )
+                }
+                interval_method = None
+                future_lower = None
+                future_upper = None
             for method, predictions in future_predictions.items():
                 for index, prediction in enumerate(predictions, start=1):
                     persisted_method = _method(method)
