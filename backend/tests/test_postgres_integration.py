@@ -670,3 +670,49 @@ def test_expired_google_flow_and_pending_registration_create_no_store(
     with psycopg.connect(dsn) as conn:
         assert conn.execute("SELECT count(*) FROM businesses").fetchone()[0] == 1
         assert conn.execute("SELECT count(*) FROM google_identities").fetchone()[0] == 0
+
+
+def test_quality_snapshot_precedence_warning_and_deletion_staleness(pg_client):
+    client,business,_=pg_client
+    product=create_product(client,business)
+    base=f"/api/v1/businesses/{business}"
+    for index in range(5):
+        day=f"2026-01-0{index+1}"
+        assert client.post(base+"/sales",json={"productId":product["id"],"saleDate":day,"quantity":"2"},headers={"Idempotency-Key":f"quality-sale-{index}"}).status_code==201
+    assert client.put(base+"/data-quality",json={"classificationDate":"2026-01-02","classification":"business_closed","productId":None}).status_code==200
+    assert client.put(base+"/data-quality",json={"classificationDate":"2026-01-02","classification":"confirmed_zero","productId":product["id"]}).status_code==200
+    run=client.post(base+"/forecast-runs",json={"trainingStart":"2026-01-01","trainingEnd":"2026-01-03","validationStart":"2026-01-04","validationEnd":"2026-01-04","finalTestStart":"2026-01-05","finalTestEnd":"2026-01-05","forecastHorizonDays":7})
+    assert run.status_code==202,run.text
+    snapshot=run.json()["data"]["dataSnapshot"]["preparedProducts"][product["id"]]
+    target=next(item for item in snapshot["targets"] if item["day"]=="2026-01-02")
+    assert target["quantity"]==2 and target["provenance"]=="recorded_sales"
+    assert snapshot["warnings"][0]["code"]=="confirmed_zero_with_sales"
+    from app import worker
+    assert worker.run_once()
+    assert not client.get(base+"/forecast-dashboard").json()["data"]["stale"]
+    deleted=client.request("DELETE",base+"/data-quality",json={"classificationDate":"2026-01-02","productId":product["id"]})
+    assert deleted.status_code==200
+    dashboard=client.get(base+"/forecast-dashboard").json()["data"]
+    assert dashboard["stale"] and dashboard["run"] is not None
+
+
+def test_account_recovery_invitation_and_tenant_permissions(pg_client,monkeypatch):
+    client,business,_=pg_client
+    sent=[]
+    monkeypatch.setattr("app.auth_routes.Mailer.send",lambda _self,to,subject,text: sent.append((to,subject,text)))
+    recovery=client.post("/api/v1/auth/password/recovery",json={"email":"owner@example.com","businessId":business})
+    assert recovery.status_code==200 and sent
+    token=sent[-1][2].split("?reset=")[1].split()[0]
+    assert client.post("/api/v1/auth/password/recovery/complete",json={"token":token,"newPassword":"replacement-password-123"}).status_code==200
+    assert client.post("/api/v1/auth/password/recovery/complete",json={"token":token,"newPassword":"another-password-123"}).status_code==400
+    # Sign back in after recovery invalidated every owner session.
+    signed=client.post("/api/v1/auth/sign-in",json={"businessId":business,"email":"owner@example.com","password":"replacement-password-123"})
+    assert signed.status_code==200; client.headers["X-CSRF-Token"]=client.cookies["stockcast_csrf"]
+    invitation=client.post("/api/v1/auth/staff/invitations",json={"email":"synthetic.staff@example.invalid","displayName":"Synthetic Staff"})
+    assert invitation.status_code==201,invitation.text
+    invite_token=sent[-1][2].split("?invitation=")[1].split()[0]
+    accepted=client.post("/api/v1/auth/staff/invitations/accept",json={"token":invite_token,"password":"synthetic-staff-password"})
+    assert accepted.status_code==201 and accepted.json()["data"]["role"]=="staff"
+    assert client.post("/api/v1/auth/staff/invitations/accept",json={"token":invite_token,"password":"synthetic-staff-password"}).status_code==400
+    client.headers["X-CSRF-Token"]=client.cookies["stockcast_csrf"]
+    assert client.post("/api/v1/auth/staff/invitations",json={"email":"other@example.invalid","displayName":"Other"}).status_code==403

@@ -24,3 +24,6 @@ __pycache__/
 !.env.example
 .kilo/
 .codex-publish/
+
+# Local benchmark output
+benchmarks/

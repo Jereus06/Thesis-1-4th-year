@@ -147,6 +147,10 @@ export function ApiGate({ children }: { children: ReactNode }) {
         {children}
       </>
     );
+  const resetToken = new URLSearchParams(window.location.search).get("reset");
+  const invitationToken = new URLSearchParams(window.location.search).get("invitation");
+  if (resetToken || invitationToken)
+    return <TokenPasswordForm resetToken={resetToken} invitationToken={invitationToken} />;
   if (bootstrapping)
     return (
       <main className="grid min-h-dvh place-items-center bg-bg p-6 text-fg">
@@ -425,6 +429,26 @@ export function ApiGate({ children }: { children: ReactNode }) {
               </Button>
             </fieldset>
           </form>
+          {!pending && screen === "sign-in" && (
+            <Button
+              type="button"
+              variant="ghost"
+              className="mt-3 w-full"
+              disabled={!!busy || !email.trim()}
+              onClick={() =>
+                void api
+                  .requestRecovery(email.trim())
+                  .then(() =>
+                    setFormError(
+                      "If that account exists and email is configured, a single-use reset link has been sent.",
+                    ),
+                  )
+                  .catch((e: Error) => setFormError(e.message))
+              }
+            >
+              Forgot password
+            </Button>
+          )}
           {pending && (
             <Button
               type="button"
@@ -446,6 +470,78 @@ export function ApiGate({ children }: { children: ReactNode }) {
           </p>
         </div>
       </div>
+    </main>
+  );
+}
+
+function TokenPasswordForm({
+  resetToken,
+  invitationToken,
+}: {
+  resetToken: string | null;
+  invitationToken: string | null;
+}) {
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (password !== confirmation) {
+      setMessage("Passwords do not match.");
+      return;
+    }
+    setBusy(true);
+    try {
+      if (resetToken) await api.completeRecovery(resetToken, password);
+      else {
+        await api.acceptInvitation(invitationToken!, password);
+      }
+      window.location.assign("/");
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Request failed");
+      setBusy(false);
+    }
+  }
+  return (
+    <main className="grid min-h-dvh place-items-center bg-surface-2 p-6 text-fg">
+      <form
+        onSubmit={submit}
+        className="grid w-full max-w-md gap-4 rounded-2xl border border-border bg-surface p-6"
+      >
+        <h1 className="text-xl font-semibold">
+          {resetToken ? "Choose a new password" : "Accept staff invitation"}
+        </h1>
+        <p className="text-sm text-muted">This protected link expires and can be used only once.</p>
+        {message && (
+          <p role="alert" className="text-sm text-danger">
+            {message}
+          </p>
+        )}
+        <Input
+          type="password"
+          autoComplete="new-password"
+          minLength={12}
+          maxLength={128}
+          required
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="New password (12+ characters)"
+        />
+        <Input
+          type="password"
+          autoComplete="new-password"
+          minLength={12}
+          maxLength={128}
+          required
+          value={confirmation}
+          onChange={(e) => setConfirmation(e.target.value)}
+          placeholder="Confirm password"
+        />
+        <Button disabled={busy} type="submit">
+          {busy ? "Saving…" : resetToken ? "Reset password" : "Create staff account"}
+        </Button>
+      </form>
     </main>
   );
 }

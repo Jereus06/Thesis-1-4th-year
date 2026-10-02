@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     owner_email: EmailStr = "owner@example.com"
     owner_display_name: str = "Store Owner"
     owner_password: str = ""
+    smtp_host: str = ""
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str = ""
+    smtp_password: SecretStr = SecretStr("")
+    smtp_from: str = ""
+    smtp_starttls: bool = True
+    public_app_url: str = "http://localhost:5173"
 
 
 @lru_cache

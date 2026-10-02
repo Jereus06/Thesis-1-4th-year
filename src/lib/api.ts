@@ -70,6 +70,28 @@ export const api = {
     }),
   signOut: () => request<{ signedOut: boolean }>("/auth/sign-out", { method: "POST" }),
   me: () => request<SessionUser>("/auth/me"),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<{ changed: boolean }>("/auth/password/change", {
+      method: "POST",
+      body: { currentPassword, newPassword },
+    }),
+  requestRecovery: (email: string) =>
+    request<{ accepted: boolean }>("/auth/password/recovery", { method: "POST", body: { email } }),
+  completeRecovery: (token: string, newPassword: string) =>
+    request<{ changed: boolean }>("/auth/password/recovery/complete", {
+      method: "POST",
+      body: { token, newPassword },
+    }),
+  members: () => request<AccountMember[]>("/auth/members"),
+  acceptInvitation: (token: string, password: string) =>
+    request<SessionUser>("/auth/staff/invitations/accept", {
+      method: "POST",
+      body: { token, password },
+    }),
+  inviteStaff: (email: string, displayName: string) =>
+    request("/auth/staff/invitations", { method: "POST", body: { email, displayName } }),
+  setMemberActive: (userId: string, isActive: boolean) =>
+    request(`/auth/members/${userId}`, { method: "PATCH", body: { isActive } }),
   business: (businessId: string) =>
     request<{ name: string; location: string | null; dataOrigin: "demo" | "partner" }>(
       `/businesses/${businessId}`,
@@ -109,11 +131,26 @@ export const api = {
         body: { source: "csv", rows },
       },
     ),
+  dataQuality: (businessId: string) =>
+    request<DataQualityEntry[]>(`/businesses/${businessId}/data-quality`),
+  saveDataQuality: (
+    businessId: string,
+    entry: Pick<DataQualityEntry, "productId" | "classificationDate" | "classification" | "note">,
+  ) =>
+    request<DataQualityEntry>(`/businesses/${businessId}/data-quality`, {
+      method: "PUT",
+      body: entry,
+    }),
+  deleteDataQuality: (businessId: string, productId: string | null, classificationDate: string) =>
+    request<{ deleted: boolean }>(`/businesses/${businessId}/data-quality`, {
+      method: "DELETE",
+      body: { productId, classificationDate },
+    }),
   dashboard: (businessId: string) =>
     request<ApiDashboard>(`/businesses/${businessId}/forecast-dashboard`),
   refreshForecast: (businessId: string) =>
     request<ApiForecastRun>(`/businesses/${businessId}/forecast-refresh`, { method: "POST" }),
-  exportUrl: (businessId: string, kind: "sales" | "inventory-movements") =>
+  exportUrl: (businessId: string, kind: "sales" | "inventory-movements" | "data-quality") =>
     `${API_URL}/businesses/${businessId}/exports/${kind}.csv`,
   recordSale: async (businessId: string, productId: string, date: string, qty: number) =>
     toSale(
@@ -238,6 +275,14 @@ export type ApiForecastRun = {
   id: string;
   status: "queued" | "running" | "completed" | "failed";
   createdAt: string;
+  timing: {
+    queueWaitMs?: number;
+    preparationMs?: number;
+    trainingMs?: number;
+    evaluationMs?: number;
+    persistenceMs?: number;
+    totalProcessingMs?: number;
+  };
   finalTestStart: string;
   finalTestEnd: string;
   failureMessage: string | null;
@@ -259,6 +304,11 @@ export type ApiDashboard = {
       fallbackReason?: string;
       xgbWeight?: number;
       parameters?: { max_depth: number; learning_rate: number; n_estimators: number };
+      effectiveFolds?: number;
+      earlyStoppingUsed?: boolean;
+      unknownDays?: number;
+      excludedDays?: number;
+      qualityWarnings?: string[];
     }
   >;
   predictions: {
@@ -283,12 +333,36 @@ export type ApiDashboard = {
     productId: string;
     method: string;
     confidenceLevel: "low" | "medium" | "high";
-    daily_demand: string;
-    demand_during_lead_time: string;
-    reorder_point: string;
-    target_stock: string;
+    demandAvailable: boolean;
+    unavailableReason: string | null;
+    daily_demand: string | null;
+    demand_during_lead_time: string | null;
+    reorder_point: string | null;
+    target_stock: string | null;
     suggested_quantity: string;
     days_of_cover: string | null;
     status: "stockout" | "reorder" | "watch" | "healthy";
   }[];
+};
+
+export type DataQualityClassification =
+  "confirmed_zero" | "business_closed" | "full_stockout" | "partial_stockout" | "incomplete";
+export type DataQualityEntry = {
+  id: string;
+  productId: string | null;
+  sku: string | null;
+  productName: string | null;
+  classificationDate: string;
+  classification: DataQualityClassification;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AccountMember = {
+  id: string;
+  email: string;
+  displayName: string;
+  role: "owner" | "staff";
+  isActive: boolean;
 };

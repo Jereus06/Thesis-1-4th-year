@@ -20,10 +20,10 @@ The first level does not involve machine learning. It specifies the minimum hist
 
 A product catalog is accepted for forecasting only when the available sales window covers at least eight weeks. Six to twelve months of history is treated as the reliable range for the kinds of short-horizon forecasts this study produces. History shorter than the eight-week floor is not forced through XGBoost. If the partner extract is thinner than that floor, the system substitutes a public-style retail fallback series of comparable length so that model development and interface testing can continue, and it records that substitution in the run diagnostics so the result is not presented as a partner-data finding.
 
-Daily series with more than 30 percent zero-sales days are aggregated to weekly totals before modeling. Aggregation reduces the number of structural zeros that would otherwise dominate a daily loss function and produce near-zero forecasts. Product scope is further reduced to the top N products (default eight, configurable toward 20–50) that also have at least 100 non-zero observations. Slow-moving SKUs remain in the catalog and still receive a reorder quantity, but they are served by a simple moving-average or rule-based demand estimate rather than by boosting. This is a data decision as much as a compute decision: a series that rarely sells does not contain enough events for a tree ensemble to generalize.
+The approved methodology permits weekly aggregation for sparse series, but the production Python path currently remains daily and reports insufficient calendar evidence rather than silently aggregating. Aggregation reduces the number of structural zeros that would otherwise dominate a daily loss function and produce near-zero forecasts. Product scope is further reduced to the top N products (default eight, configurable toward 20–50) that also have at least 100 non-zero observations. Slow-moving SKUs remain in the catalog and still receive a reorder quantity, but they are served by a simple moving-average or rule-based demand estimate rather than by boosting. This is a data decision as much as a compute decision: a series that rarely sells does not contain enough events for a tree ensemble to generalize.
 
 - Minimum history: 8 weeks; reliable range: 6–12 months.
-- Daily series aggregated to weekly when more than 30% of days have zero sales.
+- Weekly aggregation is a methodology option that must be implemented and validated before use; the current Python path remains daily.
 - Machine-learning training limited to top-N products with at least 100 non-zero observations.
 - Public retail fallback dataset used when partner history is below the minimum, with the substitution disclosed.
 
@@ -61,7 +61,7 @@ The dashboard reports whichever of Moving Average, XGBoost, or the ensemble reco
 
 ### Level 5 — Uncertainty-Level Fixes
 
-A point forecast without a statement of confidence is easy to over-read. Each product therefore carries a confidence score derived from the number of non-zero observations and from whether the history meets the eight-week floor. Products with fewer than 30 non-zero observations are flagged as low confidence. Charts display a prediction interval using the 10th, 50th, and 90th percentiles of holdout residuals around the operational forecast.
+A point forecast without evidence information is easy to over-read. The production path reports usable, unknown, and excluded days rather than a probability-like confidence score. Prediction intervals are calibrated only from separate validation residuals when at least ten are available, and coverage is assessed on untouched final-test observations; otherwise intervals are unavailable.
 
 The interface also states, in owner language, that forecasts are decision-support only and not guarantees. Final purchasing decisions remain the owner’s. This disclaimer is part of the methodology, not an afterthought on the user interface: the system is designed to support judgment, which is already listed among the limitations of the study.
 

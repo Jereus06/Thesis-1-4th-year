@@ -65,3 +65,55 @@ def test_nonzero_eligibility_excludes_validation_and_final_test():
     )
     assert not eligible
     assert (days, nonzero) == (60, 0)
+
+
+def test_absent_dates_are_not_automatically_zero_sales():
+    from app.worker import daily_observations
+
+    start = date(2025, 1, 1)
+    rows = [{"sale_date": start, "quantity": "4"}]
+    result = daily_observations(
+        rows,
+        start,
+        start + timedelta(days=2),
+        [
+            {"date": "2025-01-02", "classification": "confirmed_zero"},
+            {"date": "2025-01-03", "classification": "business_closed"},
+        ],
+    )
+    assert [(row.day, row.quantity) for row in result] == [
+        (start, 4.0),
+        (start + timedelta(days=1), 0.0),
+    ]
+
+
+def test_incomplete_calendar_sequence_is_not_xgboost_eligible():
+    from app.worker import training_eligibility
+
+    start = date(2025, 1, 1)
+    rows = [Observation(start + timedelta(days=i), 1) for i in range(120) if i != 12]
+    eligible, days, nonzero, reason = training_eligibility(
+        rows,
+        {"training_start": start, "training_end": start + timedelta(days=119)},
+        {"minimum_history_weeks": 8, "minimum_nonzero_days": 100, "top_n_products": 8},
+        0,
+    )
+    assert not eligible
+    assert (days, nonzero) == (119, 119)
+    assert "119/120 classified calendar days" in reason
+
+
+def test_three_training_folds_early_stopping_and_validation_only_intervals():
+    start = date(2024, 1, 1)
+    rows = [Observation(start + timedelta(days=i), 10 + (i % 7)) for i in range(180)]
+    bounds = SplitBoundaries(start + timedelta(days=129), start + timedelta(days=154), start + timedelta(days=179))
+    first = train_verified_xgboost(rows, bounds, horizon=7)
+    changed_test = train_verified_xgboost(
+        [Observation(row.day, row.quantity if i < 155 else row.quantity + 500) for i,row in enumerate(rows)], bounds, horizon=7)
+    assert first["effectiveFolds"] == 3
+    assert first["interval"]["calibrationSplit"] == "late_validation_reserved_after_selection"
+    assert first["interval"]["available"]
+    assert changed_test["parameters"] == first["parameters"]
+    assert changed_test["operatingMethod"] == first["operatingMethod"]
+    assert changed_test["interval"]["lowerResidual"] == first["interval"]["lowerResidual"]
+    assert changed_test["testPredictions"] == first["testPredictions"]

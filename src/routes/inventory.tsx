@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { AccountAccessCard } from "@/components/account-access-card";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import { formatShort, parseDate } from "@/lib/dates";
 import { num, peso } from "@/lib/format";
 import { useAppStore } from "@/lib/store";
 import type { Product, Sale } from "@/lib/types";
-import { api } from "@/lib/api";
+import { api, type AccountMember } from "@/lib/api";
 
 export const Route = createFileRoute("/inventory")({ component: InventoryPage });
 
@@ -663,6 +663,7 @@ function SettingsPanel() {
         <Button onClick={saveSettings} disabled={saving}>
           {saving ? "Saving…" : "Save settings"}
         </Button>
+        {mode === "api" && <AccountMaintenance />}
         {mode === "browser-demo" && (
           <Button
             variant="outline"
@@ -676,6 +677,126 @@ function SettingsPanel() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function AccountMaintenance() {
+  const session = useAppStore((s) => s.session);
+  const [current, setCurrent] = useState("");
+  const [replacement, setReplacement] = useState("");
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [members, setMembers] = useState<AccountMember[]>([]);
+  useEffect(() => {
+    if (session?.role === "owner")
+      void api
+        .members()
+        .then(setMembers)
+        .catch(() => undefined);
+  }, [session?.role]);
+  async function changePassword() {
+    await api.changePassword(current, replacement);
+    toast.success("Password changed. Sign in again on all devices.");
+    window.location.reload();
+  }
+  async function invite() {
+    await api.inviteStaff(email, name);
+    setEmail("");
+    setName("");
+    toast.success("Single-use staff invitation sent.");
+  }
+  async function toggleMember(member: AccountMember) {
+    await api.setMemberActive(member.id, !member.isActive);
+    setMembers(await api.members());
+    toast.success(member.isActive ? "Staff access disabled." : "Staff access restored.");
+  }
+  return (
+    <div className="grid gap-4 rounded-xl border border-border p-4">
+      <div>
+        <p className="font-medium">Account maintenance</p>
+        <p className="text-sm text-muted">
+          Changing your password ends every active session. Recovery and invitation links are
+          single-use and expire.
+        </p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Input
+          type="password"
+          autoComplete="current-password"
+          placeholder="Current password"
+          value={current}
+          onChange={(e) => setCurrent(e.target.value)}
+        />
+        <Input
+          type="password"
+          autoComplete="new-password"
+          placeholder="New password (12+ characters)"
+          value={replacement}
+          onChange={(e) => setReplacement(e.target.value)}
+        />
+      </div>
+      <Button
+        variant="outline"
+        disabled={!current || replacement.length < 12}
+        onClick={() => void changePassword().catch((e: Error) => toast.error(e.message))}
+      >
+        Change password
+      </Button>
+      {session?.role === "owner" && (
+        <>
+          <div className="border-t border-border pt-4">
+            <p className="font-medium">Invite staff</p>
+            <p className="text-sm text-muted">Requires private SMTP configuration on the server.</p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Input
+              type="text"
+              placeholder="Staff name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <Input
+              type="email"
+              autoComplete="email"
+              placeholder="staff@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <Button
+            variant="outline"
+            disabled={!name.trim() || !email.trim()}
+            onClick={() => void invite().catch((e: Error) => toast.error(e.message))}
+          >
+            Send staff invitation
+          </Button>
+          <div className="grid gap-2">
+            {members
+              .filter((member) => member.role === "staff")
+              .map((member) => (
+                <div
+                  key={member.id}
+                  className="flex items-center justify-between gap-3 rounded-lg bg-surface-2 p-3 text-sm"
+                >
+                  <span>
+                    {member.displayName} · {member.email} ·{" "}
+                    {member.isActive ? "active" : "disabled"}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      void toggleMember(member).catch((e: Error) => toast.error(e.message))
+                    }
+                  >
+                    {member.isActive ? "Disable" : "Restore"}
+                  </Button>
+                </div>
+              ))}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

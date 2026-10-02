@@ -16,6 +16,7 @@ from psycopg.types.json import Jsonb
 from xgboost import __version__ as xgboost_version
 
 from .config import get_settings
+from .data_quality import POLICY_VERSION, prepare_product_series
 from .forecasting import (
     Observation,
     SplitBoundaries,
@@ -27,12 +28,11 @@ from .forecasting import (
 logger = logging.getLogger(__name__)
 
 
-def daily_observations(rows: list[dict[str, Any]], start: date, end: date) -> list[Observation]:
-    totals = {row["sale_date"]: float(row["quantity"]) for row in rows}
-    return [
-        Observation(start + timedelta(days=index), totals.get(start + timedelta(days=index), 0.0))
-        for index in range((end - start).days + 1)
-    ]
+def daily_observations(
+    rows, start: date, end: date, quality=(), product_id=""
+) -> list[Observation]:
+    prepared = prepare_product_series(rows, quality, product_id, start, end)
+    return [Observation(item.day, item.quantity) for item in prepared.days]
 
 
 def claim_run(conn: Connection) -> dict[str, Any] | None:
@@ -75,8 +75,16 @@ def claim_run(conn: Connection) -> dict[str, Any] | None:
 def training_eligibility(observations, run, settings, rank):
     training = [item for item in observations if item.day <= run["training_end"]]
     nonzero, days = sum(item.quantity > 0 for item in training), len(training)
+    calendar_days = (
+        run["training_end"]
+        - run.get(
+            "training_start", min((item.day for item in training), default=run["training_end"])
+        )
+    ).days + 1
+    complete = days == calendar_days
     eligible = (
-        days >= max(31, settings["minimum_history_weeks"] * 7)
+        complete
+        and days >= max(31, settings["minimum_history_weeks"] * 7)
         and nonzero >= settings["minimum_nonzero_days"]
         and rank < settings["top_n_products"]
     )
@@ -84,7 +92,7 @@ def training_eligibility(observations, run, settings, rank):
         None
         if eligible
         else (
-            f"Training history: {days} days, {nonzero} nonzero days, rank {rank + 1}; "
+            f"Training history: {days}/{calendar_days} classified calendar days, {nonzero} nonzero days, rank {rank + 1}; "
             f"requires {settings['minimum_history_weeks']} weeks, "
             f"{settings['minimum_nonzero_days']} nonzero days and top {settings['top_n_products']}."
         )
@@ -93,11 +101,13 @@ def training_eligibility(observations, run, settings, rank):
 
 
 def process_run(conn: Connection, run: dict[str, Any]) -> None:
+    total_started = time.perf_counter()
     snapshot = run["data_snapshot"]
     if not all(key in snapshot for key in ("dailySales", "settings", "products")):
         raise ValueError(
             "This older queued run has no immutable input snapshot; refresh to create one"
         )
+    preparation_started = time.perf_counter()
     settings, series = snapshot["settings"], {}
     for product_id in snapshot["products"]:
         rows = [
@@ -105,7 +115,17 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
             for item in snapshot["dailySales"]
             if item["productId"] == product_id
         ]
-        series[product_id] = daily_observations(rows, run["training_start"], run["final_test_end"])
+        prepared = prepare_product_series(
+            rows,
+            snapshot.get("dataQuality", []),
+            product_id,
+            run["training_start"],
+            run["final_test_end"],
+        )
+        series[product_id] = [Observation(item.day, item.quantity) for item in prepared.days]
+        snapshot.setdefault("preparedProducts", {})[product_id] = prepared.snapshot()
+    preparation_ms = (time.perf_counter() - preparation_started) * 1000
+    modeling_timing = {"trainingMs": 0.0, "validationMs": 0.0, "evaluationMs": 0.0}
     # Product ranking and the nonzero-day gate use training only.
     products = sorted(
         series,
@@ -123,7 +143,10 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
             "selectionSplit": "validation",
             "evaluationSplit": "final_test",
             "evaluationProtocol": "recursive_fixed_cutoff",
-            "missingDayPolicy": "zero_sales",
+            "missingDayPolicy": "explicit_classification_required",
+            "preparationPolicyVersion": POLICY_VERSION,
+            "excludedTargets": "closures, incomplete records, full/partial stockouts, and unclassified absent dates",
+            "lagPolicy": "XGBoost requires a complete observed-or-confirmed-zero daily training sequence",
             "operationalRefitEnd": str(run["final_test_end"]),
             "products": {},
         }
@@ -136,13 +159,27 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
             eligible, days, nonzero, reason = training_eligibility(
                 observations, run, settings, rank
             )
+            expected_days = (run["final_test_end"] - run["training_start"]).days + 1
+            if eligible and len(observations) != expected_days:
+                eligible = False
+                reason = (
+                    "XGBoost evaluation requires every validation/test calendar date to be "
+                    "observed or explicitly confirmed zero; excluded or missing dates remain."
+                )
             test = [item for item in observations if item.day > run["validation_end"]]
+            prepared_snapshot = snapshot.get("preparedProducts", {}).get(product_id, {})
             summary = {
                 "historyDays": days,
                 "nonzeroDays": nonzero,
                 "eligible": eligible,
                 "fallbackReason": reason,
                 "operatingMethod": "fallback",
+                "preparationPolicyVersion": POLICY_VERSION,
+                "unknownDays": len(prepared_snapshot.get("unknownDates", [])),
+                "excludedDays": len(prepared_snapshot.get("excludedDates", [])),
+                "qualityWarnings": [
+                    item["message"] for item in prepared_snapshot.get("warnings", [])
+                ],
             }
             if eligible:
                 result = train_verified_xgboost(
@@ -157,8 +194,15 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                         "xgbWeight": result["xgbWeight"],
                         "operatingMethod": result["operatingMethod"],
                         "artifact": f"{run['id']}/{product_id}.json",
+                        "effectiveFolds": result["effectiveFolds"],
+                        "selectionFallback": result["selectionFallback"],
+                        "earlyStoppingUsed": result["earlyStoppingUsed"],
+                        "bestIteration": result["bestIteration"],
+                        "interval": result["interval"],
                     }
                 )
+                for key in modeling_timing:
+                    modeling_timing[key] += result["timing"][key]
                 result["model"].save_model(artifacts / f"{product_id}.json")
                 for split, metrics in (
                     ("validation", result["validation"]),
@@ -171,48 +215,111 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                 for method, predictions in result["testPredictions"].items():
                     _persist_predictions(conn, run, product_id, test, _method(method), predictions)
                 future_predictions = result["futurePredictions"]
+                interval_method = _method(result["operatingMethod"])
+                future_lower, future_upper = result["futureLower"], result["futureUpper"]
             else:
-                history = [
-                    item.quantity for item in observations if item.day <= run["validation_end"]
-                ]
-                ma = moving_average(history, len(test), settings["moving_average_window"])
-                _persist_predictions(conn, run, product_id, test, "moving_average", ma)
-                metric = evaluate([item.quantity for item in test], ma)
-                _persist_metric_values(
-                    conn,
-                    run,
-                    product_id,
-                    "moving_average",
-                    {"mae": metric.mae, "rmse": metric.rmse, "observations": metric.observations},
-                )
-                future_predictions = {
-                    "fallback": moving_average(
-                        [item.quantity for item in observations],
-                        run["forecast_horizon_days"],
-                        settings["moving_average_window"],
+                window = settings["moving_average_window"]
+                before_test = [item for item in observations if item.day <= run["validation_end"]]
+                tail = before_test[-window:]
+                test_complete = (
+                    bool(test)
+                    and test[0].day == run["final_test_start"]
+                    and all(
+                        test[i].day - test[i - 1].day == timedelta(days=1)
+                        for i in range(1, len(test))
                     )
-                }
+                )
+                tail_complete = len(tail) == window and all(
+                    tail[i].day - tail[i - 1].day == timedelta(days=1) for i in range(1, len(tail))
+                )
+                if tail_complete and test_complete:
+                    ma = moving_average([item.quantity for item in tail], len(test), window)
+                    _persist_predictions(conn, run, product_id, test, "moving_average", ma)
+                    metric = evaluate([item.quantity for item in test], ma)
+                    _persist_metric_values(
+                        conn,
+                        run,
+                        product_id,
+                        "moving_average",
+                        {
+                            "mae": metric.mae,
+                            "rmse": metric.rmse,
+                            "observations": metric.observations,
+                        },
+                    )
+                operational_tail = observations[-window:]
+                operational_complete = (
+                    len(operational_tail) == window
+                    and operational_tail[-1].day == run["final_test_end"]
+                    and all(
+                        operational_tail[i].day - operational_tail[i - 1].day == timedelta(days=1)
+                        for i in range(1, len(operational_tail))
+                    )
+                )
+                interval_method = None
+                future_lower = future_upper = None
+                if operational_complete:
+                    future_predictions = {
+                        "fallback": moving_average(
+                            [item.quantity for item in operational_tail],
+                            run["forecast_horizon_days"],
+                            window,
+                        )
+                    }
+                else:
+                    future_predictions = {}
+                    summary["fallbackReason"] = (
+                        "Moving Average unavailable: the latest window contains unknown or excluded calendar dates."
+                    )
             for method, predictions in future_predictions.items():
                 for index, prediction in enumerate(predictions, start=1):
+                    persisted_method = _method(method)
+                    lower = (
+                        future_lower[index - 1]
+                        if future_lower is not None and persisted_method == interval_method
+                        else None
+                    )
+                    upper = (
+                        future_upper[index - 1]
+                        if future_upper is not None and persisted_method == interval_method
+                        else None
+                    )
                     conn.execute(
                         """INSERT INTO forecast_predictions
                         (business_id,forecast_run_id,product_id,prediction_date,method,dataset_split,
-                         predicted_quantity,fallback_reason) VALUES(%s,%s,%s,%s,%s,'future',%s,%s)""",
+                         predicted_quantity,lower_bound,upper_bound,fallback_reason)
+                         VALUES(%s,%s,%s,%s,%s,'future',%s,%s,%s,%s)""",
                         (
                             run["business_id"],
                             run["id"],
                             product_id,
                             run["final_test_end"] + timedelta(days=index),
-                            _method(method),
+                            persisted_method,
                             Decimal(str(prediction)),
+                            Decimal(str(lower)) if lower is not None else None,
+                            Decimal(str(upper)) if upper is not None else None,
                             reason,
                         ),
                     )
             configuration["products"][product_id] = summary
+        total_ms = round((time.perf_counter() - total_started) * 1000, 3)
+        queue_ms = max(0.0, (run["started_at"] - run["created_at"]).total_seconds() * 1000)
+        persistence_ms = max(0.0, total_ms - preparation_ms - sum(modeling_timing.values()))
+        timing = {
+            "queueWaitMs": round(queue_ms, 3),
+            "preparationMs": round(preparation_ms, 3),
+            "trainingMs": round(modeling_timing["trainingMs"], 3),
+            "validationMs": round(modeling_timing["validationMs"], 3),
+            "evaluationMs": round(modeling_timing["evaluationMs"], 3),
+            "persistenceMs": round(persistence_ms, 3),
+            "totalProcessingMs": total_ms,
+            "measuredWith": "time.perf_counter",
+            "workerCompletedAt": time.time(),
+        }
         conn.execute(
             """UPDATE forecast_runs SET status='completed',algorithm_version=%s,configuration=%s,
-               completed_at=now(),xgboost_verified=false WHERE id=%s""",
-            (xgboost_version, Jsonb(configuration), run["id"]),
+               timing=%s,completed_at=now(),xgboost_verified=false WHERE id=%s""",
+            (xgboost_version, Jsonb(configuration), Jsonb(timing), run["id"]),
         )
 
 

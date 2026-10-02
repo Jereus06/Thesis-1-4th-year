@@ -14,7 +14,8 @@ export const THESIS_SECTIONS: ThesisSection[] = [
   {
     id: "rationale",
     heading: "Two Complementary Strategies for Small-Data Forecasting Systems",
-    placement: "New section after Model Training and Testing / replacing Safeguards for Small Datasets",
+    placement:
+      "New section after Model Training and Testing / replacing Safeguards for Small Datasets",
     paragraphs: [
       "The partner setting of this study is a small to medium retail business whose sales history is short, irregular, and uneven across products. Under those conditions, two failures are equally damaging. The first is a statistically weak forecast that the owner cannot trust. The second is a technically correct model that takes so long to train that the dashboard is unusable during opening hours. These are different failure modes, and they require different remedies.",
       "This study therefore implements two separate strategies rather than a single undifferentiated list of “improvements.” Strategy 1 (the five levels) exists to make forecasts more accurate and more trustworthy when data are small. Strategy 2 (the five techniques) exists to keep training off the interactive path so the dashboard remains fast. Strategy 1 does not claim to reduce waiting time. Strategy 2 does not claim to repair a thin time series. Treating them as one bundle would conceal which design decisions protect validity and which protect usability — a distinction that matters both for implementation and for the ISO/IEC 25010:2023 evaluation of reliability versus performance efficiency.",
@@ -36,11 +37,11 @@ export const THESIS_SECTIONS: ThesisSection[] = [
     paragraphs: [
       "The first level does not involve machine learning. It specifies the minimum history the system is willing to treat as a modeling problem, and it changes the grain of the series when daily data are too sparse to be informative.",
       "A product catalog is accepted for forecasting only when the available sales window covers at least eight weeks. Six to twelve months of history is treated as the reliable range for the kinds of short-horizon forecasts this study produces. History shorter than the eight-week floor is not forced through XGBoost. If the partner extract is thinner than that floor, the system substitutes a public-style retail fallback series of comparable length so that model development and interface testing can continue, and it records that substitution in the run diagnostics so the result is not presented as a partner-data finding.",
-      "Daily series with more than 30 percent zero-sales days are aggregated to weekly totals before modeling. Aggregation reduces the number of structural zeros that would otherwise dominate a daily loss function and produce near-zero forecasts. Product scope is further reduced to the top N products (default eight, configurable toward 20–50) that also have at least 100 non-zero observations. Slow-moving SKUs remain in the catalog and still receive a reorder quantity, but they are served by a simple moving-average or rule-based demand estimate rather than by boosting. This is a data decision as much as a compute decision: a series that rarely sells does not contain enough events for a tree ensemble to generalize.",
+      "The approved methodology permits weekly aggregation for sparse series, but the production Python path currently remains daily and reports insufficient calendar evidence rather than silently aggregating. Aggregation reduces the number of structural zeros that would otherwise dominate a daily loss function and produce near-zero forecasts. Product scope is further reduced to the top N products (default eight, configurable toward 20–50) that also have at least 100 non-zero observations. Slow-moving SKUs remain in the catalog and still receive a reorder quantity, but they are served by a simple moving-average or rule-based demand estimate rather than by boosting. This is a data decision as much as a compute decision: a series that rarely sells does not contain enough events for a tree ensemble to generalize.",
     ],
     bullets: [
       "Minimum history: 8 weeks; reliable range: 6–12 months.",
-      "Daily series aggregated to weekly when more than 30% of days have zero sales.",
+      "Weekly aggregation is a methodology option that must be implemented and validated before use; the current Python path remains daily.",
       "Machine-learning training limited to top-N products with at least 100 non-zero observations.",
       "Public retail fallback dataset used when partner history is below the minimum, with the substitution disclosed.",
     ],
@@ -91,7 +92,7 @@ export const THESIS_SECTIONS: ThesisSection[] = [
     heading: "Level 5 — Uncertainty-Level Fixes",
     placement: "Strategy 1, Level 5",
     paragraphs: [
-      "A point forecast without a statement of confidence is easy to over-read. Each product therefore carries a confidence score derived from the number of non-zero observations and from whether the history meets the eight-week floor. Products with fewer than 30 non-zero observations are flagged as low confidence. Charts display a prediction interval using the 10th, 50th, and 90th percentiles of holdout residuals around the operational forecast.",
+      "A point forecast without evidence information is easy to over-read. The production path reports usable, unknown, and excluded days rather than a probability-like confidence score. Prediction intervals are calibrated only from separate validation residuals when at least ten are available, and coverage is assessed on untouched final-test observations; otherwise intervals are unavailable.",
       "The interface also states, in owner language, that forecasts are decision-support only and not guarantees. Final purchasing decisions remain the owner’s. This disclaimer is part of the methodology, not an afterthought on the user interface: the system is designed to support judgment, which is already listed among the limitations of the study.",
     ],
     bullets: [
@@ -103,7 +104,8 @@ export const THESIS_SECTIONS: ThesisSection[] = [
   {
     id: "strategy2",
     heading: "Strategy 2: Five Techniques of Speed and Architecture",
-    placement: "New section in Chapter 3, after Strategy 1 and before Inventory Optimization or the Data Flow Diagram",
+    placement:
+      "New section in Chapter 3, after Strategy 1 and before Inventory Optimization or the Data Flow Diagram",
     paragraphs: [
       "Strategy 2 is the architectural counterpart of Strategy 1. It answers a different question: how can the owner open the dashboard during business hours without waiting for trees to be fit? The five techniques separate training from serving, persist the last successful run, restrict boosting to high-volume products, keep cross-validation cheap, and run remaining training in the background.",
     ],
