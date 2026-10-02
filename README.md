@@ -191,17 +191,3 @@ incomplete ledgers, and documented full or partial stockouts. Corrections retain
 can be exported as CSV. Absent dates are not silently treated as zero demand. See
 [the benchmark procedure](docs/PERFORMANCE_BENCHMARK.md) for safe Windows Docker Desktop and Linux
 VPS commands. Benchmark output is synthetic operational evidence, not client or research results.
-
-## Account maintenance and worker measurements
-
-Password changes invalidate all sessions. Recovery links expire after 30 minutes; owner-issued staff
-invitations expire after 48 hours. Both are stored as hashes and consumed once. Delivery requires the
-private `SMTP_*` configuration documented in `backend/.env.example`; automated tests use only a mock
-transport.
-
-Forecast refresh is manual: Refresh queues one business-scoped job and the worker polls that queue.
-No 6:00 AM or other scheduled retraining is configured. Saved timing fields define queue wait as
-creation-to-claim time, preparation as snapshot classification/series construction, training as
-parameter fitting and early stopping, validation as pre-test recursive selection/calibration,
-evaluation as untouched final-test plus operational refit, persistence as remaining artifact/SQL
-overhead, and total processing as worker claim-to-completion elapsed time.

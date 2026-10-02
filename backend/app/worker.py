@@ -16,7 +16,7 @@ from psycopg.types.json import Jsonb
 from xgboost import __version__ as xgboost_version
 
 from .config import get_settings
-from .data_quality import POLICY_VERSION, prepare_product_series
+from .data_quality import observed_daily_values
 from .forecasting import (
     Observation,
     SplitBoundaries,
@@ -29,10 +29,13 @@ logger = logging.getLogger(__name__)
 
 
 def daily_observations(
-    rows, start: date, end: date, quality=(), product_id=""
+    rows: list[dict[str, Any]], start: date, end: date, quality=()
 ) -> list[Observation]:
-    prepared = prepare_product_series(rows, quality, product_id, start, end)
-    return [Observation(item.day, item.quantity) for item in prepared.days]
+    """Return observed sales and explicit zero days while preserving their calendar dates."""
+    return [
+        Observation(day, quantity)
+        for day, quantity in observed_daily_values(rows, start, end, quality)
+    ]
 
 
 def claim_run(conn: Connection) -> dict[str, Any] | None:
@@ -115,17 +118,14 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
             for item in snapshot["dailySales"]
             if item["productId"] == product_id
         ]
-        prepared = prepare_product_series(
-            rows,
-            snapshot.get("dataQuality", []),
-            product_id,
-            run["training_start"],
-            run["final_test_end"],
+        quality = [
+            item
+            for item in snapshot.get("dataQuality", [])
+            if item.get("productId") in (None, product_id)
+        ]
+        series[product_id] = daily_observations(
+            rows, run["training_start"], run["final_test_end"], quality
         )
-        series[product_id] = [Observation(item.day, item.quantity) for item in prepared.days]
-        snapshot.setdefault("preparedProducts", {})[product_id] = prepared.snapshot()
-    preparation_ms = (time.perf_counter() - preparation_started) * 1000
-    modeling_timing = {"trainingMs": 0.0, "validationMs": 0.0, "evaluationMs": 0.0}
     # Product ranking and the nonzero-day gate use training only.
     products = sorted(
         series,
@@ -144,7 +144,6 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
             "evaluationSplit": "final_test",
             "evaluationProtocol": "recursive_fixed_cutoff",
             "missingDayPolicy": "explicit_classification_required",
-            "preparationPolicyVersion": POLICY_VERSION,
             "excludedTargets": "closures, incomplete records, full/partial stockouts, and unclassified absent dates",
             "lagPolicy": "XGBoost requires a complete observed-or-confirmed-zero daily training sequence",
             "operationalRefitEnd": str(run["final_test_end"]),
@@ -218,23 +217,12 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                 interval_method = _method(result["operatingMethod"])
                 future_lower, future_upper = result["futureLower"], result["futureUpper"]
             else:
-                window = settings["moving_average_window"]
-                before_test = [item for item in observations if item.day <= run["validation_end"]]
-                tail = before_test[-window:]
-                test_complete = (
-                    bool(test)
-                    and test[0].day == run["final_test_start"]
-                    and all(
-                        test[i].day - test[i - 1].day == timedelta(days=1)
-                        for i in range(1, len(test))
-                    )
-                )
-                tail_complete = len(tail) == window and all(
-                    tail[i].day - tail[i - 1].day == timedelta(days=1) for i in range(1, len(tail))
-                )
-                if tail_complete and test_complete:
-                    ma = moving_average([item.quantity for item in tail], len(test), window)
-                    _persist_predictions(conn, run, product_id, test, "moving_average", ma)
+                history = [
+                    item.quantity for item in observations if item.day <= run["validation_end"]
+                ]
+                ma = moving_average(history, len(test), settings["moving_average_window"])
+                _persist_predictions(conn, run, product_id, test, "moving_average", ma)
+                if test:
                     metric = evaluate([item.quantity for item in test], ma)
                     _persist_metric_values(
                         conn,
@@ -247,29 +235,11 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                             "observations": metric.observations,
                         },
                     )
-                operational_tail = observations[-window:]
-                operational_complete = (
-                    len(operational_tail) == window
-                    and operational_tail[-1].day == run["final_test_end"]
-                    and all(
-                        operational_tail[i].day - operational_tail[i - 1].day == timedelta(days=1)
-                        for i in range(1, len(operational_tail))
-                    )
-                )
-                interval_method = None
-                future_lower = future_upper = None
-                if operational_complete:
-                    future_predictions = {
-                        "fallback": moving_average(
-                            [item.quantity for item in operational_tail],
-                            run["forecast_horizon_days"],
-                            window,
-                        )
-                    }
-                else:
-                    future_predictions = {}
-                    summary["fallbackReason"] = (
-                        "Moving Average unavailable: the latest window contains unknown or excluded calendar dates."
+                future_predictions = {
+                    "fallback": moving_average(
+                        [item.quantity for item in observations],
+                        run["forecast_horizon_days"],
+                        settings["moving_average_window"],
                     )
             for method, predictions in future_predictions.items():
                 for index, prediction in enumerate(predictions, start=1):
@@ -304,14 +274,8 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
             configuration["products"][product_id] = summary
         total_ms = round((time.perf_counter() - total_started) * 1000, 3)
         queue_ms = max(0.0, (run["started_at"] - run["created_at"]).total_seconds() * 1000)
-        persistence_ms = max(0.0, total_ms - preparation_ms - sum(modeling_timing.values()))
         timing = {
             "queueWaitMs": round(queue_ms, 3),
-            "preparationMs": round(preparation_ms, 3),
-            "trainingMs": round(modeling_timing["trainingMs"], 3),
-            "validationMs": round(modeling_timing["validationMs"], 3),
-            "evaluationMs": round(modeling_timing["evaluationMs"], 3),
-            "persistenceMs": round(persistence_ms, 3),
             "totalProcessingMs": total_ms,
             "measuredWith": "time.perf_counter",
             "workerCompletedAt": time.time(),

@@ -48,21 +48,20 @@ def dashboard(repository, business_id):
     if completed:
         captured = completed["data_snapshot"].get("capturedAt", completed["created_at"])
         changed = conn.execute(
-            """SELECT
-            EXISTS(SELECT 1 FROM sales WHERE business_id=%s AND created_at>%s)
-            OR EXISTS(SELECT 1 FROM business_settings WHERE business_id=%s AND updated_at>%s)
-            OR EXISTS(SELECT 1 FROM products WHERE business_id=%s AND updated_at>%s)
-            OR EXISTS(SELECT 1 FROM sales_day_quality_audit WHERE business_id=%s AND changed_at>%s)
-            AS changed""",
+            """SELECT EXISTS(SELECT 1 FROM sales WHERE business_id=%s AND created_at>%s)
+               OR EXISTS(SELECT 1 FROM business_settings WHERE business_id=%s AND updated_at>%s)
+               OR EXISTS(SELECT 1 FROM products WHERE business_id=%s AND updated_at>%s)
+               OR EXISTS(SELECT 1 FROM sales_day_quality WHERE business_id=%s AND updated_at>%s)
+               AS changed""",
             (
                 business_id,
                 captured,
                 business_id,
-                captured,
+                completed["created_at"],
                 business_id,
-                captured,
+                completed["created_at"],
                 business_id,
-                captured,
+                completed["created_at"],
             ),
         ).fetchone()["changed"]
         stale = changed or {p["id"] for p in products} != set(
@@ -106,13 +105,13 @@ def dashboard(repository, business_id):
             for point in predictions
             if point["productId"] == pid and point["datasetSplit"] == "future"
         ]
-        tail = contiguous_tail(prepared, settings["movingAverageWindow"])
-        if not future and tail:
-            values = moving_average(
-                [item.quantity for item in tail],
-                settings["forecastHorizonDays"],
-                settings["movingAverageWindow"],
-            )
+        if not future and history:
+            window = settings["movingAverageWindow"]
+            quantities = [
+                history.get(end - timedelta(days=window - index - 1), 0.0)
+                for index in range(window)
+            ]
+            values = moving_average(quantities, settings["forecastHorizonDays"], window)
             future = [
                 {
                     "productId": pid,

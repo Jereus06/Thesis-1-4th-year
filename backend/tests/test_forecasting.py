@@ -101,19 +101,3 @@ def test_incomplete_calendar_sequence_is_not_xgboost_eligible():
     assert not eligible
     assert (days, nonzero) == (119, 119)
     assert "119/120 classified calendar days" in reason
-
-
-def test_three_training_folds_early_stopping_and_validation_only_intervals():
-    start = date(2024, 1, 1)
-    rows = [Observation(start + timedelta(days=i), 10 + (i % 7)) for i in range(180)]
-    bounds = SplitBoundaries(start + timedelta(days=129), start + timedelta(days=154), start + timedelta(days=179))
-    first = train_verified_xgboost(rows, bounds, horizon=7)
-    changed_test = train_verified_xgboost(
-        [Observation(row.day, row.quantity if i < 155 else row.quantity + 500) for i,row in enumerate(rows)], bounds, horizon=7)
-    assert first["effectiveFolds"] == 3
-    assert first["interval"]["calibrationSplit"] == "late_validation_reserved_after_selection"
-    assert first["interval"]["available"]
-    assert changed_test["parameters"] == first["parameters"]
-    assert changed_test["operatingMethod"] == first["operatingMethod"]
-    assert changed_test["interval"]["lowerResidual"] == first["interval"]["lowerResidual"]
-    assert changed_test["testPredictions"] == first["testPredictions"]

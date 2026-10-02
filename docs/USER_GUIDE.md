@@ -1004,14 +1004,3 @@ Removing a classification is also audited. Use **Export audit CSV** for review. 
 be model targets; the other classifications and unclassified absent dates are excluded rather than
 converted into demand. The conservative XGBoost path requires complete calendar-spaced training
 lags and explains a Moving Average fallback when that evidence is unavailable.
-
-## Password recovery and staff access
-
-Owners and staff can change a password under **Inventory > Settings**; this invalidates all of that
-user's sessions. The sign-in screen can request a single-use recovery link that expires after 30
-minutes. Owners can issue single-use staff invitations that expire after 48 hours and can activate
-or deactivate staff membership through the authenticated membership API. Configure `SMTP_HOST`,
-`SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_STARTTLS`, and `PUBLIC_APP_URL` only
-in the server's private environment. Automated tests replace SMTP with a mock transport; they do not
-send messages to real recipients. Multiple API replicas still require gateway-level distributed
-rate limiting.
