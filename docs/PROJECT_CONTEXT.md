@@ -85,6 +85,12 @@ See [backend authentication details](../backend/README.md#authentication-contrac
 - An operating model is refitted on observed history after test evaluation with the frozen
   configuration, then saves actual XGBoost future predictions.
 - Queued jobs snapshot daily sales, effective quality preparation/provenance, settings, and product IDs. Classification audit revisions make completed results stale even after deletion.
+- The worker consumes saved `preparedProducts` targets and their policy version. Older queued
+  snapshots are prepared using only their frozen sales/classifications, with the applied policy
+  and legacy preparation source recorded in the completed run configuration.
+- Before refresh, dashboard baselines use the contiguous usable history ending at the latest
+  sale date; absent or excluded dates are not filled with zeros. Products with no usable history
+  retain unavailable demand, including after an empty-history worker run.
 - Dashboard ML comparisons use matching eligible products/date observations.
 - No calibrated prediction intervals or certified accuracy are claimed. All operational confidence
   labels remain low pending research validation; `xgboost_verified` remains false.

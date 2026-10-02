@@ -52,16 +52,19 @@ def dashboard(repository, business_id):
                OR EXISTS(SELECT 1 FROM business_settings WHERE business_id=%s AND updated_at>%s)
                OR EXISTS(SELECT 1 FROM products WHERE business_id=%s AND updated_at>%s)
                OR EXISTS(SELECT 1 FROM sales_day_quality WHERE business_id=%s AND updated_at>%s)
+               OR EXISTS(SELECT 1 FROM sales_day_quality_audit WHERE business_id=%s AND changed_at>%s)
                AS changed""",
             (
                 business_id,
                 captured,
                 business_id,
-                completed["created_at"],
+                captured,
                 business_id,
-                completed["created_at"],
+                captured,
                 business_id,
-                completed["created_at"],
+                captured,
+                business_id,
+                captured,
             ),
         ).fetchone()["changed"]
         stale = changed or {p["id"] for p in products} != set(
@@ -105,12 +108,10 @@ def dashboard(repository, business_id):
             for point in predictions
             if point["productId"] == pid and point["datasetSplit"] == "future"
         ]
+        history = contiguous_tail(prepared.targets, end)
         if not future and history:
             window = settings["movingAverageWindow"]
-            quantities = [
-                history.get(end - timedelta(days=window - index - 1), 0.0)
-                for index in range(window)
-            ]
+            quantities = [item.quantity for item in history[-window:]]
             values = moving_average(quantities, settings["forecastHorizonDays"], window)
             future = [
                 {

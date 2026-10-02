@@ -174,6 +174,8 @@ def test_worker_commits_failed_job_and_processes_next_job(pg_client, monkeypatch
     dashboard = client.get(base + "/forecast-dashboard")
     assert dashboard.status_code == 200, dashboard.text
     assert dashboard.json()["data"]["recommendations"][0]["suggested_quantity"] == "0"
+    assert not dashboard.json()["data"]["recommendations"][0]["demandAvailable"]
+    assert dashboard.json()["data"]["predictions"] == []
 
 
 @pytest.fixture(autouse=True)
@@ -708,11 +710,112 @@ def test_account_recovery_invitation_and_tenant_permissions(pg_client,monkeypatc
     # Sign back in after recovery invalidated every owner session.
     signed=client.post("/api/v1/auth/sign-in",json={"businessId":business,"email":"owner@example.com","password":"replacement-password-123"})
     assert signed.status_code==200; client.headers["X-CSRF-Token"]=client.cookies["stockcast_csrf"]
-    invitation=client.post("/api/v1/auth/staff/invitations",json={"email":"synthetic.staff@example.invalid","displayName":"Synthetic Staff"})
+    invitation=client.post("/api/v1/auth/staff/invitations",json={"email":"synthetic.staff@example.com","displayName":"Synthetic Staff"})
     assert invitation.status_code==201,invitation.text
     invite_token=sent[-1][2].split("?invitation=")[1].split()[0]
     accepted=client.post("/api/v1/auth/staff/invitations/accept",json={"token":invite_token,"password":"synthetic-staff-password"})
     assert accepted.status_code==201 and accepted.json()["data"]["role"]=="staff"
     assert client.post("/api/v1/auth/staff/invitations/accept",json={"token":invite_token,"password":"synthetic-staff-password"}).status_code==400
     client.headers["X-CSRF-Token"]=client.cookies["stockcast_csrf"]
-    assert client.post("/api/v1/auth/staff/invitations",json={"email":"other@example.invalid","displayName":"Other"}).status_code==403
+    assert client.post("/api/v1/auth/staff/invitations",json={"email":"other@example.com","displayName":"Other"}).status_code==403
+
+
+@pytest.mark.parametrize("legacy_snapshot", [False, True])
+def test_worker_preserves_frozen_exclusions_after_live_classification_deletion(
+    pg_client, legacy_snapshot
+):
+    client, business, dsn = pg_client
+    product = create_product(client, business, stock="100")
+    base = f"/api/v1/businesses/{business}"
+    for index, quantity in enumerate([2, 2, 50, 2, 2], start=1):
+        response = client.post(
+            base + "/sales",
+            json={
+                "productId": product["id"],
+                "saleDate": f"2026-01-0{index}",
+                "quantity": str(quantity),
+            },
+            headers={"Idempotency-Key": f"frozen-quality-sale-{index}"},
+        )
+        assert response.status_code == 201, response.text
+    classification = {"classificationDate": "2026-01-03", "productId": product["id"]}
+    response = client.put(
+        base + "/data-quality", json={**classification, "classification": "partial_stockout"}
+    )
+    assert response.status_code == 200, response.text
+    response = client.post(
+        base + "/forecast-runs",
+        json={
+            "trainingStart": "2026-01-01",
+            "trainingEnd": "2026-01-03",
+            "validationStart": "2026-01-04",
+            "validationEnd": "2026-01-04",
+            "finalTestStart": "2026-01-05",
+            "finalTestEnd": "2026-01-05",
+            "forecastHorizonDays": 7,
+        },
+    )
+    assert response.status_code == 202, response.text
+    queued = response.json()["data"]
+    assert queued["dataSnapshot"]["preparedProducts"][product["id"]]["excludedDates"] == [
+        "2026-01-03"
+    ]
+    if legacy_snapshot:
+        with psycopg.connect(dsn) as conn:
+            conn.execute(
+                "UPDATE forecast_runs SET data_snapshot=data_snapshot - 'preparedProducts' "
+                "- 'preparationPolicyVersion' WHERE id=%s",
+                (queued["id"],),
+            )
+    deleted = client.request("DELETE", base + "/data-quality", json=classification)
+    assert deleted.status_code == 200, deleted.text
+    from app import worker
+
+    assert worker.run_once()
+    completed = client.get(base + f"/forecast-runs/{queued['id']}").json()["data"]
+    assert completed["status"] == "completed", completed["failureMessage"]
+    summary = completed["configuration"]["products"][product["id"]]
+    assert summary["historyDays"] == 2
+    assert summary["excludedDays"] == 1
+    assert completed["configuration"]["preparationSource"] == (
+        "prepared_from_legacy_snapshot" if legacy_snapshot else "frozen_prepared_snapshot"
+    )
+    predictions = client.get(base + f"/forecast-runs/{queued['id']}/predictions").json()["data"]
+    future = [point for point in predictions if point["datasetSplit"] == "future"]
+    assert len(future) == 7
+    assert all(float(point["predictedQuantity"]) == 2 for point in future)
+    assert client.get(base + "/forecast-dashboard").json()["data"]["stale"]
+
+
+def test_dashboard_baseline_preserves_empty_unknown_and_excluded_history(pg_client):
+    client, business, _dsn = pg_client
+    product = create_product(client, business)
+    base = f"/api/v1/businesses/{business}"
+
+    def read_dashboard():
+        response = client.get(base + "/forecast-dashboard")
+        assert response.status_code == 200, response.text
+        return response.json()["data"]
+
+    empty = read_dashboard()
+    assert empty["predictions"] == []
+    assert not empty["recommendations"][0]["demandAvailable"]
+    for day, quantity in [("2026-01-01", "2"), ("2026-01-03", "6")]:
+        response = client.post(
+            base + "/sales",
+            json={"productId": product["id"], "saleDate": day, "quantity": quantity},
+            headers={"Idempotency-Key": f"baseline-sale-{day}"},
+        )
+        assert response.status_code == 201, response.text
+    sparse = read_dashboard()
+    assert sparse["summaries"][product["id"]]["unknownDays"] == 1
+    assert all(float(point["predictedQuantity"]) == 6 for point in sparse["predictions"])
+    assert sparse["recommendations"][0]["demandAvailable"]
+    assert client.put(
+        base + "/data-quality",
+        json={"classificationDate": "2026-01-03", "classification": "incomplete"},
+    ).status_code == 200
+    excluded = read_dashboard()
+    assert excluded["predictions"] == []
+    assert not excluded["recommendations"][0]["demandAvailable"]
+    assert excluded["summaries"][product["id"]]["excludedDays"] == 1

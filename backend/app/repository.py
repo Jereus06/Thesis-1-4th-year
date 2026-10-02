@@ -11,7 +11,7 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from .data_quality import prepare_product_series
+from .data_quality import POLICY_VERSION, prepare_product_series
 from .inventory import calculate_reorder
 from .schemas import (
     BusinessUpdate,
@@ -736,22 +736,14 @@ class Repository:
                         else None,
                         "capturedAt": datetime.now(UTC).isoformat(),
                         "products": product_ids,
+                        "preparedProducts": prepared_products,
+                        "preparationPolicyVersion": POLICY_VERSION,
                         "settings": {
                             key: value
                             for key, value in settings.items()
                             if key not in {"business_id", "updated_at", "created_at"}
                         },
-                        "dataQuality": [
-                            {
-                                "productId": str(item["product_id"])
-                                if item["product_id"]
-                                else None,
-                                "date": str(item["classification_date"]),
-                                "classification": item["classification"],
-                                "note": item["note"],
-                            }
-                            for item in quality_rows
-                        ],
+                        "dataQuality": quality_payload,
                         "dailySales": [
                             {
                                 "productId": str(row["product_id"]),
