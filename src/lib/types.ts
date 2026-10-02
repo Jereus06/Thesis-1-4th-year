@@ -144,6 +144,8 @@ export type StockStatus = "stockout" | "reorder" | "watch" | "healthy";
 
 export type ReorderRow = {
   product: Product;
+  demandAvailable?: boolean;
+  unavailableReason?: string;
   dailyDemand: number;
   demandDuringLead: number;
   reorderPoint: number;

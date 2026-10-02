@@ -192,3 +192,11 @@ Browser demonstration mode remains separately available as described in the root
 
 The groupmate's standalone ISO-date helper remains reserved in
 [docs/RESERVED_DATE_HELPER.md](docs/RESERVED_DATE_HELPER.md); API request dates use Pydantic validation.
+
+## Account-maintenance mail
+
+Password recovery and staff invitation links are random, stored only as hashes, expire, and are
+consumed once. Set `PUBLIC_APP_URL` and the private `SMTP_*` variables documented in
+`backend/.env.example`. An owner may invite staff; staff cannot administer membership. Password
+changes and recovery invalidate existing sessions. The test suite uses a mock SMTP transport and is
+not evidence of real email delivery.

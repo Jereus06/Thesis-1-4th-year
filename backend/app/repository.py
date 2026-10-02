@@ -11,6 +11,7 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from .data_quality import POLICY_VERSION, prepare_product_series
 from .inventory import calculate_reorder
 from .schemas import (
     BusinessUpdate,
@@ -688,6 +689,25 @@ class Repository:
                 (principal.business_id,),
             ).fetchall()
         ]
+        quality_payload = [
+            {
+                "productId": str(item["product_id"]) if item["product_id"] else None,
+                "date": str(item["classification_date"]),
+                "classification": item["classification"],
+                "note": item["note"],
+            }
+            for item in quality_rows
+        ]
+        prepared_products = {}
+        for product_id in product_ids:
+            product_sales = [
+                {"sale_date": item["sale_date"], "quantity": item["quantity"]}
+                for item in daily_rows
+                if str(item["product_id"]) == product_id
+            ]
+            prepared_products[product_id] = prepare_product_series(
+                product_sales, quality_payload, product_id, data.training_start, data.final_test_end
+            ).snapshot()
         row = self.conn.execute(
             """INSERT INTO forecast_runs
             (business_id,data_origin,status,algorithm_name,algorithm_version,xgboost_verified,
@@ -716,22 +736,14 @@ class Repository:
                         else None,
                         "capturedAt": datetime.now(UTC).isoformat(),
                         "products": product_ids,
+                        "preparedProducts": prepared_products,
+                        "preparationPolicyVersion": POLICY_VERSION,
                         "settings": {
                             key: value
                             for key, value in settings.items()
                             if key not in {"business_id", "updated_at", "created_at"}
                         },
-                        "dataQuality": [
-                            {
-                                "productId": str(item["product_id"])
-                                if item["product_id"]
-                                else None,
-                                "date": str(item["classification_date"]),
-                                "classification": item["classification"],
-                                "note": item["note"],
-                            }
-                            for item in quality_rows
-                        ],
+                        "dataQuality": quality_payload,
                         "dailySales": [
                             {
                                 "productId": str(row["product_id"]),

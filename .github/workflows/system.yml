@@ -28,8 +28,18 @@ jobs:
             .replace('replace_with_a_second_random_hex_password', 'ci-app-password-123456')
             .replace('replace_with_at_least_12_characters', 'ci-owner-password-123456'));
           JS
+      - name: Compile Python sources before building services
+        run: python -m compileall -q backend/app
+      - name: Build backend images and import API/worker modules
+        run: |
+          docker compose build api worker
+          docker compose run --rm --no-deps api python -c "from backend.app.data_quality import POLICY_VERSION, contiguous_tail, prepare_product_series; import backend.app.main; import backend.app.worker; print(POLICY_VERSION)"
       - name: Start the complete application with one command
         run: npm start
+      - name: Verify API and worker imports in running containers
+        run: |
+          docker compose exec -T api python -c "import backend.app.main; from backend.app.data_quality import POLICY_VERSION, contiguous_tail, prepare_product_series"
+          docker compose exec -T worker python -c "import backend.app.worker; from backend.app.data_quality import POLICY_VERSION, contiguous_tail, prepare_product_series"
       - name: Python tests with real PostgreSQL
         run: docker compose exec -T api sh -c 'STOCKCAST_TEST_DATABASE_URL="$DATABASE_URL" python -m pytest backend/tests -q --disable-warnings'
       - name: Check the website, authenticated API, stock, imports, and XGBoost worker
