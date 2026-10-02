@@ -80,10 +80,13 @@ export function useApiForecast(): ForecastState {
           ? [
               {
                 product,
-                dailyDemand: Number(row.daily_demand),
-                demandDuringLead: Number(row.demand_during_lead_time),
-                reorderPoint: Number(row.reorder_point),
-                targetStock: Number(row.target_stock),
+                demandAvailable: row.demandAvailable,
+                unavailableReason: row.unavailableReason ?? undefined,
+                dailyDemand: row.daily_demand === null ? NaN : Number(row.daily_demand),
+                demandDuringLead:
+                  row.demand_during_lead_time === null ? NaN : Number(row.demand_during_lead_time),
+                reorderPoint: row.reorder_point === null ? NaN : Number(row.reorder_point),
+                targetStock: row.target_stock === null ? NaN : Number(row.target_stock),
                 reorderQty: Number(row.suggested_quantity),
                 daysOfCover: row.days_of_cover === null ? Infinity : Number(row.days_of_cover),
                 status: row.status,
@@ -166,6 +169,11 @@ function toResult(
           p90: NaN,
         };
         const method = methodName(row.method);
+        if (row.lowerBound !== null && row.upperBound !== null) {
+          point.p10 = Number(row.lowerBound);
+          point.p50 = Number(row.predictedQuantity);
+          point.p90 = Number(row.upperBound);
+        }
         if (method === "ma" || method === "rule") point.ma = Number(row.predictedQuantity);
         else point[method] = Number(row.predictedQuantity);
         grouped.set(row.predictionDate, point);
@@ -195,8 +203,8 @@ function toResult(
       maWeight: 1 - weight,
       holdout: points("final_test"),
       future: points("future"),
-      dailyDemand: Number(recommendation?.daily_demand ?? 0),
-      seriesMean: Number(recommendation?.daily_demand ?? 0),
+      dailyDemand: recommendation?.daily_demand == null ? NaN : Number(recommendation.daily_demand),
+      seriesMean: recommendation?.daily_demand == null ? NaN : Number(recommendation.daily_demand),
       confidence: "low",
       confidenceScore: NaN,
       observationCount: summary?.historyDays ?? 0,
@@ -218,7 +226,7 @@ function toResult(
   const allPoints = Object.values(byProduct).flatMap((f) => [...f.holdout, ...f.future]);
   return {
     trainedAt: data.run?.createdAt ?? "",
-    trainedMs: 0,
+    trainedMs: data.run?.timing.totalProcessingMs ?? NaN,
     holdoutStart: data.run?.finalTestStart ?? "",
     holdoutEnd: data.run?.finalTestEnd ?? "",
     horizonEnd:
@@ -255,8 +263,8 @@ function toResult(
       maxDepth: parameters?.max_depth ?? 0,
       learningRate: parameters?.learning_rate ?? 0,
       nEstimatorsCap: parameters?.n_estimators ?? 0,
-      cvFolds: 0,
-      earlyStopping: false,
+      cvFolds: Math.max(0, ...summaries.map((s) => s.effectiveFolds ?? 0)),
+      earlyStopping: summaries.some((s) => Boolean(s.earlyStoppingUsed)),
       chronologicalSplit: Boolean(data.run),
       ensembleUsedCount: summaries.filter((s) => s.operatingMethod === "ensemble").length,
       xgbUnstableCount: 0,

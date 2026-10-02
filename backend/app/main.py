@@ -16,6 +16,8 @@ from .db import close_pool, connection, database_ready, open_pool
 from .repository import Repository
 from .schemas import (
     BusinessUpdate,
+    DataQualityDelete,
+    DataQualityUpsert,
     ForecastRunCreate,
     InventoryImportCreate,
     MovementCreate,
@@ -419,6 +421,57 @@ def data_import(
 ):
     business_user(business_id, user)
     return {"data": repository.get_data_import(business_id, import_id)}
+
+
+@app.get("/api/v1/businesses/{business_id}/data-quality")
+def data_quality(
+    business_id: str, repository: Repository = Depends(repo), user: Principal = Depends(principal)
+):
+    business_user(business_id, user)
+    return {"data": repository.list_data_quality(business_id)}
+
+
+@app.put("/api/v1/businesses/{business_id}/data-quality")
+def put_data_quality(
+    business_id: str,
+    data: DataQualityUpsert,
+    repository: Repository = Depends(repo),
+    user: Principal = Depends(csrf_protected),
+):
+    business_user(business_id, user)
+    return {"data": repository.upsert_data_quality(user, data)}
+
+
+@app.api_route("/api/v1/businesses/{business_id}/data-quality", methods=["DELETE"])
+def delete_data_quality(
+    business_id: str,
+    data: DataQualityDelete,
+    repository: Repository = Depends(repo),
+    user: Principal = Depends(csrf_protected),
+):
+    business_user(business_id, user)
+    return {"data": repository.delete_data_quality(user, data)}
+
+
+@app.get("/api/v1/businesses/{business_id}/exports/data-quality.csv")
+def export_data_quality(
+    business_id: str, repository: Repository = Depends(repo), user: Principal = Depends(principal)
+):
+    business_user(business_id, user)
+    rows = repository.data_quality_audit(business_id)
+    columns = [
+        "id",
+        "sku",
+        "classification_date",
+        "previous_classification",
+        "classification",
+        "previous_note",
+        "note",
+        "action",
+        "changed_at",
+        "changed_by",
+    ]
+    return csv_response("stockcast-data-quality-audit.csv", columns, rows)
 
 
 @app.get("/api/v1/businesses/{business_id}/forecast-runs")

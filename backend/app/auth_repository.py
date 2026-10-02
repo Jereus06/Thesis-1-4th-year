@@ -16,9 +16,7 @@ from .security import Principal, hash_password, new_token, token_hash, verify_pa
 
 class AuthRepository(Repository):
     def _lock(self, resource: str) -> None:
-        self.conn.execute(
-            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (resource,)
-        )
+        self.conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (resource,))
 
     def sign_in(
         self, business_id: UUID | None, email: str, password: str, hours: int
@@ -37,7 +35,8 @@ class AuthRepository(Repository):
                 (business_id, normalized_email),
             ).fetchall()
         matching = [
-            row for row in rows
+            row
+            for row in rows
             if row["password_hash"] and verify_password(password, row["password_hash"])
         ]
         if not matching:
@@ -88,9 +87,12 @@ class AuthRepository(Repository):
         return session, csrf, self._principal(row)
 
     def email_exists(self, email: str) -> bool:
-        return self.conn.execute(
-            "SELECT id FROM users WHERE email=%s LIMIT 1", (email.strip().lower(),)
-        ).fetchone() is not None
+        return (
+            self.conn.execute(
+                "SELECT id FROM users WHERE email=%s LIMIT 1", (email.strip().lower(),)
+            ).fetchone()
+            is not None
+        )
 
     def create_account(
         self,
@@ -143,6 +145,150 @@ class AuthRepository(Repository):
             if google_subject:
                 self.link_identity(google_subject, str(row["id"]))
             return self.issue_session(self._principal(row), hours)
+
+    def change_password(self, user: Principal, current: str, replacement: str) -> None:
+        if not 12 <= len(replacement) <= 128:
+            raise HTTPException(422, "Password must contain 12 to 128 characters")
+        row = self.conn.execute(
+            "SELECT password_hash FROM users WHERE id=%s AND business_id=%s FOR UPDATE",
+            (user.user_id, user.business_id),
+        ).fetchone()
+        if (
+            not row
+            or not row["password_hash"]
+            or not verify_password(current, row["password_hash"])
+        ):
+            raise HTTPException(401, "Current password is incorrect")
+        self.conn.execute(
+            "UPDATE users SET password_hash=%s,password_changed_at=now() WHERE id=%s",
+            (hash_password(replacement), user.user_id),
+        )
+        self.conn.execute("DELETE FROM sessions WHERE user_id=%s", (user.user_id,))
+
+    def create_reset(self, email: str, raw_token: str, business_id: UUID | None = None) -> bool:
+        if business_id is None:
+            rows = self.conn.execute(
+                "SELECT id FROM users WHERE email=%s AND is_active ORDER BY id",
+                (email.strip().lower(),),
+            ).fetchall()
+            if len(rows) != 1:
+                return False
+            row = rows[0]
+        else:
+            row = self.conn.execute(
+                "SELECT id FROM users WHERE business_id=%s AND email=%s AND is_active",
+                (business_id, email.strip().lower()),
+            ).fetchone()
+        if not row:
+            return False
+        self.conn.execute(
+            "UPDATE password_reset_tokens SET consumed_at=now() WHERE user_id=%s AND consumed_at IS NULL",
+            (row["id"],),
+        )
+        self.conn.execute(
+            "INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) VALUES(%s,%s,now()+interval '30 minutes')",
+            (row["id"], token_hash(raw_token)),
+        )
+        return True
+
+    def consume_reset(self, raw_token: str, password: str) -> None:
+        if not 12 <= len(password) <= 128:
+            raise HTTPException(422, "Password must contain 12 to 128 characters")
+        with self.conn.transaction():
+            row = self.conn.execute(
+                """UPDATE password_reset_tokens SET consumed_at=now()
+                WHERE token_hash=%s AND consumed_at IS NULL AND expires_at>now() RETURNING user_id""",
+                (token_hash(raw_token),),
+            ).fetchone()
+            if not row:
+                raise HTTPException(400, "Reset link is invalid or expired")
+            self.conn.execute(
+                "UPDATE users SET password_hash=%s,password_changed_at=now() WHERE id=%s",
+                (hash_password(password), row["user_id"]),
+            )
+            self.conn.execute("DELETE FROM sessions WHERE user_id=%s", (row["user_id"],))
+
+    def create_invitation(self, owner: Principal, email: str, display_name: str, raw_token: str):
+        if owner.role != "owner":
+            raise HTTPException(403, "Owner role required")
+        normalized = email.strip().lower()
+        if self.email_exists(normalized):
+            raise HTTPException(409, "An account with this email already exists")
+        with self.conn.transaction():
+            self.conn.execute(
+                "UPDATE staff_invitations SET revoked_at=now() WHERE business_id=%s AND email=%s AND accepted_at IS NULL AND revoked_at IS NULL",
+                (owner.business_id, normalized),
+            )
+            row = self.conn.execute(
+                """INSERT INTO staff_invitations(business_id,email,display_name,token_hash,invited_by,expires_at)
+                VALUES(%s,%s,%s,%s,%s,now()+interval '48 hours') RETURNING id,expires_at""",
+                (
+                    owner.business_id,
+                    normalized,
+                    display_name.strip(),
+                    token_hash(raw_token),
+                    owner.user_id,
+                ),
+            ).fetchone()
+        return {
+            "id": str(row["id"]),
+            "email": normalized,
+            "displayName": display_name.strip(),
+            "expiresAt": row["expires_at"].isoformat(),
+        }
+
+    def accept_invitation(self, raw_token: str, password: str, hours: int):
+        if not 12 <= len(password) <= 128:
+            raise HTTPException(422, "Password must contain 12 to 128 characters")
+        with self.conn.transaction():
+            invite = self.conn.execute(
+                """UPDATE staff_invitations SET accepted_at=now()
+                WHERE token_hash=%s AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at>now() RETURNING *""",
+                (token_hash(raw_token),),
+            ).fetchone()
+            if not invite:
+                raise HTTPException(400, "Invitation is invalid or expired")
+            row = self.conn.execute(
+                """INSERT INTO users(business_id,email,display_name,role,password_hash,password_changed_at)
+                VALUES(%s,%s,%s,'staff',%s,now()) RETURNING *""",
+                (
+                    invite["business_id"],
+                    invite["email"],
+                    invite["display_name"],
+                    hash_password(password),
+                ),
+            ).fetchone()
+            return self.issue_session(self._principal(row), hours)
+
+    def list_members(self, owner: Principal):
+        if owner.role != "owner":
+            raise HTTPException(403, "Owner role required")
+        return [
+            {
+                "id": str(r["id"]),
+                "email": r["email"],
+                "displayName": r["display_name"],
+                "role": r["role"],
+                "isActive": r["is_active"],
+            }
+            for r in self.conn.execute(
+                "SELECT id,email,display_name,role,is_active FROM users WHERE business_id=%s ORDER BY role,email",
+                (owner.business_id,),
+            ).fetchall()
+        ]
+
+    def set_staff_active(self, owner: Principal, user_id: UUID, active: bool):
+        if owner.role != "owner":
+            raise HTTPException(403, "Owner role required")
+        row = self.conn.execute(
+            """UPDATE users SET is_active=%s WHERE business_id=%s AND id=%s AND role='staff' RETURNING id""",
+            (active, owner.business_id, user_id),
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Staff member not found")
+        if not active:
+            self.conn.execute("DELETE FROM sessions WHERE user_id=%s", (user_id,))
+        return {"id": str(user_id), "isActive": active}
 
     def google_user(self, subject: str) -> Principal | None:
         row = self.conn.execute(
@@ -213,9 +359,7 @@ class AuthRepository(Repository):
             (state_hash, browser_hash),
         ).fetchone()
 
-    def create_pending(
-        self, token_hash: str, subject: str, email: str, display_name: str
-    ) -> None:
+    def create_pending(self, token_hash: str, subject: str, email: str, display_name: str) -> None:
         self.conn.execute("DELETE FROM google_pending WHERE expires_at<=now()")
         self.conn.execute(
             """INSERT INTO google_pending(token_hash,subject,email,display_name,expires_at)

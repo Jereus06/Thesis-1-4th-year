@@ -38,6 +38,7 @@ restarting the app preserves its existing password.
 | `npm run stop`      | Stop containers; saved database records remain |
 | `npm run logs`      | Follow service logs                            |
 | `npm run backup`    | Save a PostgreSQL backup under `backups/`      |
+| `npm run benchmark` | Measure the read-only API and export JSON      |
 | `docker compose ps` | Inspect service status                         |
 
 ## Accounts and Google sign-in
@@ -182,3 +183,25 @@ the full Compose installation with real PostgreSQL and the Python worker.
 Read [AGENTS.md](AGENTS.md), [project context](docs/PROJECT_CONTEXT.md), and
 [implementation checklist](docs/COMPLETION_CHECKLIST.md) before code changes. Real partner data,
 permission, and research outcomes are documented separately from implementation checks.
+
+## Data quality and performance
+
+**Data quality** lets authenticated users distinguish confirmed zero-sale dates from closures,
+incomplete ledgers, and documented full or partial stockouts. Corrections retain an audit trail and
+can be exported as CSV. Absent dates are not silently treated as zero demand. See
+[the benchmark procedure](docs/PERFORMANCE_BENCHMARK.md) for safe Windows Docker Desktop and Linux
+VPS commands. Benchmark output is synthetic operational evidence, not client or research results.
+
+## Account maintenance and worker measurements
+
+Password changes invalidate all sessions. Recovery links expire after 30 minutes; owner-issued staff
+invitations expire after 48 hours. Both are stored as hashes and consumed once. Delivery requires the
+private `SMTP_*` configuration documented in `backend/.env.example`; automated tests use only a mock
+transport.
+
+Forecast refresh is manual: Refresh queues one business-scoped job and the worker polls that queue.
+No 6:00 AM or other scheduled retraining is configured. Saved timing fields define queue wait as
+creation-to-claim time, preparation as snapshot classification/series construction, training as
+parameter fitting and early stopping, validation as pre-test recursive selection/calibration,
+evaluation as untouched final-test plus operational refit, persistence as remaining artifact/SQL
+overhead, and total processing as worker claim-to-completion elapsed time.

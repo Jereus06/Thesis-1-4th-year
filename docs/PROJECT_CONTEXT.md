@@ -1,6 +1,6 @@
 # StockCast project context
 
-Last checked against this branch: 2026-10-01. Read alongside [AGENTS.md](../AGENTS.md) and source.
+Last checked against this branch: 2026-10-02. Read alongside [AGENTS.md](../AGENTS.md) and source.
 
 ## Purpose and confirmed research context
 
@@ -30,6 +30,7 @@ outside the repository. Downloads under `public/thesis/` can lag current drafts.
 | Exports            | Sales/stock-movement downloads use authenticated Python CSV endpoints                                                                                       |
 | Forecasts          | Official Python XGBoost, immutable queued inputs, chronological selection/testing, saved predictions/metrics/models                                         |
 | Restock            | Python reads the operating forecast or baseline and current stock; suggested quantity is zero above the reorder trigger                                     |
+| Data quality       | Missing/incomplete dates, explicit zeros, closures, and stockouts have reviewed classifications, audit history, and CSV export                              |
 | Backups            | `npm run backup` creates a PostgreSQL dump; CI checks a separate restore and container recreation                                                           |
 | User guide         | Strategies User guide tab with search, expandable topics, and manual download from docs/USER_GUIDE.md; legacy /guide redirects inside the authenticated app |
 | System evaluation  | Strategies Evaluation tab restores five selected quality ratings; API drafts are browser-local per business/user, demo drafts keep their existing storage   |
@@ -71,8 +72,7 @@ matching email alone never links accounts. Session restoration normally lasts 12
 Google may require account selection/consent after it expires.
 
 Authentication writes have per-process attempt limits; multiple API replicas need coordinated
-gateway limits. Password signup has no email verification, password recovery/change, or staff
-invitations. Deployment-specific credentials and live Google OAuth still require actual testing.
+gateway limits. Password signup has no email verification. Password change, single-use recovery, and owner-issued staff invitations are implemented; recovery/invitation delivery requires private SMTP configuration. Deployment-specific credentials and live Google OAuth still require actual testing.
 See [backend authentication details](../backend/README.md#authentication-contract).
 
 ## Forecast contract
@@ -84,14 +84,13 @@ See [backend authentication details](../backend/README.md#authentication-contrac
   final-test actuals are not fed into those predictions or model selection.
 - An operating model is refitted on observed history after test evaluation with the frozen
   configuration, then saves actual XGBoost future predictions.
-- Queued jobs snapshot daily sales, settings, and product IDs in the existing schema.
+- Queued jobs snapshot daily sales, effective quality preparation/provenance, settings, and product IDs. Classification audit revisions make completed results stale even after deletion.
 - Dashboard ML comparisons use matching eligible products/date observations.
-- No calibrated prediction intervals or certified accuracy are claimed. All operational confidence
-  labels remain low pending research validation; `xgboost_verified` remains false.
-- Missing days currently mean zero sales. Confirm ledger completeness, stockout interpretation,
-  and that policy with the partner before research evaluation.
-- Refresh is explicit from the frontend; the worker continuously polls queued jobs. Failed and
-  interrupted jobs are recorded and can be refreshed.
+- Validation-only residuals calibrate intervals when at least ten residuals exist; coverage is assessed on untouched final-test observations. Otherwise intervals remain unavailable. No certified accuracy is claimed and `xgboost_verified` remains false.
+- Absent dates are not zero-filled. Audited `confirmed_zero` dates are eligible observations; closures, incomplete records, and full/partial stockouts are excluded. XGBoost conservatively requires a complete observed-or-confirmed-zero daily training sequence so calendar lag spacing is preserved. Confirm this policy with the partner before research evaluation.
+- The Data quality screen records store-wide or product-specific classifications with an immutable audit log and CSV export. Forecast-run snapshots retain the classifications used by the worker.
+- Refresh is the only retraining trigger; no clock schedule is configured. The worker continuously polls queued jobs. Failed and interrupted jobs are recorded and can be refreshed.
+- Run timing separates queue wait, preparation, training, validation, final evaluation/refit, persistence overhead, and total worker processing.
 
 The custom browser boosted-tree code is not the official XGBoost package and is isolated to
 demonstration mode. The normal frontend displays Python outputs and does not trigger that prototype.
