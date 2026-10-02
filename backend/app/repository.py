@@ -741,8 +741,17 @@ class Repository:
                             for key, value in settings.items()
                             if key not in {"business_id", "updated_at", "created_at"}
                         },
-                        "dataQuality": quality_payload,
-                        "preparedProducts": prepared_products,
+                        "dataQuality": [
+                            {
+                                "productId": str(item["product_id"])
+                                if item["product_id"]
+                                else None,
+                                "date": str(item["classification_date"]),
+                                "classification": item["classification"],
+                                "note": item["note"],
+                            }
+                            for item in quality_rows
+                        ],
                         "dailySales": [
                             {
                                 "productId": str(row["product_id"]),

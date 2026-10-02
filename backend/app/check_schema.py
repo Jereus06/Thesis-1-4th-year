@@ -24,8 +24,6 @@ TABLES = (
     "google_pending",
     "sales_day_quality",
     "sales_day_quality_audit",
-    "password_reset_tokens",
-    "staff_invitations",
 )
 
 

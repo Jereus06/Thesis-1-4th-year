@@ -358,11 +358,3 @@ export type DataQualityEntry = {
   createdAt: string;
   updatedAt: string;
 };
-
-export type AccountMember = {
-  id: string;
-  email: string;
-  displayName: string;
-  role: "owner" | "staff";
-  isActive: boolean;
-};

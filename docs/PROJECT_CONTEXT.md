@@ -86,11 +86,12 @@ See [backend authentication details](../backend/README.md#authentication-contrac
   configuration, then saves actual XGBoost future predictions.
 - Queued jobs snapshot daily sales, effective quality preparation/provenance, settings, and product IDs. Classification audit revisions make completed results stale even after deletion.
 - Dashboard ML comparisons use matching eligible products/date observations.
-- Validation-only residuals calibrate intervals when at least ten residuals exist; coverage is assessed on untouched final-test observations. Otherwise intervals remain unavailable. No certified accuracy is claimed and `xgboost_verified` remains false.
+- No calibrated prediction intervals or certified accuracy are claimed. All operational confidence
+  labels remain low pending research validation; `xgboost_verified` remains false.
 - Absent dates are not zero-filled. Audited `confirmed_zero` dates are eligible observations; closures, incomplete records, and full/partial stockouts are excluded. XGBoost conservatively requires a complete observed-or-confirmed-zero daily training sequence so calendar lag spacing is preserved. Confirm this policy with the partner before research evaluation.
 - The Data quality screen records store-wide or product-specific classifications with an immutable audit log and CSV export. Forecast-run snapshots retain the classifications used by the worker.
-- Refresh is the only retraining trigger; no clock schedule is configured. The worker continuously polls queued jobs. Failed and interrupted jobs are recorded and can be refreshed.
-- Run timing separates queue wait, preparation, training, validation, final evaluation/refit, persistence overhead, and total worker processing.
+- Refresh is explicit from the frontend; the worker continuously polls queued jobs. Failed and
+  interrupted jobs are recorded and can be refreshed.
 
 The custom browser boosted-tree code is not the official XGBoost package and is isolated to
 demonstration mode. The normal frontend displays Python outputs and does not trigger that prototype.
