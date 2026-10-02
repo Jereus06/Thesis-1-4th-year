@@ -109,11 +109,26 @@ export const api = {
         body: { source: "csv", rows },
       },
     ),
+  dataQuality: (businessId: string) =>
+    request<DataQualityEntry[]>(`/businesses/${businessId}/data-quality`),
+  saveDataQuality: (
+    businessId: string,
+    entry: Pick<DataQualityEntry, "productId" | "classificationDate" | "classification" | "note">,
+  ) =>
+    request<DataQualityEntry>(`/businesses/${businessId}/data-quality`, {
+      method: "PUT",
+      body: entry,
+    }),
+  deleteDataQuality: (businessId: string, productId: string | null, classificationDate: string) =>
+    request<{ deleted: boolean }>(`/businesses/${businessId}/data-quality`, {
+      method: "DELETE",
+      body: { productId, classificationDate },
+    }),
   dashboard: (businessId: string) =>
     request<ApiDashboard>(`/businesses/${businessId}/forecast-dashboard`),
   refreshForecast: (businessId: string) =>
     request<ApiForecastRun>(`/businesses/${businessId}/forecast-refresh`, { method: "POST" }),
-  exportUrl: (businessId: string, kind: "sales" | "inventory-movements") =>
+  exportUrl: (businessId: string, kind: "sales" | "inventory-movements" | "data-quality") =>
     `${API_URL}/businesses/${businessId}/exports/${kind}.csv`,
   recordSale: async (businessId: string, productId: string, date: string, qty: number) =>
     toSale(
@@ -291,4 +306,18 @@ export type ApiDashboard = {
     days_of_cover: string | null;
     status: "stockout" | "reorder" | "watch" | "healthy";
   }[];
+};
+
+export type DataQualityClassification =
+  "confirmed_zero" | "business_closed" | "full_stockout" | "partial_stockout" | "incomplete";
+export type DataQualityEntry = {
+  id: string;
+  productId: string | null;
+  sku: string | null;
+  productName: string | null;
+  classificationDate: string;
+  classification: DataQualityClassification;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
 };

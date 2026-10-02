@@ -16,6 +16,7 @@ from psycopg.types.json import Jsonb
 from xgboost import __version__ as xgboost_version
 
 from .config import get_settings
+from .data_quality import observed_daily_values
 from .forecasting import (
     Observation,
     SplitBoundaries,
@@ -27,11 +28,13 @@ from .forecasting import (
 logger = logging.getLogger(__name__)
 
 
-def daily_observations(rows: list[dict[str, Any]], start: date, end: date) -> list[Observation]:
-    totals = {row["sale_date"]: float(row["quantity"]) for row in rows}
+def daily_observations(
+    rows: list[dict[str, Any]], start: date, end: date, quality=()
+) -> list[Observation]:
+    """Return observed sales and explicit zero days while preserving their calendar dates."""
     return [
-        Observation(start + timedelta(days=index), totals.get(start + timedelta(days=index), 0.0))
-        for index in range((end - start).days + 1)
+        Observation(day, quantity)
+        for day, quantity in observed_daily_values(rows, start, end, quality)
     ]
 
 
@@ -75,8 +78,16 @@ def claim_run(conn: Connection) -> dict[str, Any] | None:
 def training_eligibility(observations, run, settings, rank):
     training = [item for item in observations if item.day <= run["training_end"]]
     nonzero, days = sum(item.quantity > 0 for item in training), len(training)
+    calendar_days = (
+        run["training_end"]
+        - run.get(
+            "training_start", min((item.day for item in training), default=run["training_end"])
+        )
+    ).days + 1
+    complete = days == calendar_days
     eligible = (
-        days >= max(31, settings["minimum_history_weeks"] * 7)
+        complete
+        and days >= max(31, settings["minimum_history_weeks"] * 7)
         and nonzero >= settings["minimum_nonzero_days"]
         and rank < settings["top_n_products"]
     )
@@ -84,7 +95,7 @@ def training_eligibility(observations, run, settings, rank):
         None
         if eligible
         else (
-            f"Training history: {days} days, {nonzero} nonzero days, rank {rank + 1}; "
+            f"Training history: {days}/{calendar_days} classified calendar days, {nonzero} nonzero days, rank {rank + 1}; "
             f"requires {settings['minimum_history_weeks']} weeks, "
             f"{settings['minimum_nonzero_days']} nonzero days and top {settings['top_n_products']}."
         )
@@ -93,6 +104,7 @@ def training_eligibility(observations, run, settings, rank):
 
 
 def process_run(conn: Connection, run: dict[str, Any]) -> None:
+    total_started = time.perf_counter()
     snapshot = run["data_snapshot"]
     if not all(key in snapshot for key in ("dailySales", "settings", "products")):
         raise ValueError(
@@ -105,7 +117,14 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
             for item in snapshot["dailySales"]
             if item["productId"] == product_id
         ]
-        series[product_id] = daily_observations(rows, run["training_start"], run["final_test_end"])
+        quality = [
+            item
+            for item in snapshot.get("dataQuality", [])
+            if item.get("productId") in (None, product_id)
+        ]
+        series[product_id] = daily_observations(
+            rows, run["training_start"], run["final_test_end"], quality
+        )
     # Product ranking and the nonzero-day gate use training only.
     products = sorted(
         series,
@@ -123,7 +142,9 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
             "selectionSplit": "validation",
             "evaluationSplit": "final_test",
             "evaluationProtocol": "recursive_fixed_cutoff",
-            "missingDayPolicy": "zero_sales",
+            "missingDayPolicy": "explicit_classification_required",
+            "excludedTargets": "closures, incomplete records, full/partial stockouts, and unclassified absent dates",
+            "lagPolicy": "XGBoost requires a complete observed-or-confirmed-zero daily training sequence",
             "operationalRefitEnd": str(run["final_test_end"]),
             "products": {},
         }
@@ -136,6 +157,13 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
             eligible, days, nonzero, reason = training_eligibility(
                 observations, run, settings, rank
             )
+            expected_days = (run["final_test_end"] - run["training_start"]).days + 1
+            if eligible and len(observations) != expected_days:
+                eligible = False
+                reason = (
+                    "XGBoost evaluation requires every validation/test calendar date to be "
+                    "observed or explicitly confirmed zero; excluded or missing dates remain."
+                )
             test = [item for item in observations if item.day > run["validation_end"]]
             summary = {
                 "historyDays": days,
@@ -177,14 +205,19 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                 ]
                 ma = moving_average(history, len(test), settings["moving_average_window"])
                 _persist_predictions(conn, run, product_id, test, "moving_average", ma)
-                metric = evaluate([item.quantity for item in test], ma)
-                _persist_metric_values(
-                    conn,
-                    run,
-                    product_id,
-                    "moving_average",
-                    {"mae": metric.mae, "rmse": metric.rmse, "observations": metric.observations},
-                )
+                if test:
+                    metric = evaluate([item.quantity for item in test], ma)
+                    _persist_metric_values(
+                        conn,
+                        run,
+                        product_id,
+                        "moving_average",
+                        {
+                            "mae": metric.mae,
+                            "rmse": metric.rmse,
+                            "observations": metric.observations,
+                        },
+                    )
                 future_predictions = {
                     "fallback": moving_average(
                         [item.quantity for item in observations],
@@ -209,10 +242,18 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                         ),
                     )
             configuration["products"][product_id] = summary
+        total_ms = round((time.perf_counter() - total_started) * 1000, 3)
+        queue_ms = max(0.0, (run["started_at"] - run["created_at"]).total_seconds() * 1000)
+        timing = {
+            "queueWaitMs": round(queue_ms, 3),
+            "totalProcessingMs": total_ms,
+            "measuredWith": "time.perf_counter",
+            "workerCompletedAt": time.time(),
+        }
         conn.execute(
             """UPDATE forecast_runs SET status='completed',algorithm_version=%s,configuration=%s,
-               completed_at=now(),xgboost_verified=false WHERE id=%s""",
-            (xgboost_version, Jsonb(configuration), run["id"]),
+               timing=%s,completed_at=now(),xgboost_verified=false WHERE id=%s""",
+            (xgboost_version, Jsonb(configuration), Jsonb(timing), run["id"]),
         )
 
 

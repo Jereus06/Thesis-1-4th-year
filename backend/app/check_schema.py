@@ -22,6 +22,8 @@ TABLES = (
     "google_identities",
     "oauth_flows",
     "google_pending",
+    "sales_day_quality",
+    "sales_day_quality_audit",
 )
 
 
@@ -29,8 +31,12 @@ def check_schema() -> None:
     paths = sorted(MIGRATIONS.glob("*.sql"))
     if not paths:
         raise AssertionError("No SQL migrations found")
-    up = "\n".join(path.read_text(encoding="utf-8") for path in paths if path.name.endswith(".up.sql"))
-    down = "\n".join(path.read_text(encoding="utf-8") for path in paths if path.name.endswith(".down.sql"))
+    up = "\n".join(
+        path.read_text(encoding="utf-8") for path in paths if path.name.endswith(".up.sql")
+    )
+    down = "\n".join(
+        path.read_text(encoding="utf-8") for path in paths if path.name.endswith(".down.sql")
+    )
     for table in TABLES:
         if not re.search(rf"CREATE TABLE {table}\s*\(", up):
             raise AssertionError(f"Missing table {table}")

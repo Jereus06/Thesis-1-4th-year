@@ -1,5 +1,13 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { BookOpen, LayoutDashboard, LineChart, PackagePlus, Plus, Warehouse } from "lucide-react";
+import {
+  BookOpen,
+  ClipboardCheck,
+  LayoutDashboard,
+  LineChart,
+  PackagePlus,
+  Plus,
+  Warehouse,
+} from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Toaster, toast } from "sonner";
 import { ApiForecastProvider, ForecastProvider } from "@/components/forecast-context";
@@ -24,6 +32,7 @@ const NAV = [
   { to: "/restock", label: "Restock", icon: PackagePlus },
   { to: "/forecasts", label: "Forecasts", icon: LineChart },
   { to: "/inventory", label: "Inventory", icon: Warehouse },
+  { to: "/data-quality", label: "Quality", icon: ClipboardCheck },
   { to: "/methodology", label: "Strategies", icon: BookOpen },
 ] as const;
 
@@ -150,7 +159,7 @@ function ShellLayout({ children }: { children: ReactNode }) {
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/95 backdrop-blur-sm lg:hidden">
-        <ul className="grid grid-cols-5">
+        <ul className="grid grid-cols-6">
           {NAV.map((item) => (
             <li key={item.to}>
               <MobileNavLink {...item} />

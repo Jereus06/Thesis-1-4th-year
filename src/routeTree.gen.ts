@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DataQualityRouteImport } from './routes/data-quality'
 import { Route as ForecastsRouteImport } from './routes/forecasts'
 import { Route as GuideRouteImport } from './routes/guide'
 import { Route as InventoryRouteImport } from './routes/inventory'
@@ -19,6 +20,11 @@ import { Route as RestockRouteImport } from './routes/restock'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DataQualityRoute = DataQualityRouteImport.update({
+  id: '/data-quality',
+  path: '/data-quality',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ForecastsRoute = ForecastsRouteImport.update({
@@ -49,6 +55,7 @@ const RestockRoute = RestockRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/data-quality': typeof DataQualityRoute
   '/forecasts': typeof ForecastsRoute
   '/guide': typeof GuideRoute
   '/inventory': typeof InventoryRoute
@@ -57,6 +64,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/data-quality': typeof DataQualityRoute
   '/forecasts': typeof ForecastsRoute
   '/guide': typeof GuideRoute
   '/inventory': typeof InventoryRoute
@@ -66,6 +74,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/data-quality': typeof DataQualityRoute
   '/forecasts': typeof ForecastsRoute
   '/guide': typeof GuideRoute
   '/inventory': typeof InventoryRoute
@@ -75,12 +84,26 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/forecasts' | '/guide' | '/inventory' | '/methodology' | '/restock'
+    | '/'
+    | '/data-quality'
+    | '/forecasts'
+    | '/guide'
+    | '/inventory'
+    | '/methodology'
+    | '/restock'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/forecasts' | '/guide' | '/inventory' | '/methodology' | '/restock'
+  to:
+    | '/'
+    | '/data-quality'
+    | '/forecasts'
+    | '/guide'
+    | '/inventory'
+    | '/methodology'
+    | '/restock'
   id:
     | '__root__'
     | '/'
+    | '/data-quality'
     | '/forecasts'
     | '/guide'
     | '/inventory'
@@ -90,6 +113,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  DataQualityRoute: typeof DataQualityRoute
   ForecastsRoute: typeof ForecastsRoute
   GuideRoute: typeof GuideRoute
   InventoryRoute: typeof InventoryRoute
@@ -104,6 +128,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/data-quality': {
+      id: '/data-quality'
+      path: '/data-quality'
+      fullPath: '/data-quality'
+      preLoaderRoute: typeof DataQualityRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/forecasts': {
@@ -146,6 +177,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  DataQualityRoute: DataQualityRoute,
   ForecastsRoute: ForecastsRoute,
   GuideRoute: GuideRoute,
   InventoryRoute: InventoryRoute,

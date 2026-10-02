@@ -14,6 +14,8 @@ from psycopg.types.json import Jsonb
 from .inventory import calculate_reorder
 from .schemas import (
     BusinessUpdate,
+    DataQualityDelete,
+    DataQualityUpsert,
     ForecastRunCreate,
     InventoryImportCreate,
     MovementCreate,
@@ -118,6 +120,119 @@ class Repository:
                 (Jsonb(result), inserted["id"]),
             )
             return result
+
+    def list_data_quality(self, business_id: str):
+        rows = self.conn.execute(
+            """SELECT q.id,q.product_id,p.sku,p.name,q.classification_date,q.classification,
+                      q.note,q.created_at,q.updated_at
+               FROM sales_day_quality q LEFT JOIN products p
+                 ON p.business_id=q.business_id AND p.id=q.product_id
+               WHERE q.business_id=%s ORDER BY q.classification_date DESC,q.product_id NULLS FIRST""",
+            (business_id,),
+        ).fetchall()
+        return [self._quality_row(row) for row in rows]
+
+    def upsert_data_quality(self, principal: Principal, data: DataQualityUpsert):
+        with self.conn.transaction():
+            if data.product_id is not None:
+                product = self.conn.execute(
+                    "SELECT 1 FROM products WHERE business_id=%s AND id=%s",
+                    (principal.business_id, data.product_id),
+                ).fetchone()
+                if not product:
+                    raise HTTPException(404, "Product not found")
+            old = self.conn.execute(
+                """SELECT * FROM sales_day_quality WHERE business_id=%s
+                   AND product_id IS NOT DISTINCT FROM %s AND classification_date=%s FOR UPDATE""",
+                (principal.business_id, data.product_id, data.classification_date),
+            ).fetchone()
+            row = self.conn.execute(
+                """INSERT INTO sales_day_quality
+                   (business_id,product_id,classification_date,classification,note,created_by,updated_by)
+                   VALUES(%s,%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (business_id,product_id,classification_date)
+                   DO UPDATE SET classification=excluded.classification,note=excluded.note,
+                                 updated_by=excluded.updated_by,updated_at=now()
+                   RETURNING *""",
+                (
+                    principal.business_id,
+                    data.product_id,
+                    data.classification_date,
+                    data.classification,
+                    data.note,
+                    principal.user_id,
+                    principal.user_id,
+                ),
+            ).fetchone()
+            self.conn.execute(
+                """INSERT INTO sales_day_quality_audit
+                   (business_id,quality_id,product_id,classification_date,previous_classification,
+                    classification,previous_note,note,action,changed_by)
+                   VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (
+                    principal.business_id,
+                    row["id"],
+                    data.product_id,
+                    data.classification_date,
+                    old["classification"] if old else None,
+                    data.classification,
+                    old["note"] if old else None,
+                    data.note,
+                    "updated" if old else "created",
+                    principal.user_id,
+                ),
+            )
+        return self._quality_row(row)
+
+    def delete_data_quality(self, principal: Principal, data: DataQualityDelete):
+        with self.conn.transaction():
+            old = self.conn.execute(
+                """DELETE FROM sales_day_quality WHERE business_id=%s
+                   AND product_id IS NOT DISTINCT FROM %s AND classification_date=%s RETURNING *""",
+                (principal.business_id, data.product_id, data.classification_date),
+            ).fetchone()
+            if not old:
+                raise HTTPException(404, "Classification not found")
+            self.conn.execute(
+                """INSERT INTO sales_day_quality_audit
+                   (business_id,quality_id,product_id,classification_date,previous_classification,
+                    previous_note,action,changed_by) VALUES(%s,%s,%s,%s,%s,%s,'deleted',%s)""",
+                (
+                    principal.business_id,
+                    old["id"],
+                    old["product_id"],
+                    old["classification_date"],
+                    old["classification"],
+                    old["note"],
+                    principal.user_id,
+                ),
+            )
+        return {"deleted": True}
+
+    def data_quality_audit(self, business_id: str):
+        return self.conn.execute(
+            """SELECT a.id,a.product_id,p.sku,a.classification_date,a.previous_classification,
+                      a.classification,a.previous_note,a.note,a.action,a.changed_at,u.email AS changed_by
+               FROM sales_day_quality_audit a
+               LEFT JOIN products p ON p.business_id=a.business_id AND p.id=a.product_id
+               JOIN users u ON u.business_id=a.business_id AND u.id=a.changed_by
+               WHERE a.business_id=%s ORDER BY a.changed_at DESC,a.id DESC""",
+            (business_id,),
+        ).fetchall()
+
+    @staticmethod
+    def _quality_row(row):
+        return {
+            "id": str(row["id"]),
+            "productId": str(row["product_id"]) if row["product_id"] else None,
+            "sku": row.get("sku"),
+            "productName": row.get("name"),
+            "classificationDate": str(row["classification_date"]),
+            "classification": row["classification"],
+            "note": row["note"],
+            "createdAt": row["created_at"].isoformat(),
+            "updatedAt": row["updated_at"].isoformat(),
+        }
 
     def list_products(self, business_id: str):
         rows = self.conn.execute(
@@ -560,6 +675,12 @@ class Repository:
         settings = self.conn.execute(
             "SELECT * FROM business_settings WHERE business_id=%s", (principal.business_id,)
         ).fetchone()
+        quality_rows = self.conn.execute(
+            """SELECT product_id,classification_date,classification,note FROM sales_day_quality
+               WHERE business_id=%s AND classification_date BETWEEN %s AND %s
+               ORDER BY classification_date,product_id NULLS FIRST""",
+            (principal.business_id, data.training_start, data.final_test_end),
+        ).fetchall()
         product_ids = [
             str(row["id"])
             for row in self.conn.execute(
@@ -600,6 +721,17 @@ class Repository:
                             for key, value in settings.items()
                             if key not in {"business_id", "updated_at", "created_at"}
                         },
+                        "dataQuality": [
+                            {
+                                "productId": str(item["product_id"])
+                                if item["product_id"]
+                                else None,
+                                "date": str(item["classification_date"]),
+                                "classification": item["classification"],
+                                "note": item["note"],
+                            }
+                            for item in quality_rows
+                        ],
                         "dailySales": [
                             {
                                 "productId": str(row["product_id"]),
@@ -644,7 +776,10 @@ class Repository:
                 final_test_start=end - timedelta(days=holdout - 1),
                 final_test_end=end,
                 forecast_horizon_days=settings["forecastHorizonDays"],
-                configuration={"requestedFrom": "web", "missingDayPolicy": "zero_sales"},
+                configuration={
+                    "requestedFrom": "web",
+                    "missingDayPolicy": "explicit_classification_required",
+                },
             ),
         )
 
@@ -807,6 +942,7 @@ class Repository:
             "configuration": row["configuration"],
             "dataSnapshot": row["data_snapshot"],
             "failureMessage": row["failure_message"],
+            "timing": row.get("timing", {}),
             "createdAt": row["created_at"].isoformat(),
         }
 

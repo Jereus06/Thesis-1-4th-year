@@ -42,10 +42,16 @@ def dashboard(repository, business_id):
         changed = conn.execute(
             """SELECT EXISTS(SELECT 1 FROM sales WHERE business_id=%s AND created_at>%s)
                OR EXISTS(SELECT 1 FROM business_settings WHERE business_id=%s AND updated_at>%s)
+               OR EXISTS(SELECT 1 FROM products WHERE business_id=%s AND updated_at>%s)
+               OR EXISTS(SELECT 1 FROM sales_day_quality WHERE business_id=%s AND updated_at>%s)
                AS changed""",
             (
                 business_id,
                 completed["data_snapshot"].get("capturedAt", completed["created_at"]),
+                business_id,
+                completed["created_at"],
+                business_id,
+                completed["created_at"],
                 business_id,
                 completed["created_at"],
             ),
@@ -75,7 +81,7 @@ def dashboard(repository, business_id):
             for point in predictions
             if point["productId"] == pid and point["datasetSplit"] == "future"
         ]
-        if not future:
+        if not future and history:
             window = settings["movingAverageWindow"]
             quantities = [
                 history.get(end - timedelta(days=window - index - 1), 0.0)
