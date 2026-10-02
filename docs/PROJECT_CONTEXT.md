@@ -72,8 +72,7 @@ matching email alone never links accounts. Session restoration normally lasts 12
 Google may require account selection/consent after it expires.
 
 Authentication writes have per-process attempt limits; multiple API replicas need coordinated
-gateway limits. Password signup has no email verification, password recovery/change, or staff
-invitations. Deployment-specific credentials and live Google OAuth still require actual testing.
+gateway limits. Password signup has no email verification. Password change, single-use recovery, and owner-issued staff invitations are implemented; recovery/invitation delivery requires private SMTP configuration. Deployment-specific credentials and live Google OAuth still require actual testing.
 See [backend authentication details](../backend/README.md#authentication-contract).
 
 ## Forecast contract
@@ -85,7 +84,7 @@ See [backend authentication details](../backend/README.md#authentication-contrac
   final-test actuals are not fed into those predictions or model selection.
 - An operating model is refitted on observed history after test evaluation with the frozen
   configuration, then saves actual XGBoost future predictions.
-- Queued jobs snapshot daily sales, settings, and product IDs in the existing schema.
+- Queued jobs snapshot daily sales, effective quality preparation/provenance, settings, and product IDs. Classification audit revisions make completed results stale even after deletion.
 - Dashboard ML comparisons use matching eligible products/date observations.
 - No calibrated prediction intervals or certified accuracy are claimed. All operational confidence
   labels remain low pending research validation; `xgboost_verified` remains false.

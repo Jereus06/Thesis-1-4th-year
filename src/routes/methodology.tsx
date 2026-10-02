@@ -289,14 +289,18 @@ function PythonMethods({
                   Moving Average fallback.
                 </p>
                 <p>
-                  Features: lag 1, lag 7, lag 14, mean 7, mean 30, weekday, and month. Missing
-                  calendar days currently count as zero sales; confirm the ledger is complete before
-                  interpreting the results.
+                  Features: lag 1, lag 7, lag 14, mean 7, mean 30, weekday, and month. Only recorded
+                  sales and explicitly confirmed-zero dates are targets. Product-specific reviews
+                  override store-wide reviews; closures, incomplete dates, and stockouts are
+                  excluded. Unknown calendar gaps make the affected forecast unavailable rather than
+                  becoming zero.
                 </p>
                 <p>
                   After evaluation, the operating model is refitted on observed history with its
-                  frozen configuration. Prediction intervals and confidence percentages are not
-                  claimed.
+                  frozen configuration. Intervals use validation-only residuals and remain
+                  unavailable when fewer than ten calibration residuals exist; final-test residuals
+                  never calibrate them. Quality labels describe evidence, not a probability of
+                  correctness.
                 </p>
                 <p className="text-muted">{result?.diagnostics.disclaimer}</p>
               </CardContent>

@@ -116,6 +116,9 @@ function RestockCard({ row, onReceive }: { row: ReorderRow; onReceive: () => voi
             {p.sku} · {p.category} · lead {p.leadTimeDays}d · safety {num(p.safetyStock)} ·{" "}
             {modelLabel(row.winnerModel)} demand
           </p>
+          {row.demandAvailable === false && (
+            <p className="text-sm text-warning">Demand unavailable — {row.unavailableReason}</p>
+          )}
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 pt-2 text-sm sm:grid-cols-4">
             <Stat label="On hand" value={`${num(p.currentStock)} ${p.unit}`} />
             <Stat label="Daily demand" value={num(row.dailyDemand, 1)} />

@@ -110,6 +110,7 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
         raise ValueError(
             "This older queued run has no immutable input snapshot; refresh to create one"
         )
+    preparation_started = time.perf_counter()
     settings, series = snapshot["settings"], {}
     for product_id in snapshot["products"]:
         rows = [
@@ -165,12 +166,19 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                     "observed or explicitly confirmed zero; excluded or missing dates remain."
                 )
             test = [item for item in observations if item.day > run["validation_end"]]
+            prepared_snapshot = snapshot.get("preparedProducts", {}).get(product_id, {})
             summary = {
                 "historyDays": days,
                 "nonzeroDays": nonzero,
                 "eligible": eligible,
                 "fallbackReason": reason,
                 "operatingMethod": "fallback",
+                "preparationPolicyVersion": POLICY_VERSION,
+                "unknownDays": len(prepared_snapshot.get("unknownDates", [])),
+                "excludedDays": len(prepared_snapshot.get("excludedDates", [])),
+                "qualityWarnings": [
+                    item["message"] for item in prepared_snapshot.get("warnings", [])
+                ],
             }
             if eligible:
                 result = train_verified_xgboost(
@@ -185,8 +193,15 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                         "xgbWeight": result["xgbWeight"],
                         "operatingMethod": result["operatingMethod"],
                         "artifact": f"{run['id']}/{product_id}.json",
+                        "effectiveFolds": result["effectiveFolds"],
+                        "selectionFallback": result["selectionFallback"],
+                        "earlyStoppingUsed": result["earlyStoppingUsed"],
+                        "bestIteration": result["bestIteration"],
+                        "interval": result["interval"],
                     }
                 )
+                for key in modeling_timing:
+                    modeling_timing[key] += result["timing"][key]
                 result["model"].save_model(artifacts / f"{product_id}.json")
                 for split, metrics in (
                     ("validation", result["validation"]),
@@ -199,6 +214,8 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                 for method, predictions in result["testPredictions"].items():
                     _persist_predictions(conn, run, product_id, test, _method(method), predictions)
                 future_predictions = result["futurePredictions"]
+                interval_method = _method(result["operatingMethod"])
+                future_lower, future_upper = result["futureLower"], result["futureUpper"]
             else:
                 history = [
                     item.quantity for item in observations if item.day <= run["validation_end"]
@@ -224,20 +241,33 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                         run["forecast_horizon_days"],
                         settings["moving_average_window"],
                     )
-                }
             for method, predictions in future_predictions.items():
                 for index, prediction in enumerate(predictions, start=1):
+                    persisted_method = _method(method)
+                    lower = (
+                        future_lower[index - 1]
+                        if future_lower is not None and persisted_method == interval_method
+                        else None
+                    )
+                    upper = (
+                        future_upper[index - 1]
+                        if future_upper is not None and persisted_method == interval_method
+                        else None
+                    )
                     conn.execute(
                         """INSERT INTO forecast_predictions
                         (business_id,forecast_run_id,product_id,prediction_date,method,dataset_split,
-                         predicted_quantity,fallback_reason) VALUES(%s,%s,%s,%s,%s,'future',%s,%s)""",
+                         predicted_quantity,lower_bound,upper_bound,fallback_reason)
+                         VALUES(%s,%s,%s,%s,%s,'future',%s,%s,%s,%s)""",
                         (
                             run["business_id"],
                             run["id"],
                             product_id,
                             run["final_test_end"] + timedelta(days=index),
-                            _method(method),
+                            persisted_method,
                             Decimal(str(prediction)),
+                            Decimal(str(lower)) if lower is not None else None,
+                            Decimal(str(upper)) if upper is not None else None,
                             reason,
                         ),
                     )

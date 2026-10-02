@@ -34,6 +34,14 @@ export type SessionUser = {
   role: "owner" | "staff";
 };
 
+export type AccountMember = {
+  id: string;
+  email: string;
+  displayName: string;
+  role: "owner" | "staff";
+  isActive: boolean;
+};
+
 export type AuthOptions = {
   signUpEnabled: boolean;
   googleEnabled: boolean;
@@ -70,6 +78,28 @@ export const api = {
     }),
   signOut: () => request<{ signedOut: boolean }>("/auth/sign-out", { method: "POST" }),
   me: () => request<SessionUser>("/auth/me"),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<{ changed: boolean }>("/auth/password/change", {
+      method: "POST",
+      body: { currentPassword, newPassword },
+    }),
+  requestRecovery: (email: string) =>
+    request<{ accepted: boolean }>("/auth/password/recovery", { method: "POST", body: { email } }),
+  completeRecovery: (token: string, newPassword: string) =>
+    request<{ changed: boolean }>("/auth/password/recovery/complete", {
+      method: "POST",
+      body: { token, newPassword },
+    }),
+  members: () => request<AccountMember[]>("/auth/members"),
+  acceptInvitation: (token: string, password: string) =>
+    request<SessionUser>("/auth/staff/invitations/accept", {
+      method: "POST",
+      body: { token, password },
+    }),
+  inviteStaff: (email: string, displayName: string) =>
+    request("/auth/staff/invitations", { method: "POST", body: { email, displayName } }),
+  setMemberActive: (userId: string, isActive: boolean) =>
+    request(`/auth/members/${userId}`, { method: "PATCH", body: { isActive } }),
   business: (businessId: string) =>
     request<{ name: string; location: string | null; dataOrigin: "demo" | "partner" }>(
       `/businesses/${businessId}`,
@@ -253,6 +283,14 @@ export type ApiForecastRun = {
   id: string;
   status: "queued" | "running" | "completed" | "failed";
   createdAt: string;
+  timing: {
+    queueWaitMs?: number;
+    preparationMs?: number;
+    trainingMs?: number;
+    evaluationMs?: number;
+    persistenceMs?: number;
+    totalProcessingMs?: number;
+  };
   finalTestStart: string;
   finalTestEnd: string;
   failureMessage: string | null;
@@ -274,6 +312,11 @@ export type ApiDashboard = {
       fallbackReason?: string;
       xgbWeight?: number;
       parameters?: { max_depth: number; learning_rate: number; n_estimators: number };
+      effectiveFolds?: number;
+      earlyStoppingUsed?: boolean;
+      unknownDays?: number;
+      excludedDays?: number;
+      qualityWarnings?: string[];
     }
   >;
   predictions: {
@@ -298,10 +341,12 @@ export type ApiDashboard = {
     productId: string;
     method: string;
     confidenceLevel: "low" | "medium" | "high";
-    daily_demand: string;
-    demand_during_lead_time: string;
-    reorder_point: string;
-    target_stock: string;
+    demandAvailable: boolean;
+    unavailableReason: string | null;
+    daily_demand: string | null;
+    demand_during_lead_time: string | null;
+    reorder_point: string | null;
+    target_stock: string | null;
     suggested_quantity: string;
     days_of_cover: string | null;
     status: "stockout" | "reorder" | "watch" | "healthy";
