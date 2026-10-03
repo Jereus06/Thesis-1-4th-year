@@ -1,0 +1,31 @@
+name: Midterm prototype build and browser check
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify-prototype:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Typecheck and build
+        run: npm run build
+      - name: Install browser test runner
+        run: npm install --no-save --no-audit --no-fund playwright
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Check midterm browser flows
+        run: node scripts/midterm-smoke.mjs
+      - name: Keep browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: midterm-browser-evidence
+          path: midterm-evidence/
+          if-no-files-found: ignore
