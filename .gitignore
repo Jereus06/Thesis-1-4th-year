@@ -26,4 +26,4 @@ __pycache__/
 .codex-publish/
 
 # Local benchmark output
-benchmarks/
+/benchmarks/

@@ -1,9 +1,14 @@
 """Read-only saved forecasts and conservative pre-refresh baselines."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 
-from .data_quality import POLICY_VERSION, contiguous_tail, prepare_product_series
+from .data_quality import (
+    POLICY_VERSION,
+    contiguous_tail,
+    prepare_product_series,
+    usable_history_bounds,
+)
 from .forecasting import moving_average
 from .inventory import calculate_reorder
 
@@ -47,8 +52,6 @@ def dashboard(repository, business_id):
         FROM sales_day_quality WHERE business_id=%s ORDER BY classification_date""",
         (business_id,),
     ).fetchall()
-    end = max((row["sale_date"] for row in sales), default=today)
-    start = min((row["sale_date"] for row in sales), default=end)
     summaries = dict(completed["configuration"].get("products", {})) if completed else {}
     products = [product for product in repository.list_products(business_id) if product["isActive"]]
     stale = False
@@ -88,14 +91,34 @@ def dashboard(repository, business_id):
         }
         for row in quality
     ]
+    product_ids = {product["id"] for product in products}
+    _first_usable, last_usable = usable_history_bounds(
+        sales, quality_payload, product_ids, through=today,
+    )
+    end = last_usable or today
+    evidence_dates = {
+        row["sale_date"] for row in sales
+        if str(row["product_id"]) in product_ids and row["sale_date"] <= today
+    }
+    evidence_dates.update(
+        date.fromisoformat(item["date"]) for item in quality_payload
+        if item["date"] <= today_text
+        and (item["productId"] is None or item["productId"] in product_ids)
+    )
+    start = min(evidence_dates, default=today)
     for product in products:
         pid = product["id"]
         rows = [
-            {"sale_date": row["sale_date"], "quantity": row["quantity"]}
+            {"product_id": pid, "sale_date": row["sale_date"], "quantity": row["quantity"]}
             for row in sales
             if str(row["product_id"]) == pid
         ]
-        prepared = prepare_product_series(rows, quality_payload, pid, start, end)
+        # Diagnostics include trailing unknown/excluded days without turning them
+        # into targets or moving the product's actual forecast cutoff to today.
+        prepared = prepare_product_series(rows, quality_payload, pid, start, today)
+        first_product_day, last_product_day = usable_history_bounds(
+            rows, quality_payload, [pid], through=today, start=start,
+        )
         if pid not in summaries:
             summaries[pid] = {
                 "historyDays": len(prepared.days),
@@ -106,6 +129,8 @@ def dashboard(repository, business_id):
                 "unknownDays": len(prepared.unknown_dates),
                 "excludedDays": len(prepared.excluded_dates),
                 "preparationPolicyVersion": POLICY_VERSION,
+                "firstUsableDate": str(first_product_day) if first_product_day else None,
+                "lastUsableDate": str(last_product_day) if last_product_day else None,
                 "fallbackReason": "Refresh forecasts to evaluate this product"
                 if prepared.days
                 else "No usable sales history; review missing dates and classifications",
@@ -115,7 +140,7 @@ def dashboard(repository, business_id):
             for point in predictions
             if point["productId"] == pid and point["datasetSplit"] == "future"
         ]
-        history = contiguous_tail(prepared.targets, end)
+        history = contiguous_tail(prepared.targets, last_product_day) if last_product_day else []
         if not future and history:
             window = settings["movingAverageWindow"]
             quantities = [item.quantity for item in history[-window:]]
@@ -123,7 +148,7 @@ def dashboard(repository, business_id):
             future = [
                 {
                     "productId": pid,
-                    "predictionDate": str(end + timedelta(days=i + 1)),
+                    "predictionDate": str(last_product_day + timedelta(days=i + 1)),
                     "method": "fallback",
                     "datasetSplit": "future",
                     "predictedQuantity": str(value),
@@ -136,7 +161,8 @@ def dashboard(repository, business_id):
             ]
             predictions.extend(future)
             if not completed:
-                forecast_through = end + timedelta(days=settings["forecastHorizonDays"])
+                product_through = last_product_day + timedelta(days=settings["forecastHorizonDays"])
+                forecast_through = max(forecast_through, product_through) if forecast_through else product_through
         product_forecast_through = max(
             (point["predictionDate"] for point in future), default=None
         )

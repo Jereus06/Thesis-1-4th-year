@@ -467,6 +467,12 @@ different from your store name. Owners and staff can use **Connect Google accoun
 Google is enabled.
 This action connects only the signed-in account and preserves its store and permissions.
 
+Owners also see **Staff access** in Account maintenance. Wait for the list to load, then use
+**Disable** or **Restore** on a staff account. Disabling access ends that staff member's active
+sessions. **Refresh staff list** reads the latest accounts; a failed read shows an error and
+**Retry loading staff**. An empty loaded list is identified explicitly. Staff can maintain their
+own password and Google connection and do not see owner staff-management controls.
+
 For store/model fields, change values and choose **Save settings**. Owner permissions are
 required to save those business settings in normal mode.
 
@@ -474,7 +480,7 @@ required to save those business settings in normal mode.
 | -------------------------------- | ------------------------------------------------------------------ | ------------------------------ |
 | Store name                       | Store label shown in the interface                                 | Text                           |
 | Location                         | Store location label                                               | Text                           |
-| Forecast horizon                 | Number of future days predicted after the last observed sales date | 7, 14, 21, or 30               |
+| Forecast horizon                 | Number of future days predicted after the last usable history date | 7, 14, 21, or 30               |
 | Cover days after delivery        | Additional coverage used in target stock                           | 3, 7, 10, or 14                |
 | MA window, under Advanced        | Recent calendar-day window used by Moving Average                  | 3, 7, or 14                    |
 | ML product limit, under Advanced | Maximum eligible products considered for machine learning          | Top 5, 8, 12, or 20            |
@@ -512,7 +518,10 @@ baseline. A product without an eligible ML result can continue using that fallba
 4. Watch the training/status banner. The website checks forecast status about every five seconds.
 5. When the job finishes, review the new results. A previous completed run remains available while a replacement is running or fails.
 
-The run snapshots its sales totals, settings, and active products. Records added after it is
+The run snapshots its sales totals, reviewed-day classifications, settings, and active products.
+Valid sales and effective **Confirmed zero sales** reviews through the current business date
+determine the usable history range. Product-specific reviews override store-wide reviews;
+unknown dates, closures, incomplete records, and stockouts do not become zero sales. Records added after it is
 queued need a later refresh. Navigating to a page does not itself retrain the Python model.
 
 When the forecast horizon ends before the store's current business date, the website displays
@@ -547,15 +556,17 @@ the future partner before using results for research or purchasing decisions.
 
 | Stage                | What it is used for                                                          |
 | -------------------- | ---------------------------------------------------------------------------- |
-| Training             | Fit candidate models and determine product eligibility/ranking               |
-| Validation           | Select parameters, ensemble weights, and the operating method                |
+| Training             | Determine eligibility/ranking and select parameters using training-only CV  |
+| Validation           | Select ensemble weights/method, then separately calibrate eligible intervals |
 | Final test / holdout | Measure performance on later dates that did not select the model             |
 | Operational refit    | Refit the selected configuration on observed history to predict future dates |
 
-Validation and final test each use `max(1, min(14, calendarDays // 5))` days at the end of the
-history; earlier days train. The Python worker compares three XGBoost parameter candidates
-on validation. Features include sales lags of 1, 7, and 14 days, means over 7 and 30 days,
-weekday, and month.
+Final test uses `max(1, min(14, calendarDays // 5))` days at the end of history. Normal Refresh
+reserves 20–28 earlier validation days when the configured training gates and CV reserve still
+fit; shorter histories use a compact validation period and can lack intervals. Remaining earlier
+days train. The Python worker compares three XGBoost parameter candidates within training-only
+time-series folds; later validation and final-test observations cannot choose those parameters.
+Features include sales lags of 1, 7, and 14 days, means over 7 and 30 days, weekday, and month.
 
 **Moving Average** is the recent-demand baseline. **XGBoost** uses the official Python package
 to learn from those features. **Ensemble** combines the two forecasts with weights determined
@@ -578,8 +589,10 @@ through the observed history.
 - An em dash or `n/a` means a score is unavailable. Baseline-only products have no XGBoost score.
 - **Copy MAE / RMSE table** copies a tab-separated aggregate table suitable for a spreadsheet. Your browser can block clipboard access.
 
-Future predictions start after the **latest recorded sale date**, which can be earlier than
-today. Keep sales history current and inspect chart dates before treating a forecast as current.
+Saved future predictions start after the run's **last usable history date**, which includes
+effective confirmed-zero reviews and can be earlier than today. Before Refresh, each product's
+preview starts after its own last usable observation. Keep sales and reviewed dates current and
+inspect chart dates before treating a forecast as current; unknown trailing dates do not move it.
 
 **Prediction interval evidence** states whether current bounds are available and shows the
 saved calibration sample, dates, method, nominal target, and observed final-test coverage with its
@@ -588,6 +601,12 @@ segment (at least 10 observations) after selecting the operating method. The 10t
 of its prediction residuals form a nominal **80%** band, with bounds clipped at zero. Final-test
 observations measure coverage; they never select or calibrate those bounds.
 
+Normal **Refresh forecasts** reserves up to 14 days for final testing and can reserve 20–28 days
+for validation when enough training history remains. With default settings and a complete daily
+sequence, 134 days can supply 100 training, 20 validation, and 14 final-test days. Each product
+still needs the training eligibility checks, including 100 nonzero training days. Shorter or
+incomplete histories show **Unavailable** when calibration cannot be performed.
+
 A small time-ordered calibration sample and later model refits do not guarantee future coverage.
 The interval concerns observed sales, which can differ from unmet demand. Baselines and runs with
 insufficient calibration data have no interval; older runs may lack saved evidence. Charts show a
@@ -595,6 +614,12 @@ band only where bounds exist. Expired forecasts retain historical calibration ev
 current advice is withheld. Browser-demo bands remain illustrative and separate from Python runs.
 Operational confidence labels remain low pending research validation. No certified accuracy or
 guaranteed sales are claimed.
+
+**Saved processing times** separates preparation, model training, validation/evaluation, result
+persistence, total processing, and queue wait for the saved run. Model training includes every
+model fit; it can be unavailable for a baseline-only run. Missing older measurements show
+**Unavailable**. Total processing includes more work than training and is separate from browser
+page loading or interaction speed.
 
 ## 13. Restock: statuses and calculations
 
@@ -658,7 +683,7 @@ In normal mode, **Strategies** contains four tabs:
 | Methodology | Read chronological evaluation, eligibility, model features, and saved forecast behavior; the owner can Refresh forecasts |
 | Thesis text | Read/copy supporting sections and download available Markdown/Word artifacts                                             |
 | User guide  | Search this manual, browse/expand topics, and download the manual                                                        |
-| Evaluation  | Rate five selected system-quality characteristics and save a browser draft                                               |
+| Evaluation  | Answer the client questionnaire, save a private draft, submit feedback, and review authorized submitted evidence |
 
 The selected tab is part of the URL, so a direct link or reload can reopen it. Older
 `/guide` links redirect to the User guide tab, retaining a topic hash when supplied.
@@ -667,16 +692,31 @@ Normal API-mode access requires sign-in.
 ### Complete the evaluation
 
 1. Open **Evaluation**.
-2. Rate Functional suitability, Reliability, Interaction capability, Performance efficiency, and Maintainability from 1 (Poor) to 5 (Excellent).
-3. Check the number of scored criteria and the mean. The mean uses scored criteria only; an unanswered item is not a zero rating.
-4. Choose **Save ratings** before leaving the tab. Partial drafts can be saved.
-5. Reopen the same browser/device and account to load the saved draft.
+2. Answer statements under Functional suitability, Reliability, Interaction capability, and
+   Perceived performance efficiency. Choose agreement from **1 = Strongly disagree** to
+   **5 = Strongly agree**. Choose **Not applicable** for features you have not used, or leave an
+   item unanswered. Technical maintainability is assessed separately by the team.
+3. **Save draft** keeps your answers privately in this browser for this business/account. It does
+   not submit them or add them to the server summary. Earlier prototype drafts remain separate.
+4. **Submit** saves one final response for this questionnaire version, with your authenticated
+   role and server timestamp. At least one rated answer is required; a final response cannot be
+   edited. If confirmation fails, retain your draft and use **Retry submission** or
+   **Refresh submitted feedback**; retry sends the same submission identifier and answers.
+5. Review submitted evidence. Staff see their own response; owners see business totals and the
+   Owner / manager and Staff breakdowns and can **Download submitted CSV**.
 
-**Clear form** clears the displayed scores; choose Save ratings to save the cleared draft.
-Normal-mode drafts are kept separately for each business/account in browser storage.
-Browser-demo drafts retain their earlier local storage. These ratings are not uploaded to the
-server or included in the PostgreSQL dump. They are selected-characteristic feedback, not a
-complete standards assessment, certification, or completed research result.
+Means use valid item ratings only. Unanswered and Not applicable are excluded rather than treated
+as zero. Counts distinguish submitted participants from valid item responses and identify which
+participants contributed to a characteristic. Each valid rated item response has equal weight.
+Role comes from the account, rather than a role selected in the form. The application groups
+owner accounts under **Owner / manager**; staff accounts remain **Staff**.
+
+Server submissions survive another device, database backup/restore, and container restarts.
+Browser drafts require the same browser/account and are outside the database dump. Browser-demo
+can save drafts but cannot submit them to the server. Stores using demonstration records label
+their submitted feedback as **Test feedback**, including saved demo provenance. These fixtures
+are not actual client findings. The questionnaire and software do not certify standards compliance,
+establish a validated research instrument, or claim completed partner evaluation.
 
 The thesis panel provides **Show/Hide** sections, **Copy this section**, copying all text, and
 Markdown/Word downloads where available. These are supporting checked-in artifacts. The latest
@@ -768,7 +808,7 @@ checksums. A failed backup command removes its incomplete dump.
 | Business settings and account password hashes | Trained files from the model volume                                   |
 | Forecast jobs, saved predictions, and metrics | Caddy certificate/configuration volumes if required by the deployment |
 | Database migration history                    | Source/configuration needed to recreate the installation              |
-| Other records stored in that database         | Browser storage, including evaluation drafts, and older SQLite files  |
+| Submitted client surveys and their item responses | Browser storage, including evaluation drafts, and older SQLite files |
 
 The database dump and separately copied model files are not one atomic snapshot. For
 recovery-sensitive copies, arrange a quiet period without a running forecast job.
@@ -932,11 +972,12 @@ The browser Strategies page has **Accuracy**, **Speed**, **Thesis text**, **Mode
 techniques; Speed has **Retrain models**. Models shows prototype parameters, errors, and
 inventory mathematics.
 
-Evaluation uses the same five rating questions as normal mode, with its own browser-demo
-draft. **Save ratings** preserves the draft and the mean uses scored criteria. Existing demo
-ratings remain available. The User guide tab provides the same searchable/downloadable manual.
-Neither synthetic demo behavior nor these ratings establishes research results or standards
-compliance.
+Evaluation uses the same four-characteristic client questionnaire as normal mode, with its own
+browser-demo draft. **Save draft** preserves answers locally; browser demonstration mode cannot
+submit them to the server. Unanswered and Not applicable items remain unscored, and earlier demo
+ratings remain a read-only archive. The User guide tab provides the same searchable/downloadable
+manual. Synthetic demo behavior and draft ratings do not establish client findings, research
+results, or standards compliance.
 
 Older SQLite adapter commands are a separate optional legacy demonstration. They are not the
 normal PostgreSQL startup and do not automatically migrate into it.
@@ -998,7 +1039,7 @@ Increasing the container-readiness timeout does not repair registry TLS failures
 - **Forecast queued indefinitely:** check the worker with `docker compose logs --tail 100 worker`.
 - **Worker interrupted; refresh to retry:** after the worker is running, the owner can explicitly refresh the failed job.
 - **A stale forecast warning:** record/import complete history, save settings, and refresh.
-- **Forecast expired:** passed prediction dates are excluded from current advice. Predictions start after the latest recorded sale date; record or review recent sales before refreshing.
+- **Forecast expired:** passed prediction dates are excluded from current advice. Predictions start after the last usable history date; record recent sales or confirm reviewed zero-sale dates before refreshing. Unknown or excluded dates do not move old forecasts forward.
 - **Low confidence:** all operational confidence remains low pending validation; it is not evidence of a certified probability.
 - **Days of cover is an em dash:** the current demand estimate is zero or unavailable.
 - **Clipboard blocked:** use a browser that permits clipboard access at the configured origin, or manually copy the displayed values.
@@ -1084,7 +1125,7 @@ date helper described in `backend/docs/RESERVED_DATE_HELPER.md`.
 | Moving Average / MA      | Baseline based on recent daily sales                                               |
 | XGBoost                  | Official Python boosted-tree model in normal mode                                  |
 | Ensemble                 | Weighted combination of MA and XGBoost                                             |
-| Validation               | Date range used to select model configuration/method                               |
+| Validation               | Later dates used for method/weight selection and separate interval calibration     |
 | Holdout / final test     | Later date range used to measure the frozen selection                              |
 | MAE / RMSE               | Error measures in product units; lower means smaller evaluated error               |
 | Snapshot                 | Captured input/counts at a particular point                                        |

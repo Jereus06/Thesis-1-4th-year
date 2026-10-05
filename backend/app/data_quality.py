@@ -2,9 +2,10 @@
 
 from dataclasses import dataclass
 from datetime import date
+from math import isfinite
 from typing import Any
 
-POLICY_VERSION = "2026-10-02"
+POLICY_VERSION = "2026-10-05"
 
 _EXCLUDED_CLASSIFICATIONS = {"business_closed", "full_stockout", "partial_stockout", "incomplete"}
 
@@ -48,12 +49,68 @@ class PreparedProductSeries:
 
 def observed_daily_values(rows: list[dict[str, Any]], start: date, end: date, quality=()):
     """Return dated values without interpreting an absent date as zero demand."""
-    totals = {row["sale_date"]: float(row["quantity"]) for row in rows}
+    prepared = prepare_product_series(rows, quality, None, start, end)
+    return [(item.day, item.quantity) for item in prepared.targets]
+
+
+def effective_classifications(quality, product_id, start: date | None = None, end: date | None = None):
+    """Resolve product-specific reviews over the store-wide review on each date."""
+    storewide, specific = {}, {}
     for item in quality:
         day = date.fromisoformat(item["date"]) if isinstance(item["date"], str) else item["date"]
-        if start <= day <= end and item["classification"] == "confirmed_zero":
-            totals.setdefault(day, 0.0)
-    return [(day, totals[day]) for day in sorted(totals) if start <= day <= end]
+        if (start is not None and day < start) or (end is not None and day > end):
+            continue
+        item_product = item.get("productId")
+        if item_product in (None, ""):
+            storewide[day] = item["classification"]
+        elif str(item_product) == str(product_id):
+            specific[day] = item["classification"]
+    return {**storewide, **specific}
+
+
+def _daily_sales_totals(rows):
+    totals = {}
+    for row in rows:
+        day = row["sale_date"]
+        if isinstance(day, str):
+            day = date.fromisoformat(day)
+        quantity = float(row["quantity"])
+        # The sales contract requires positive quantities. Reviewed zeros are
+        # supplied by classifications, never by invalid or absent transactions.
+        if isfinite(quantity) and quantity > 0:
+            totals[day] = totals.get(day, 0.0) + quantity
+    return totals
+
+
+def usable_history_bounds(sales, quality, product_ids, through: date, start: date | None = None):
+    """Find actual usable observation dates for the requested active products.
+
+    No unclassified absent date extends the history. Exclusions remove recorded
+    sales; an effective confirmed-zero review supplies an observed zero instead.
+    The caller supplies active product IDs and the configured business-day cutoff.
+    """
+    active_ids = {str(product_id) for product_id in product_ids}
+    grouped = {product_id: [] for product_id in active_ids}
+    for row in sales:
+        product_id = str(row["product_id"])
+        if product_id in grouped:
+            grouped[product_id].append(row)
+    usable_dates = set()
+    for product_id, rows in grouped.items():
+        classifications = effective_classifications(quality, product_id, start, through)
+        usable_dates.update(
+            day for day in _daily_sales_totals(rows)
+            if day <= through and (start is None or day >= start)
+            and classifications.get(day) not in _EXCLUDED_CLASSIFICATIONS
+        )
+        usable_dates.update(
+            day for day, classification in classifications.items()
+            if classification == "confirmed_zero"
+        )
+    return (
+        (min(usable_dates), max(usable_dates))
+        if usable_dates else (None, None)
+    )
 
 
 def contiguous_tail(targets: list[PreparedTarget], end: date):
@@ -68,16 +125,8 @@ def contiguous_tail(targets: list[PreparedTarget], end: date):
 
 
 def prepare_product_series(rows, quality, product_id, start: date, end: date):
-    totals = {row["sale_date"]: float(row["quantity"]) for row in rows}
-    storewide, specific = {}, {}
-    for item in quality:
-        day = date.fromisoformat(item["date"]) if isinstance(item["date"], str) else item["date"]
-        if not (start <= day <= end):
-            continue
-        if item.get("productId") in (None, ""):
-            storewide[day] = item["classification"]
-        elif item.get("productId") == product_id:
-            specific[day] = item["classification"]
+    totals = _daily_sales_totals(rows)
+    classifications = effective_classifications(quality, product_id, start, end)
 
     targets = []
     warnings = []
@@ -85,7 +134,7 @@ def prepare_product_series(rows, quality, product_id, start: date, end: date):
     excluded_dates = []
     day = start
     while day <= end:
-        classification = specific.get(day, storewide.get(day))
+        classification = classifications.get(day)
         quantity = totals.get(day)
         if quantity is not None:
             if classification == "confirmed_zero":

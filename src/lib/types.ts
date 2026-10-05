@@ -197,9 +197,23 @@ export type PipelineDiagnostics = {
   mode: PipelineMode;
 };
 
+export type ForecastTiming = {
+  queueWaitMs?: number | null;
+  preparationMs?: number | null;
+  trainingMs?: number | null;
+  validationMs?: number | null;
+  evaluationMs?: number | null;
+  validationEvaluationMs?: number | null;
+  persistenceMs?: number | null;
+  totalProcessingMs?: number | null;
+  timingVersion?: string;
+  timingScope?: unknown;
+};
+
 export type PipelineResult = {
   trainedAt: string;
   trainedMs: number;
+  processingTiming?: ForecastTiming;
   holdoutStart: string;
   holdoutEnd: string;
   horizonEnd: string;

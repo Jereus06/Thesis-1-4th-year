@@ -11,7 +11,12 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from .data_quality import POLICY_VERSION, contiguous_tail, prepare_product_series
+from .data_quality import (
+    POLICY_VERSION,
+    contiguous_tail,
+    prepare_product_series,
+    usable_history_bounds,
+)
 from .inventory import calculate_reorder
 from .schemas import (
     BusinessUpdate,
@@ -32,6 +37,39 @@ from .security import Principal, new_token, token_hash, verify_password
 
 def decimal_text(value: Decimal | str) -> str:
     return format(Decimal(value), "f")
+
+
+def refresh_split_plan(history_days: int, settings: dict[str, Any]) -> dict[str, Any]:
+    """Plan calendar periods without inspecting validation or final-test values.
+
+    Keep the existing compact split for short histories. Longer histories can
+    reserve separate method-selection/calibration days without consuming the
+    training length required by configured eligibility or chronological CV.
+    Calendar lengths are plans; worker metadata records actual usable counts.
+    """
+    if history_days < 3:
+        raise ValueError("A chronological split requires at least three calendar days")
+    test_days = max(1, min(14, history_days // 5))
+    training_reserve = max(
+        31,
+        settings["minimumHistoryWeeks"] * 7,
+        settings["minimumNonzeroDays"],
+        45 + settings.get("cvFolds", 3) * 14,
+    )
+    validation_days = min(28, history_days - training_reserve - test_days)
+    if validation_days < 20:
+        validation_days = test_days
+    calibration_days = max(10, validation_days // 3) if validation_days >= 20 else 0
+    return {
+        "policy": "training_reserved_selection_calibration_v1",
+        "trainingCalendarDays": history_days - validation_days - test_days,
+        "validationCalendarDays": validation_days,
+        "finalTestCalendarDays": test_days,
+        "trainingReserveCalendarDays": training_reserve,
+        "validationSelectionCalendarDays": validation_days - calibration_days,
+        "validationCalibrationCalendarDays": calibration_days,
+        "minimumValidationObservationsForIntervals": 20,
+    }
 
 
 def product_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -742,6 +780,9 @@ class Repository:
         self.conn.execute(
             "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE", (principal.business_id,)
         )
+        business_day = self.business_day(principal.business_id)
+        if data.final_test_end > business_day:
+            raise HTTPException(422, "Forecast evaluation cannot include future dates")
         captured_at = self.conn.execute("SELECT clock_timestamp() AS captured_at").fetchone()[
             "captured_at"
         ]
@@ -798,6 +839,10 @@ class Repository:
             prepared_products[product_id] = prepare_product_series(
                 product_sales, quality_payload, product_id, data.training_start, data.final_test_end
             ).snapshot()
+        first_usable, last_usable = usable_history_bounds(
+            daily_rows, quality_payload, product_ids,
+            through=data.final_test_end, start=data.training_start,
+        )
         row = self.conn.execute(
             """INSERT INTO forecast_runs
             (business_id,data_origin,status,algorithm_name,algorithm_version,xgboost_verified,
@@ -824,6 +869,9 @@ class Repository:
                         "lastSaleDate": str(snapshot["last_sale_date"])
                         if snapshot["last_sale_date"]
                         else None,
+                        "firstUsableDate": str(first_usable) if first_usable else None,
+                        "lastUsableDate": str(last_usable) if last_usable else None,
+                        "businessDayAtCapture": str(business_day),
                         "capturedAt": captured_at.isoformat(),
                         "products": product_ids,
                         "preparedProducts": prepared_products,
@@ -851,36 +899,73 @@ class Repository:
         return self._forecast_run(row)
 
     def refresh_forecast(self, principal: Principal):
-        span = self.conn.execute(
-            "SELECT min(sale_date) AS start,max(sale_date) AS finish FROM sales WHERE business_id=%s",
+        # Bounds and the immutable snapshot share the existing business lock,
+        # including reviewed classifications changed by another user.
+        self.conn.execute(
+            "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE", (principal.business_id,)
+        )
+        today = self.business_day(principal.business_id)
+        product_ids = [
+            str(row["id"]) for row in self.conn.execute(
+                "SELECT id FROM products WHERE business_id=%s AND is_active ORDER BY id",
+                (principal.business_id,),
+            ).fetchall()
+        ]
+        active_ids = set(product_ids)
+        sales = self.conn.execute(
+            """SELECT product_id,sale_date,sum(quantity) AS quantity FROM sales
+               WHERE business_id=%s GROUP BY product_id,sale_date ORDER BY product_id,sale_date""",
             (principal.business_id,),
-        ).fetchone()
-        if not span["start"]:
-            raise HTTPException(422, "Add or import sales before refreshing forecasts")
-        end = span["finish"]
-        if end > self.business_day(principal.business_id):
+        ).fetchall()
+        if any(str(row["product_id"]) in active_ids and row["sale_date"] > today for row in sales):
             raise HTTPException(422, "Forecast history cannot include future-dated sales")
-        days = (end - span["start"]).days + 1
+        quality_rows = self.conn.execute(
+            """SELECT product_id,classification_date,classification,note FROM sales_day_quality
+               WHERE business_id=%s ORDER BY classification_date,product_id NULLS FIRST""",
+            (principal.business_id,),
+        ).fetchall()
+        quality_payload = [
+            {
+                "productId": str(row["product_id"]) if row["product_id"] else None,
+                "date": str(row["classification_date"]),
+                "classification": row["classification"],
+                "note": row["note"],
+            }
+            for row in quality_rows
+        ]
+        start, end = usable_history_bounds(sales, quality_payload, product_ids, through=today)
+        if start is None or end is None:
+            raise HTTPException(
+                422,
+                "Record sales or review confirmed-zero days for active products before refreshing forecasts",
+            )
+        days = (end - start).days + 1
         if days < 3:
             raise HTTPException(
                 422,
                 "At least three calendar days are needed for train/validation/test; the baseline remains available",
             )
-        holdout = max(1, min(14, days // 5))
         settings = self.get_settings(principal.business_id)
+        split = refresh_split_plan(days, settings)
+        validation_days = split["validationCalendarDays"]
+        final_test_days = split["finalTestCalendarDays"]
+        training_end = end - timedelta(days=validation_days + final_test_days)
+        validation_end = end - timedelta(days=final_test_days)
         return self.create_forecast_run(
             principal,
             ForecastRunCreate(
-                training_start=span["start"],
-                training_end=end - timedelta(days=2 * holdout),
-                validation_start=end - timedelta(days=2 * holdout - 1),
-                validation_end=end - timedelta(days=holdout),
-                final_test_start=end - timedelta(days=holdout - 1),
+                training_start=start,
+                training_end=training_end,
+                validation_start=training_end + timedelta(days=1),
+                validation_end=validation_end,
+                final_test_start=validation_end + timedelta(days=1),
                 final_test_end=end,
                 forecast_horizon_days=settings["forecastHorizonDays"],
                 configuration={
                     "requestedFrom": "web",
                     "missingDayPolicy": "explicit_classification_required",
+                    "historyEndPolicy": "usable_active_observations",
+                    "refreshSplit": split,
                 },
             ),
         )

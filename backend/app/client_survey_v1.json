@@ -1,0 +1,32 @@
+{
+  "version": "stockcast-client-survey-v1",
+  "title": "StockCast client evaluation",
+  "notice": "Rate only features you have used. These responses describe client perceptions; technical performance and maintainability require separate engineering evidence.",
+  "scale": [
+    { "value": 1, "label": "Strongly disagree" },
+    { "value": 2, "label": "Disagree" },
+    { "value": 3, "label": "Neither agree nor disagree" },
+    { "value": 4, "label": "Agree" },
+    { "value": 5, "label": "Strongly agree" }
+  ],
+  "characteristics": [
+    { "id": "functional_suitability", "label": "Functional suitability" },
+    { "id": "reliability", "label": "Reliability" },
+    { "id": "interaction_capability", "label": "Interaction capability" },
+    { "id": "perceived_performance_efficiency", "label": "Perceived performance efficiency" }
+  ],
+  "items": [
+    { "id": "fs_1", "characteristicId": "functional_suitability", "text": "The product, sales, and stock features support the retail tasks I need to complete." },
+    { "id": "fs_2", "characteristicId": "functional_suitability", "text": "The records shown by the system provide the information I need for my daily work." },
+    { "id": "fs_3", "characteristicId": "functional_suitability", "text": "The forecasting and restocking information is useful for decisions I am authorized to make." },
+    { "id": "rel_1", "characteristicId": "reliability", "text": "The system works consistently when I perform my usual tasks." },
+    { "id": "rel_2", "characteristicId": "reliability", "text": "When an action fails, the system gives enough information for me to recover or retry." },
+    { "id": "rel_3", "characteristicId": "reliability", "text": "My saved records are available when I return to the system." },
+    { "id": "ic_1", "characteristicId": "interaction_capability", "text": "I can find the features I need through the system's navigation." },
+    { "id": "ic_2", "characteristicId": "interaction_capability", "text": "The labels, instructions, and forms make the required steps clear." },
+    { "id": "ic_3", "characteristicId": "interaction_capability", "text": "I can complete my daily tasks without unnecessary difficulty." },
+    { "id": "ppe_1", "characteristicId": "perceived_performance_efficiency", "text": "Pages and actions respond quickly enough for my normal work." },
+    { "id": "ppe_2", "characteristicId": "perceived_performance_efficiency", "text": "Saving and retrieving records takes an acceptable amount of time." },
+    { "id": "ppe_3", "characteristicId": "perceived_performance_efficiency", "text": "Forecasting and restocking information is available in time for my work." }
+  ]
+}

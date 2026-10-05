@@ -157,11 +157,16 @@ def create_auth_router(repo_dependency) -> APIRouter:
         if not raw:
             raise HTTPException(401, "Sign in is required")
         user, stored = repository.authenticate(raw)
+        # Browser reads send the session cookie, but no custom CSRF header.
+        # Session authentication and repository role/tenant checks still apply.
+        if request.method in {"GET", "HEAD", "OPTIONS"}:
+            return user
         cookie = request.cookies.get("stockcast_csrf")
         header = request.headers.get("X-CSRF-Token")
         if (
             not cookie
             or not header
+            or not stored
             or not hmac.compare_digest(cookie, header)
             or not hmac.compare_digest(token_hash(header), stored)
         ):

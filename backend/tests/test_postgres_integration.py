@@ -812,7 +812,7 @@ def test_dashboard_baseline_preserves_empty_unknown_and_excluded_history(pg_clie
         )
         assert response.status_code == 201, response.text
     sparse = read_dashboard()
-    assert sparse["summaries"][product["id"]]["unknownDays"] == 1
+    assert sparse["summaries"][product["id"]]["unknownDays"] == 2
     assert all(float(point["predictedQuantity"]) == 6 for point in sparse["predictions"])
     assert sparse["recommendations"][0]["demandAvailable"]
     assert client.put(
@@ -820,8 +820,12 @@ def test_dashboard_baseline_preserves_empty_unknown_and_excluded_history(pg_clie
         json={"classificationDate": "2026-01-03", "classification": "incomplete"},
     ).status_code == 200
     excluded = read_dashboard()
-    assert excluded["predictions"] == []
-    assert not excluded["recommendations"][0]["demandAvailable"]
+    # Excluding the latest sale leaves an older valid cutoff; its original
+    # forecast dates are still inside the configured horizon on January 4.
+    assert excluded["asOf"] == "2026-01-01"
+    assert all(float(point["predictedQuantity"]) == 2 for point in excluded["predictions"])
+    assert all(point["predictionDate"] >= "2026-01-04" for point in excluded["predictions"])
+    assert excluded["recommendations"][0]["demandAvailable"]
     assert excluded["summaries"][product["id"]]["excludedDays"] == 1
 
 
@@ -1353,3 +1357,97 @@ def test_concurrent_classification_audit_keeps_prior_revision_and_clock_order(
         assert datetime.fromisoformat(following["updatedAt"]) == audits[1]["changed_at"]
         assert audits[1]["classification"] == "business_closed"
         assert audits[1]["note"] == current["note"] == "Second review"
+
+
+def test_members_frontend_reads_and_owner_management_stay_tenant_scoped(pg_client):
+    from app.auth_repository import AuthRepository
+    from app.security import Principal, hash_password
+
+    client, business, dsn = pg_client
+    client.headers.pop("X-CSRF-Token")
+    owner_csrf = client.cookies["stockcast_csrf"]
+    with psycopg.connect(dsn, row_factory=psycopg.rows.dict_row) as conn:
+        other_business = conn.execute(
+            "INSERT INTO businesses(name,data_origin) VALUES('Synthetic Other Store','demo') "
+            "RETURNING id"
+        ).fetchone()["id"]
+        members = []
+        for tenant, email, role in [
+            (business, "local.staff@example.test", "staff"),
+            (other_business, "other.owner@example.test", "owner"),
+            (other_business, "other.staff@example.test", "staff"),
+        ]:
+            members.append(conn.execute(
+                """INSERT INTO users(business_id,email,display_name,role,password_hash)
+                   VALUES(%s,%s,'Synthetic Member',%s,%s) RETURNING *""",
+                (tenant, email, role, hash_password("synthetic-members-password")),
+            ).fetchone())
+        local_staff, other_owner, other_staff = members
+        repository = AuthRepository(conn)
+        staff_session, staff_csrf, _ = repository.issue_session(
+            Principal(str(local_staff["id"]), business, local_staff["email"], "Staff", "staff"), 12,
+        )
+        other_session, other_csrf, _ = repository.issue_session(
+            Principal(str(other_owner["id"]), str(other_business), other_owner["email"], "Owner", "owner"), 12,
+        )
+
+    # The frontend sends cookies on GET, with no custom CSRF or Origin header.
+    response = client.get("/api/v1/auth/members")
+    assert response.status_code == 200, response.text
+    assert "X-CSRF-Token" not in response.request.headers
+    listed = response.json()["data"]
+    assert len(listed) == 2
+    assert {row["email"] for row in listed} == {"owner@example.com", local_staff["email"]}
+    assert {str(other_owner["id"]), str(other_staff["id"])}.isdisjoint(
+        row["id"] for row in listed
+    )
+    assert client.get(
+        f"/api/v1/auth/members?businessId={other_business}"
+    ).json()["data"] == listed
+
+    local_path = f"/api/v1/auth/members/{local_staff['id']}"
+    assert client.patch(local_path, json={"isActive": False}).status_code == 403
+    write_headers = {"X-CSRF-Token": owner_csrf}
+    disabled = client.patch(local_path, json={"isActive": False}, headers=write_headers)
+    assert disabled.status_code == 200
+    assert disabled.json()["data"] == {"id": str(local_staff["id"]), "isActive": False}
+    assert client.get(
+        "/api/v1/auth/me",
+        headers={"Cookie": f"stockcast_session={staff_session}; stockcast_csrf={staff_csrf}"},
+    ).status_code == 401
+    restored = client.patch(local_path, json={"isActive": True}, headers=write_headers)
+    assert restored.status_code == 200
+    assert restored.json()["data"]["isActive"] is True
+    local_member = next(row for row in client.get("/api/v1/auth/members").json()["data"]
+                        if row["id"] == str(local_staff["id"]))
+    assert local_member["isActive"] is True
+
+    foreign_path = f"/api/v1/auth/members/{other_staff['id']}"
+    assert client.patch(foreign_path, json={"isActive": False}, headers=write_headers).status_code == 404
+    foreign_list = client.get(
+        "/api/v1/auth/members",
+        headers={"Cookie": f"stockcast_session={other_session}; stockcast_csrf={other_csrf}"},
+    )
+    assert foreign_list.status_code == 200
+    assert {row["id"] for row in foreign_list.json()["data"]} == {
+        str(other_owner["id"]), str(other_staff["id"]),
+    }
+    assert all(row["isActive"] for row in foreign_list.json()["data"])
+
+    # Reactivation requires a new staff session: disabling removed the old one.
+    with psycopg.connect(dsn, row_factory=psycopg.rows.dict_row) as conn:
+        staff_session, staff_csrf, _ = AuthRepository(conn).issue_session(
+            Principal(str(local_staff["id"]), business, local_staff["email"], "Staff", "staff"), 12,
+        )
+    staff_headers = {"Cookie": f"stockcast_session={staff_session}; stockcast_csrf={staff_csrf}"}
+    assert client.get("/api/v1/auth/members", headers=staff_headers).status_code == 403
+    assert client.patch(
+        local_path,
+        json={"isActive": False},
+        headers={**staff_headers, "X-CSRF-Token": staff_csrf},
+    ).status_code == 403
+    assert client.patch(
+        foreign_path,
+        json={"isActive": False},
+        headers={**staff_headers, "X-CSRF-Token": staff_csrf},
+    ).status_code == 403

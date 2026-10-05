@@ -78,6 +78,11 @@ stores checksums, and rejects changes to previously applied migration files.
 
 ## Authentication contract
 
+`GET /api/v1/auth/members` authenticates the session cookie and lists only the owner's business.
+It does not require a CSRF header, matching the browser's authenticated read requests. Staff are
+denied owner management. Account mutations, including staff activation/deactivation, password
+changes, and invitations, retain cookie/header/session-hash CSRF validation and Origin checks.
+
 The frontend uses the same authenticated `SessionUser` response and cookie session for password
 and Google access. The server checks active business membership on login and protected requests.
 Email-only login selects an unambiguous valid account; optional `businessId` still selects a
@@ -106,7 +111,7 @@ The backend verifies Google's ID token, audience/issuer, nonce, and verified ema
 the stable Google subject to identify the connected account. Provider tokens are handled only
 on the server. A first verified Google identity receives a ten-minute pending setup before
 store creation. An existing password account must explicitly connect Google while authenticated;
-matching email alone never links it. The website exposes connection in Inventory Settings for
+matching email alone never links it. The website exposes connection in Inventory's Account & settings (owner) or Account (staff) tab for
 owners and staff.
 
 Migration `004_public_auth` adds `google_identities`, `oauth_flows`, and `google_pending` without
@@ -158,7 +163,16 @@ the existing `data_snapshot` JSON field. The worker reads that snapshot, so edit
 run waits in the queue do not change its inputs.
 
 Training, validation, and final-test ranges are consecutive and disjoint. Training-only sales
-determine product ranking and the calendar-week/nonzero-day gates. For eligible products:
+determine product ranking and the calendar-week/nonzero-day gates.
+
+Normal Refresh keeps up to 14 final-test calendar days and expands validation to 20–28 days when
+enough history remains for the configured training gates and training-only CV folds. With default
+settings, 134 complete daily observations allow a 100/20/14 split; 142 allow 100/28/14. Shorter
+histories retain the compact split and can have unavailable intervals. Calendar allocations are
+saved as `configuration.refreshSplit`; actual per-product usable counts and eligibility remain
+authoritative. Manual run requests retain their explicit chronological boundaries.
+
+For eligible products:
 
 1. Select official `xgboost.XGBRegressor` parameters with the saved `cvFolds` count (default three,
    minimum two) on expanding training-only folds. Each check window is 14 days; the initial fit
@@ -178,6 +192,18 @@ Short-history or out-of-scope products use a named Moving Average fallback. The 
 ML comparisons over matching eligible product/date observations. No final-test observation selects
 parameters, weights, eligibility, or intervals. Prediction intervals are not fabricated.
 
+Completed runs save `timingVersion: disjoint_phases_v1` in the existing timing JSON. Preparation
+measures frozen input preparation and result assembly; training sums every model fit, including CV,
+selection, calibration, evaluation, and operational refits. Validation measures CV/selection
+predictions and metrics plus calibration residuals; evaluation measures final-test metrics/coverage
+and future predictions. `validationEvaluationMs` sums those two scopes. Persistence measures model
+artifact writes and result SQL through its transaction commit. Total processing runs from
+`process_run` entry through that commit; queue wait and final timing/status publication are separate.
+Runs stay running until measured evidence is published; failure/interruption discards their result
+rows and artifacts. An unexecuted phase is null, while an actually measured zero remains zero.
+Legacy runs have unknown phase scopes. See the [API benchmark](../docs/PERFORMANCE_BENCHMARK.md)
+and [browser procedure](../docs/BROWSER_BENCHMARK.md) for separate measurements.
+
 Intervals require at least 20 validation observations. The final validation segment reserves
 at least 10 calibration observations after early stopping, weights, and operating-method selection.
 The operating method's recursive predictions over that segment produce fixed 10th/90th residual
@@ -196,8 +222,12 @@ transaction began before waiting; API fields and SQL migration history remain un
 Missing calendar days are unknown unless explicitly classified as confirmed zero. Recorded
 sales on closures, full/partial stockouts, and incomplete days are excluded by the shared reviewed-day
 policy; product-specific classifications override store-wide ones. XGBoost requires a complete
-observed-or-confirmed-zero calendar sequence, while pre-refresh baselines use the contiguous usable
-tail ending at the latest sale date. Confirm the classification policy with the future partner.
+observed-or-confirmed-zero calendar sequence. Refresh uses the first and last usable observations
+across active products through the current business date; effective confirmed-zero reviews can
+extend that range after the last transaction. Pre-refresh baselines use each product's contiguous
+usable tail ending at its own last usable observation. Unknown or excluded trailing dates do not
+extend it. Queued snapshots freeze these inputs and their usable bounds; old forecasts keep their
+original dates. Confirm the classification policy with the future partner.
 
 The older `reorder-recommendations/generate` endpoint uses this policy in its requested lookback
 window, ending at the requested recommendation date. Products without a usable contiguous tail
@@ -263,3 +293,9 @@ links open their token password form even if the browser already has an authenti
 An owner may invite staff; staff cannot administer membership. Password changes and recovery
 invalidate existing sessions. The test suite uses a mock SMTP transport and is not evidence of
 real email delivery.
+
+## Client survey
+
+Authenticated client feedback uses a versioned four-characteristic questionnaire, durable final
+submissions, role-aware summaries, and owner-only CSV export. Browser drafts remain separate.
+See [the survey contract](docs/CLIENT_SURVEY.md) and [the verification record](../docs/REVIEW_VERIFICATION.md).

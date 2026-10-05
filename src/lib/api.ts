@@ -1,4 +1,5 @@
 import type {
+  ForecastTiming,
   InventoryMovement,
   Product,
   ProductPatch,
@@ -8,6 +9,12 @@ import type {
   StockMovementInput,
 } from "@/lib/types";
 import { toApiSettings, type ApiSettings } from "@/lib/settings";
+import type {
+  SurveyQuestionnaire,
+  SurveySubmission,
+  SurveySubmissionInput,
+  SurveySummary,
+} from "@/lib/client-survey";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "/api/v1";
 
@@ -203,6 +210,19 @@ export const api = {
       method: "PUT",
       body: toApiSettings(settings),
     }),
+  surveyQuestionnaire: (businessId: string) =>
+    request<SurveyQuestionnaire>(`/businesses/${businessId}/survey/questionnaire`),
+  surveySubmissions: (businessId: string) =>
+    request<SurveySubmission[]>(`/businesses/${businessId}/survey/submissions`),
+  submitSurvey: (businessId: string, submission: SurveySubmissionInput) =>
+    request<SurveySubmission>(`/businesses/${businessId}/survey/submissions`, {
+      method: "POST",
+      body: submission,
+      idempotencyKey: submission.submissionId,
+    }),
+  surveySummary: (businessId: string) =>
+    request<SurveySummary>(`/businesses/${businessId}/survey/summary`),
+  surveyExportUrl: (businessId: string) => `${API_URL}/businesses/${businessId}/survey/export.csv`,
 };
 
 async function request<T>(
@@ -296,14 +316,7 @@ export type ApiForecastRun = {
   id: string;
   status: "queued" | "running" | "completed" | "failed";
   createdAt: string;
-  timing: {
-    queueWaitMs?: number;
-    preparationMs?: number;
-    trainingMs?: number;
-    evaluationMs?: number;
-    persistenceMs?: number;
-    totalProcessingMs?: number;
-  };
+  timing: ForecastTiming;
   finalTestStart: string;
   finalTestEnd: string;
   failureMessage: string | null;

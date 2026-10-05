@@ -11,4 +11,13 @@ backend/.env
 backend/data
 data
 backups
+benchmarks
 *.sqlite3
+
+# Exclude private dotenv variants and alternate workspaces from every image context.
+**/.env
+**/.env.*
+!.env.example
+!backend/.env.example
+.kilo
+.codex-publish
