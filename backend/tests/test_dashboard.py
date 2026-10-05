@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from app.dashboard import dashboard
+from app.data_quality import FALLBACK_POLICY_VERSION
 
 PRODUCT_ID = "product-1"
 
@@ -87,7 +88,7 @@ class FakeRepository:
             "final_test_end": final_test_end,
             "forecast_horizon_days": horizon,
             "created_at": "2026-10-01T12:00:00Z",
-            "configuration": {"products": {PRODUCT_ID: {
+            "configuration": {"fallbackPolicy": FALLBACK_POLICY_VERSION, "products": {PRODUCT_ID: {
                 "historyDays": 1, "nonzeroDays": 1, "eligible": False,
                 "operatingMethod": "fallback",
                 "fallbackReason": "Insufficient history for XGBoost",
@@ -141,6 +142,36 @@ def assert_unavailable(recommendation):
     ):
         assert recommendation[field] is None
     assert recommendation["suggested_quantity"] == "0"
+
+
+def test_legacy_baseline_cannot_make_old_product_forecasts_current():
+    repository = FakeRepository(
+        predictions=[prediction("2026-10-02", 99), prediction("2026-10-03", 99)],
+        sales=[{"product_id": PRODUCT_ID, "sale_date": date(2026, 9, 1), "quantity": Decimal("4")}],
+    )
+    repository.completed["configuration"].pop("fallbackPolicy")
+    result = dashboard(repository, "business")
+    assert result["stale"] is True
+    assert result["metrics"] == result["predictions"] == []
+    assert_unavailable(result["recommendations"][0])
+    assert result["recommendations"][0]["forecastExpired"] is True
+    assert "older calendar policy" in result["summaries"][PRODUCT_ID]["fallbackReason"]
+    # Read-time invalidation does not modify the original saved evidence.
+    assert len(repository.predictions) == 2
+    assert repository.completed["configuration"]["products"][PRODUCT_ID]["historyDays"] == 1
+
+
+def test_legacy_baseline_preview_uses_only_contiguous_latest_history():
+    repository = FakeRepository(sales=[
+        {"product_id": PRODUCT_ID, "sale_date": date(2026, 9, 29), "quantity": Decimal("100")},
+        {"product_id": PRODUCT_ID, "sale_date": date(2026, 10, 1), "quantity": Decimal("4")},
+    ])
+    repository.completed["configuration"].pop("fallbackPolicy")
+    result = dashboard(repository, "business")
+    assert result["stale"] is True
+    assert result["metrics"] == []
+    assert [Decimal(point["predictedQuantity"]) for point in result["predictions"]] == [Decimal("4"), Decimal("4")]
+    assert Decimal(result["recommendations"][0]["daily_demand"]) == Decimal("4")
 
 
 @pytest.mark.parametrize(

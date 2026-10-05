@@ -6,6 +6,7 @@ from math import isfinite
 from typing import Any
 
 POLICY_VERSION = "2026-10-05"
+FALLBACK_POLICY_VERSION = "contiguous_tail_product_origin_v1"
 
 _EXCLUDED_CLASSIFICATIONS = {"business_closed", "full_stockout", "partial_stockout", "incomplete"}
 

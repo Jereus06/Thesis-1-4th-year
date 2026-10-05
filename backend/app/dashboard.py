@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from .data_quality import (
+    FALLBACK_POLICY_VERSION,
     POLICY_VERSION,
     contiguous_tail,
     prepare_product_series,
@@ -53,6 +54,18 @@ def dashboard(repository, business_id):
         (business_id,),
     ).fetchall()
     summaries = dict(completed["configuration"].get("products", {})) if completed else {}
+    legacy_baselines = set()
+    if completed and completed["configuration"].get("fallbackPolicy") != FALLBACK_POLICY_VERSION:
+        legacy_baselines = {
+            pid for pid, summary in summaries.items()
+            if summary.get("operatingMethod") == "fallback"
+        }
+        # Keep historical rows intact, but do not serve baselines computed with
+        # compressed calendars/global origins. Use the conservative preview until
+        # Refresh produces a run with the current policy and new test evidence.
+        predictions = [point for point in predictions if point["productId"] not in legacy_baselines]
+        metrics = [metric for metric in metrics if metric["productId"] not in legacy_baselines]
+        summaries = {pid: summary for pid, summary in summaries.items() if pid not in legacy_baselines}
     products = [product for product in repository.list_products(business_id) if product["isActive"]]
     stale = False
     if completed:
@@ -77,7 +90,7 @@ def dashboard(repository, business_id):
                 captured,
             ),
         ).fetchone()["changed"]
-        stale = changed or {p["id"] for p in products} != set(
+        stale = bool(legacy_baselines) or changed or {p["id"] for p in products} != set(
             completed["data_snapshot"].get("products", [])
         )
 
@@ -135,6 +148,11 @@ def dashboard(repository, business_id):
                 if prepared.days
                 else "No usable sales history; review missing dates and classifications",
             }
+            if pid in legacy_baselines:
+                summaries[pid]["fallbackReason"] = (
+                    "Saved baseline uses an older calendar policy; refresh forecasts. "
+                    "Current preview uses this product's contiguous usable history."
+                )
         future = [
             point
             for point in predictions

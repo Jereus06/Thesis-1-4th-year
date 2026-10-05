@@ -172,11 +172,17 @@ See [backend authentication details](../backend/README.md#authentication-contrac
   up to the current date in the configured business timezone. Product-specific classifications
   override store-wide reviews; unknown and excluded dates cannot extend usable history. Immutable
   snapshots save the usable observation bounds separately from transaction dates.
-- Before refresh, dashboard baselines use each product's contiguous usable history ending at its
+- Before and after refresh, baselines use each product's contiguous usable history ending at its
   last usable observation; absent or excluded dates are not filled with zeros. Products with no usable history
   retain unavailable demand, including after an empty-history worker run. The older recommendation
   generator applies this same reviewed-day policy within the requested window, ending on the
   requested recommendation date; it omits unavailable products and records `rule-v2-reviewed-days`.
+- Worker fallback future dates use each product's last usable observation as their origin, not
+  the newest product's global cutoff. Baseline final-test steps retain elapsed calendar spacing
+  and score only actual usable targets. Without a contiguous tail at the validation cutoff,
+  final-test predictions/metrics are unavailable. `fallbackPolicy` records
+  `contiguous_tail_product_origin_v1`; older fallback results are archived but replaced by a
+  conservative current preview and marked stale until Refresh. No historical SQL is rewritten.
 - Current advice uses only prediction dates on or after the configured business day. A saved run
   expires after its last forecast date; expired future points are excluded from the dashboard,
   while archived run predictions and evaluation metrics remain available. Old baselines are not
