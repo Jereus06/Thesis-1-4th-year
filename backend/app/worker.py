@@ -76,32 +76,74 @@ def claim_run(conn: Connection) -> dict[str, Any] | None:
         ).fetchone()
 
 
-def training_eligibility(observations, run, settings, rank):
-    training = [item for item in observations if item.day <= run["training_end"]]
+def training_eligibility(observations, run, settings):
+    training_start = run.get(
+        "training_start",
+        min(
+            (item.day for item in observations if item.day <= run["training_end"]),
+            default=run["training_end"],
+        ),
+    )
+    training = [
+        item for item in observations if training_start <= item.day <= run["training_end"]
+    ]
     nonzero, days = sum(item.quantity > 0 for item in training), len(training)
-    calendar_days = (
-        run["training_end"]
-        - run.get(
-            "training_start", min((item.day for item in training), default=run["training_end"])
-        )
-    ).days + 1
+    calendar_days = (run["training_end"] - training_start).days + 1
     complete = days == calendar_days
     eligible = (
         complete
         and days >= max(31, settings["minimum_history_weeks"] * 7)
         and nonzero >= settings["minimum_nonzero_days"]
-        and rank < settings["top_n_products"]
     )
     reason = (
         None
         if eligible
         else (
-            f"Training history: {days}/{calendar_days} classified calendar days, {nonzero} nonzero days, rank {rank + 1}; "
-            f"requires {settings['minimum_history_weeks']} weeks, "
-            f"{settings['minimum_nonzero_days']} nonzero days and top {settings['top_n_products']}."
+            f"Training history: {days}/{calendar_days} classified calendar days, "
+            f"{nonzero} nonzero days; requires a complete daily sequence, "
+            f"at least {max(31, settings['minimum_history_weeks'] * 7)} training days "
+            f"and {settings['minimum_nonzero_days']} nonzero days."
         )
     )
     return eligible, days, nonzero, reason
+
+
+def select_training_scope(series, run, settings):
+    """Apply all eligibility gates before limiting training to high-volume products."""
+    scope = {}
+    expected_days = (run["final_test_end"] - run["training_start"]).days + 1
+    for product_id, observations in series.items():
+        eligible, days, nonzero, reason = training_eligibility(observations, run, settings)
+        if eligible and len(observations) != expected_days:
+            eligible = False
+            reason = (
+                "XGBoost evaluation requires every validation/test calendar date to be "
+                "observed or explicitly confirmed zero; excluded or missing dates remain."
+            )
+        scope[product_id] = eligible, days, nonzero, reason
+
+    ranked = sorted(
+        (product_id for product_id in series if scope[product_id][0]),
+        key=lambda pid: (
+            -sum(
+                item.quantity
+                for item in series[pid]
+                if run["training_start"] <= item.day <= run["training_end"]
+            ),
+            pid,
+        ),
+    )
+    for rank, product_id in enumerate(ranked):
+        if rank >= settings["top_n_products"]:
+            _, days, nonzero, _ = scope[product_id]
+            scope[product_id] = (
+                False,
+                days,
+                nonzero,
+                f"Outside top {settings['top_n_products']} eligible products by "
+                f"training-period sales volume (rank {rank + 1}); Moving Average fallback.",
+            )
+    return scope
 
 
 def process_run(conn: Connection, run: dict[str, Any]) -> None:
@@ -142,14 +184,7 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
             Observation(date.fromisoformat(item["day"]), float(item["quantity"]))
             for item in prepared_products[product_id]["targets"]
         ]
-    # Product ranking and the nonzero-day gate use training only.
-    products = sorted(
-        series,
-        key=lambda pid: (
-            -sum(item.quantity for item in series[pid] if item.day <= run["training_end"]),
-            pid,
-        ),
-    )
+    scope = select_training_scope(series, run, settings)
     bounds = SplitBoundaries(run["training_end"], run["validation_end"], run["final_test_end"])
     configuration = dict(run["configuration"])
     configuration.update(
@@ -159,6 +194,8 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
             "selectionSplit": "validation",
             "evaluationSplit": "final_test",
             "evaluationProtocol": "recursive_fixed_cutoff",
+            "cvFolds": settings.get("cv_folds", 3),
+            "cvValidationDays": 14,
             "missingDayPolicy": "explicit_classification_required",
             "excludedTargets": "closures, incomplete records, full/partial stockouts, and unclassified absent dates",
             "lagPolicy": "XGBoost requires a complete observed-or-confirmed-zero daily training sequence",
@@ -177,18 +214,9 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
     artifacts = get_settings().artifact_dir / str(run["id"])
     artifacts.mkdir(parents=True, exist_ok=True)
     with conn.transaction():
-        for rank, product_id in enumerate(products):
+        for product_id in series:
             observations = series[product_id]
-            eligible, days, nonzero, reason = training_eligibility(
-                observations, run, settings, rank
-            )
-            expected_days = (run["final_test_end"] - run["training_start"]).days + 1
-            if eligible and len(observations) != expected_days:
-                eligible = False
-                reason = (
-                    "XGBoost evaluation requires every validation/test calendar date to be "
-                    "observed or explicitly confirmed zero; excluded or missing dates remain."
-                )
+            eligible, days, nonzero, reason = scope[product_id]
             test = [item for item in observations if item.day > run["validation_end"]]
             prepared_snapshot = prepared_products[product_id]
             summary = {
@@ -210,6 +238,7 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                     bounds,
                     window=settings["moving_average_window"],
                     horizon=run["forecast_horizon_days"],
+                    cv_folds=settings.get("cv_folds", 3),
                 )
                 summary.update(
                     {
@@ -217,6 +246,7 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                         "xgbWeight": result["xgbWeight"],
                         "operatingMethod": result["operatingMethod"],
                         "artifact": f"{run['id']}/{product_id}.json",
+                        "requestedFolds": result["requestedFolds"],
                         "effectiveFolds": result["effectiveFolds"],
                         "selectionFallback": result["selectionFallback"],
                         "earlyStoppingUsed": result["earlyStoppingUsed"],

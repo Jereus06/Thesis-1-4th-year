@@ -15,6 +15,7 @@ import { requestBackgroundTrain } from "@/lib/forecast/job";
 import { LEVELS, TECHNIQUES } from "@/lib/forecast/strategies";
 import { DEFAULT_XGB } from "@/lib/forecast/xgboost";
 import { metric, num } from "@/lib/format";
+import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
 
 const STRATEGY_TABS = [
@@ -235,7 +236,7 @@ function PythonMethods({
 }) {
   const { result, refresh, status } = useForecast();
   const settings = useAppStore((state) => state.settings);
-  const session = useAppStore((state) => state.session);
+  const { canRefreshForecast } = usePermissions();
   return (
     <div
       className={tab === "guide" ? "mx-auto grid max-w-6xl gap-6" : "mx-auto grid max-w-3xl gap-6"}
@@ -275,8 +276,9 @@ function PythonMethods({
               <CardContent className="space-y-3 text-sm">
                 <p>
                   Training, validation, and final testing use separate consecutive date ranges.
-                  Product ranking and eligibility use training data only. Validation selects
-                  parameters, ensemble weights, and the operating method.
+                  Product ranking, eligibility, and parameter selection use training data only.
+                  Later validation selects early stopping, ensemble weights, and the operating
+                  method.
                 </p>
                 <p>
                   Moving Average and XGBoost predict the same final-test dates recursively from the
@@ -284,9 +286,14 @@ function PythonMethods({
                   comparisons use the same eligible products.
                 </p>
                 <p>
-                  Minimum training history: {settings.minWeeks} weeks and 100 nonzero sales days. At
-                  most {settings.topNProducts} products train with ML. Other products use the Python
-                  Moving Average fallback.
+                  Minimum training history: {settings.minWeeks} weeks and{" "}
+                  {settings.minimumNonzeroDays} nonzero sales days. At most {settings.topNProducts}
+                  products train with ML. Other products use the Python Moving Average fallback.
+                </p>
+                <p>
+                  Configured cross-validation: {settings.cvFolds} chronological training folds, each
+                  with a 14-day validation window. If training history cannot support all folds,
+                  conservative parameters are used and zero effective folds are recorded.
                 </p>
                 <p>
                   Features: lag 1, lag 7, lag 14, mean 7, mean 30, weekday, and month. Only recorded
@@ -297,10 +304,15 @@ function PythonMethods({
                 </p>
                 <p>
                   After evaluation, the operating model is refitted on observed history with its
-                  frozen configuration. Intervals use validation-only residuals and remain
-                  unavailable when fewer than ten calibration residuals exist; final-test residuals
-                  never calibrate them. Quality labels describe evidence, not a probability of
-                  correctness.
+                  frozen configuration. When at least twenty validation observations exist, the
+                  later portion is reserved for interval calibration after model selection. At least
+                  ten residuals from this reserved portion are required. The selected operating
+                  method's 10th and 90th residual quantiles form an interval with nominal 80%
+                  coverage; final-test residuals never calibrate it. Saved final-test coverage
+                  reports how often actual sales fell inside those bounds. This small-sample,
+                  time-ordered estimate does not guarantee future coverage. Products without
+                  calibration evidence show intervals as unavailable. Quality labels describe
+                  evidence, not a probability of correctness.
                 </p>
                 <p className="text-muted">{result?.diagnostics.disclaimer}</p>
               </CardContent>
@@ -316,10 +328,12 @@ function PythonMethods({
                   are saved in the model volume.
                 </p>
                 <p>
-                  Record or import new history, then refresh forecasts. The last completed run
-                  remains visible while the new run is pending.
+                  {canRefreshForecast
+                    ? "Record or import new history, then refresh forecasts."
+                    : "Record new sales history, then ask the owner to refresh forecasts."}{" "}
+                  The last completed run remains visible while the new run is pending.
                 </p>
-                {session?.role === "owner" && (
+                {canRefreshForecast && (
                   <Button
                     disabled={status === "training"}
                     onClick={() =>
@@ -414,7 +428,7 @@ function LevelEvidence({ id }: { id: number }) {
     <Evidence
       items={[
         `Low-confidence SKUs (<${30} observations): ${d.lowConfidenceCount}`,
-        "Intervals: 10th / 50th / 90th on every chart",
+        "Browser demonstration bands are illustrative; their coverage has not been validated.",
         d.disclaimer,
       ]}
     />

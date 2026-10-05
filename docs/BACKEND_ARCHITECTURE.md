@@ -97,8 +97,12 @@ Live Google OAuth still requires verification using the deployment's registered 
   method, formula version, reorder point, target, quantity, and status used at that time.
 
 Supported API writes accept idempotency keys; stock changes reject insufficient stock and commit
-balances with their audit records. Historical imports use a file SHA-256 and retain source row
-numbers to detect identical retries. Real correction/import policy still needs partner confirmation.
+balances with their audit records. Historical imports retain source row numbers and use
+order-independent batch SHA-256 fingerprints. Existing optional source-record keys identify
+individual sale lines across batches; business row locking serializes duplicate checks and
+inserts. Identical-looking sales with distinct keys remain separate, while changed content for
+a reused key is rejected. Without source IDs, overlapping records cannot be identified safely.
+Real source-ID namespaces and correction/import policy still need partner confirmation.
 
 ## Relational model
 

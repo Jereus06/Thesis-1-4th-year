@@ -26,11 +26,14 @@ class Mailer:
         message["To"] = recipient
         message["Subject"] = subject
         message.set_content(text)
-        with smtplib.SMTP(self.config.smtp_host, self.config.smtp_port, timeout=10) as client:
-            if self.config.smtp_starttls:
-                client.starttls()
-            if self.config.smtp_username:
-                client.login(
-                    self.config.smtp_username, self.config.smtp_password.get_secret_value()
-                )
-            client.send_message(message)
+        try:
+            with smtplib.SMTP(self.config.smtp_host, self.config.smtp_port, timeout=10) as client:
+                if self.config.smtp_starttls:
+                    client.starttls()
+                if self.config.smtp_username:
+                    client.login(
+                        self.config.smtp_username, self.config.smtp_password.get_secret_value()
+                    )
+                client.send_message(message)
+        except (smtplib.SMTPException, OSError) as error:
+            raise MailUnavailable("Email delivery is temporarily unavailable") from error

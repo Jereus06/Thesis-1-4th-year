@@ -1,6 +1,7 @@
 """Account registration and Google authentication using the existing session contract."""
 
 import hmac
+import logging
 import threading
 import time
 from collections import OrderedDict
@@ -102,6 +103,7 @@ class AuthLimiter:
 
 
 limiter = AuthLimiter()
+logger = logging.getLogger(__name__)
 
 
 def origin_guard(request: Request, config: Settings) -> None:
@@ -200,7 +202,7 @@ def create_auth_router(repo_dependency) -> APIRouter:
                     f"Open {config.public_app_url.rstrip('/')}/?reset={raw} within 30 minutes. This link works once.",
                 )
             except MailUnavailable:
-                pass
+                logger.warning("Password recovery email delivery unavailable")
         return {"data": {"accepted": True}}
 
     @router.post("/password/recovery/complete")

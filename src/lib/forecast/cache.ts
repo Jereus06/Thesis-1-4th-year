@@ -18,7 +18,10 @@ export type PersistAdapter = {
 export function pipelineKey(products: Product[], sales: Sale[], settings: Settings): string {
   const last = sales.length ? sales[sales.length - 1]?.id : "";
   return [
-    products.map((p) => `${p.id}:${p.currentStock}`).join(","),
+    products
+      .filter((product) => product.isActive !== false)
+      .map((p) => `${p.id}:${p.currentStock}:${p.category}`)
+      .join(","),
     sales.length,
     last,
     settings.maWindow,

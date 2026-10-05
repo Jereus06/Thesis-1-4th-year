@@ -92,12 +92,12 @@ export const THESIS_SECTIONS: ThesisSection[] = [
     heading: "Level 5 — Uncertainty-Level Fixes",
     placement: "Strategy 1, Level 5",
     paragraphs: [
-      "A point forecast without evidence information is easy to over-read. The production path reports usable, unknown, and excluded days rather than a probability-like confidence score. Prediction intervals are calibrated only from separate validation residuals when at least ten are available, and coverage is assessed on untouched final-test observations; otherwise intervals are unavailable.",
+      "A point forecast without evidence information is easy to over-read. The production path reports usable, unknown, and excluded days rather than a probability-like confidence score. When at least twenty validation observations exist, the later portion is reserved for interval calibration after model selection, with at least ten residuals required. The selected operating method's 10th and 90th residual quantiles provide nominal 80% coverage, assessed on untouched final-test observations. The interface reports calibration dates, sample count, and measured coverage when saved; this limited time-ordered evidence does not guarantee future coverage. Products without sufficient calibration observations have no interval. Browser demonstration bands remain illustrative.",
       "The interface also states, in owner language, that forecasts are decision-support only and not guarantees. Final purchasing decisions remain the owner’s. This disclaimer is part of the methodology, not an afterthought on the user interface: the system is designed to support judgment, which is already listed among the limitations of the study.",
     ],
     bullets: [
-      "Confidence score from observation count; < 30 non-zero observations → low confidence.",
-      "Prediction intervals at the 10th, 50th, and 90th percentiles.",
+      "Production forecasts show usable, unknown, and excluded observations and the reason for a fallback.",
+      "Validation-residual intervals show availability, sample dates/count, nominal 80% coverage, and final-test coverage when saved.",
       "On-screen disclaimer: forecasts are decision-support only, not guarantees.",
     ],
   },

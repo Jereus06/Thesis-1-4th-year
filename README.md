@@ -67,8 +67,15 @@ Password users connect Google intentionally from **Inventory > Settings > Your a
 Matching emails do not automatically connect identities. This preserves the signed-in user's
 store and owner/staff permissions.
 
-Email verification for password signup, password recovery/change, and staff invitations are not
-implemented. Per-process authentication attempt limits are documented in
+Password signup does not verify email. Password changes, single-use recovery, and owner-issued
+staff invitations are implemented. Configure recovery/invitation email in the private root
+`.env` using `SMTP_HOST`, `SMTP_PORT` (default 587), `SMTP_USERNAME`, `SMTP_PASSWORD`,
+`SMTP_FROM`, and `SMTP_STARTTLS` (default `true`), as listed in [.env.example](.env.example).
+Compose passes these settings to the API only. `PUBLIC_APP_URL` controls the website URL in
+email links and defaults to `CORS_ORIGIN`; use the recipient-accessible public HTTPS URL when
+hosting. Run `npm start` after changing the configuration and verify actual delivery.
+Direct Python development uses [backend/.env.example](backend/.env.example) instead.
+Per-process authentication attempt limits are documented in
 [the backend README](backend/README.md#authentication-contract); multiple API replicas need shared
 gateway limits. Successful live Google OAuth still needs verification with the deployment's
 registered credentials. Other people need access to the same running website; a localhost URL
@@ -108,9 +115,10 @@ days by default. Short histories still receive a Python Moving Average baseline.
 separate chronological training, validation, and final-test periods; fewer than three calendar
 days can use the baseline but cannot form all three evaluation periods.
 
-The worker uses the official CPU XGBoost package, selects its configuration and operating method
-on validation, evaluates identical final-test dates for all compared methods, then refits for
-future operations. Saved runs retain their input snapshot, model parameters, weights, predictions,
+The worker uses the official CPU XGBoost package, selects parameters using the configured
+training-only CV folds (default three), then chooses its operating method on later validation.
+It evaluates identical final-test dates for all compared methods, then refits for future
+operations. Frontend settings saves preserve backend thresholds, timezone, and fold count. Saved runs retain their input snapshot, model parameters, weights, predictions,
 and metrics. New records or settings prompt a forecast refresh. See
 [backend/README.md](backend/README.md) for the evaluation contract.
 

@@ -3,7 +3,7 @@
 This guide explains the current StockCast application: installation, every screen, daily
 record keeping, forecasting, inventory recommendations, and maintenance. It was checked against
 the source on **1 October 2026**. The Strategies User guide tab and its downloadable manual use this same
-document.
+document. Import, product maintenance, stock movement, and role guidance was updated on **4 October 2026**.
 
 The official thesis title is **Sales Forecasting and Inventory Optimization for Small Retail
 Businesses Using XGBoost Algorithm**. The team is still finding a partner business. Examples
@@ -108,7 +108,7 @@ save.
 
 StockCast automatically generates a unique **Business ID** (a UUID) when your account and store
 are created, including when you finish first-time Google registration. You do not need to invent
-or enter one during registration. Find it under **Inventory > Settings > Your account**. It
+or enter one during registration. Find it under **Inventory > Account & settings (Account for staff) > Your account**. It
 identifies the store's records; normally, your email and password are enough to sign in.
 
 Your new store has default settings and an **empty catalog**. Registration does not copy another
@@ -141,7 +141,7 @@ Google sign-in if it expires. Google-created accounts use Google to sign in and 
 a StockCast password.
 
 An existing password account is not connected to Google just because the emails match.
-Sign in with its password first, open **Inventory > Settings > Your account**, and choose
+Sign in with its password first, open **Inventory > Account & settings (Account for staff) > Your account**, and choose
 **Connect Google account**. Complete Google's steps. Later, Continue with Google opens that
 same account with its existing store and permissions. Owners and staff can connect their
 own account. A Google identity can belong to only one StockCast account.
@@ -151,25 +151,31 @@ session cookie; it does not promise silent Google sign-in after that session exp
 
 ### Permissions and account limits
 
-| Action in the current application                                  | Owner | Staff |
-| ------------------------------------------------------------------ | ----- | ----- |
-| View products, sales, settings, forecasts, and restock suggestions | Yes   | Yes   |
-| View account details and connect your own Google account           | Yes   | Yes   |
-| Export sales and stock-movement records                            | Yes   | Yes   |
-| Record a sale or receive a delivery                                | Yes   | Yes   |
-| Add/edit products or set a stock count                             | Yes   | No    |
-| Import inventory snapshots or historical sales                     | Yes   | No    |
-| Save business/forecast settings                                    | Yes   | No    |
-| Refresh forecasts                                                  | Yes   | No    |
+| Action in the current application                                         | Owner | Staff |
+| ------------------------------------------------------------------------- | ----- | ----- |
+| View products, sales, stock movements, forecasts, and restock suggestions | Yes   | Yes   |
+| View account details and connect your own Google account                  | Yes   | Yes   |
+| Export sales and stock-movement records                                   | Yes   | Yes   |
+| Record a sale or receive a delivery                                       | Yes   | Yes   |
+| Record a return to usable stock                                           | Yes   | Yes   |
+| Record a write-off                                                        | Yes   | No    |
+| Review data-quality classifications                                       | Yes   | Yes   |
+| Add/edit products or set a stock count                                    | Yes   | No    |
+| Activate/deactivate products                                              | Yes   | No    |
+| Import inventory snapshots or historical sales                            | Yes   | No    |
+| Save business/forecast settings                                           | Yes   | No    |
+| Refresh forecasts                                                         | Yes   | No    |
 
-Some management controls can remain visible to staff. The API enforces permission and can
-return **Owner role required** when a staff member submits them.
+Staff see their permitted recording and review actions. Product management, imports, business/model
+settings, staff access, and forecast-refresh controls appear for owners. The API also checks every
+request's permissions. Owners use **Inventory > Account & settings**; staff use **Inventory > Account**
+for their personal account and password controls.
 
-Email/password registration does not send an email-verification message. The current website
-has no password-change, password-reset, or staff-invitation screen. Ask the installation
-administrator about existing staff access or account recovery. Public registration creates
-an owner of a new store; it does not join another owner's store. Editing initial-owner
-environment values does not update an existing account.
+Email/password registration does not send an email-verification message. Use **Forgot password**
+on sign-in for recovery, and **Inventory > Account & settings (Account for staff) > Account maintenance** for password changes and
+owner-issued staff invitations. Recovery and invitation delivery require the installation's
+SMTP configuration. Public registration creates an owner of a new store; it does not join
+another owner's store. Editing initial-owner environment values does not update an existing account.
 
 After signing in, open **Strategies > User guide** to search the manual or download it.
 **Strategies > Evaluation** opens the system-quality rating form for owners and staff.
@@ -227,29 +233,33 @@ Choose **Add product** to open the New product form, fill it in, and choose **Ad
 | Safety stock    | Extra units used as a restock buffer                  | 5                    |
 | Unit cost (PHP) | Cost per counting unit used for inventory valuation   | 10                   |
 
-The form generates a SKU automatically; it does not offer a custom SKU input. Use an inventory
-CSV snapshot when an existing catalog must retain specific SKUs. Choose one consistent unit for
+Owners can enter an optional custom SKU or leave it blank to generate one automatically.
+Choose one consistent unit for
 each product and express its stock, sales, safety stock, and cost in that unit.
 
 Positive opening stock creates an opening-balance stock movement. It is not historical sales.
 
 ### Edit an existing product
 
-Open its editor, update **On hand**, **Lead time (days)**, or **Safety stock**, then choose
-**Save**. These values cannot be negative; lead time is a whole number of days. The current
-individual editor displays the other catalog details but does not edit name, SKU, category,
-unit, or cost. An inventory snapshot can update those catalog details.
+Owners choose **Edit details** to change SKU, name, category, unit, lead time, safety stock, and
+unit cost, then **Save details**. Lead time is a nonnegative whole number of days. Quantities
+support up to three decimal places; unit cost supports four. Changing a unit label does not
+convert existing stock or sales quantities.
 
-Saving **On hand** sets a counted balance and records the difference as a stock adjustment.
+Choose **Correct stock count** and **Save count correction** to set a verified counted balance
+and record the difference as a stock adjustment.
 For example, changing 20 to 17 records a reduction of three. Use this for a verified physical
 count correction; use **Record delivery** for received goods.
 
-The current website has no product-delete or archive control. Products omitted from an import
-remain in the catalog.
+Owners choose **Deactivate**, review the confirmation, and choose **Deactivate product** to
+exclude a product from new sales, stock movements, forecasts, and restocking advice. Its stock
+balance and existing records remain saved. Use the **Active / Inactive / All products** filter
+to find inactive products; **Activate** makes one available again. Products omitted from an
+import remain in the catalog. Matching inactive products in an inventory snapshot are reactivated.
 
 ## 6. Record sale: new transactions
 
-Choose **Record sale** in the header. Select the product, enter a positive quantity and the
+Choose **Record sale** in the header or Sales ledger. Select an active product, enter a positive quantity and the
 sale date, and save. The initial date is today's date.
 
 A manually recorded sale immediately reduces current on-hand stock and creates a linked sales
@@ -266,28 +276,46 @@ process with the administrator before changing business records.
 
 ## 7. Deliveries and other stock movements
 
-Open **Restock** and choose **Record delivery** for a product with a positive recommended
-quantity. Enter the actual **Quantity received** and save only after the goods have arrived.
+Open **Inventory & records → Products** or **Restock** and choose **Record delivery** for
+an active product. Deliveries can be recorded even when the recommended quantity is zero or
+demand is unavailable. The Inventory action is available without a forecast recommendation.
+
+Enter the actual **Quantity received** and save only after the goods have arrived. A positive
+quantity is required; leaving it blank does not record the recommended quantity.
 
 The delivery adds the received quantity to on-hand stock and records a receipt dated today.
-The current dialog has no delivery-date picker. If you leave the quantity blank, it uses the
-recommended quantity, so explicitly enter what actually arrived.
-
-The Restock button is disabled when the recommended quantity is zero. The current website does
-not expose a general delivery form for other products. Ask the administrator about the existing
-stock-movement API when another inventory workflow is needed.
+The current dialog has no delivery-date picker.
 
 | Movement        | Effect on stock                                   | Current web workflow                                  |
 | --------------- | ------------------------------------------------- | ----------------------------------------------------- |
 | Opening balance | Establishes initial stock                         | Add product or add a new SKU in an inventory snapshot |
 | Sale            | Subtracts sold units                              | Record sale                                           |
 | Receipt         | Adds delivered units                              | Record delivery                                       |
-| Adjustment      | Adds/subtracts the difference to a verified count | Save On hand or import an inventory snapshot          |
-| Return          | Adds returned units                               | Available in the API; no dedicated web form           |
-| Write-off       | Subtracts lost/damaged units                      | Owner API action; no dedicated web form               |
+| Adjustment      | Adds/subtracts the difference to a verified count | Correct stock count or import an inventory snapshot   |
+| Return          | Adds returned units to usable stock               | Stock movements > Record return (owner or staff)      |
+| Write-off       | Subtracts lost/damaged units                      | Stock movements > Write off stock (owner)             |
 
 Stock-changing API actions are audited and reject a negative resulting balance.
 A recommendation is neither a receipt nor proof that an order was placed.
+
+### Record a return or write-off
+
+Open **Inventory > Stock movements**. Choose **Record return** for items returned to usable
+stock, or **Write off stock** as the owner for damaged, expired, or lost stock. Select an
+active product, enter the actual movement date and a positive quantity, and review the resulting
+on-hand balance before saving. A return adds stock; a write-off subtracts it. Write-offs require
+a reason in the form; return notes are optional. Notes allow up to 500 characters, and quantities
+allow up to three decimal places. Stock cannot become negative.
+
+A return records inventory only; it does not cancel a sale, record a refund, or change sales
+history. The business's refund and sales-correction policies still need team/partner confirmation.
+A backdated movement changes current stock and does not recalculate earlier saved balances.
+
+The **Stock movement ledger** supports search, movement-type filters, page navigation, Refresh,
+and the existing **Export CSV** download. Each row shows the saved stock change and balance,
+provenance, note, and recorded user ID. Expand its audit details for movement/product IDs and a
+linked sale ID when available. Refresh retrieves records saved by other users. Browser demonstration
+audits cover newly recorded movements; earlier synthetic records are not assigned invented audit entries.
 
 ## 8. Import an inventory snapshot
 
@@ -297,7 +325,7 @@ bringing an authorized existing catalog into StockCast. It is not a list of deli
 In **Inventory > Products**, choose **Import inventory**. Paste CSV text or select **Upload CSV
 file**. Uploading only fills the text area; choose **Import inventory** to submit it.
 
-### Required column order
+### Import columns
 
 ```csv
 SKU,Product,Category,Unit,On Hand,Lead Time,Safety Stock,Unit Cost
@@ -318,10 +346,16 @@ These are fictional examples. Use your own authorized records in the live busine
 | Safety Stock | Nonnegative number of units                    |
 | Unit Cost    | Nonnegative cost in PHP                        |
 
-The optional header must start with `SKU,`. Keep this column order. The current web parser
-splits on commas: quoted commas inside a field and multiline CSV fields are unsupported.
-Avoid commas/newlines in these field values. Stock/safety values support up to three decimal
-places; unit cost supports up to four. The API accepts at most 5,000 rows in a batch.
+The header is optional. Without a header, keep the listed column order. Named headers can
+reorder the supported columns. Comma, semicolon, and tab exports are supported, including UTF-8
+and BOM-marked UTF-16 uploads and spreadsheet separator directives such as sep=;.
+Quote fields that contain a delimiter or newline; represent a quote inside a quoted field by
+doubling it. For example, a quoted product field can contain **Rice, premium** or an embedded
+line break. Invalid quoting or column counts report the logical record and its starting line.
+
+Use a decimal point for numbers; locale-specific dates and decimal/grouping separators are not
+guessed. Stock/safety values support up to three decimal places; unit cost supports up to four.
+The API accepts at most 5,000 rows in a batch.
 
 ### What submitting changes
 
@@ -339,7 +373,7 @@ Review the file before submitting: its counts replace matched products' current 
 First create or import the catalog. Then open **Inventory > Sales ledger**, use **Import CSV**,
 and paste rows or choose **Upload CSV file**. Choose **Import rows** to submit the filled text.
 
-### Required column order
+### Import columns
 
 ```csv
 Date,Product,Quantity
@@ -349,12 +383,24 @@ Date,Product,Quantity
 ```
 
 These are fictional examples that refer to the example catalog. `Product` should identify an
-existing SKU; the current parser also accepts an exact product name without regard to letter
-case, or the internal product ID. SKUs are the safer choice when names are similar.
+existing SKU; the parser also accepts an unambiguous product name without regard to letter
+case, or the internal product ID. Exact IDs/SKUs take priority, and ambiguous case-insensitive
+matches are rejected. Use a SKU or ID when multiple products share a name.
 
-Use `YYYY-MM-DD` dates, a positive quantity, and up to three decimal places. Keep the column
-order; the optional header starts with `Date,`. The current parser does not support quoted
-commas or multiline fields. The API accepts at most 50,000 rows per batch.
+Use YYYY-MM-DD dates, a positive quantity, and up to three decimal places. Three-column files
+remain supported. Optionally add **Source Record Key** as a fourth column; with named headers,
+supported columns may be reordered. Sales headers accept Date or sale_date, Product or SKU,
+Quantity or Qty, and Source Record Key (also source_record_key or sourceRecordKey).
+
+Quoted fields, embedded commas/newlines, escaped quotes, comma/semicolon/tab separators, UTF-8
+and BOM-marked UTF-16 uploads, and spreadsheet separator directives are supported. Dates and
+numbers must remain in the formats above. The API accepts at most 50,000 rows per batch.
+
+To protect overlapping imports, use the same stable source key whenever a sale line reappears.
+A key identifies **one sale line**, not an entire receipt: use a receipt-plus-line ID and prefix
+a register/source name where different systems reuse IDs. Keys have at most 200 characters,
+ignore surrounding whitespace, and retain letter case. Separate transactions must have distinct
+keys even when their product, date, and quantity match. A blank key provides no transaction ID.
 
 Historical imports add demand history while preserving current stock. They do not create sale
 stock movements or deliveries. This prevents old transactions from deducting a current inventory
@@ -366,10 +412,19 @@ The web form checks product matches and input rows. An API response can report i
 rejected records, and accepted records in such a response have already been saved. Invalid
 request shapes, dates, or quantity precision can reject the request.
 
-An identical batch with the same source and ordered rows is blocked as already submitted.
-Changing or reordering an overlapping file can still add duplicate sales. Import each historical
-period once, inspect the result/export, and prepare only the genuinely missing rows for a retry.
-There is no global deduplication of every imported transaction.
+The form reports the number imported, already imported, and rejected, with row diagnostics,
+and retains text when any rows are rejected. Reordered or overlapping batches cannot reimport
+a previously saved **Source Record Key** in the same business, even if the source format changes.
+Matching keys are skipped. If a reused key has changed product/date/quantity, the row is rejected
+as a conflict; the saved sale is preserved. Fully keyed partially rejected batches may be retried
+after correcting the problem, safely skipping their accepted keys.
+
+In API mode, a repeated fully accepted batch from the same source is blocked even if its rows
+are reordered or numeric formatting is equivalent. Batch fingerprints retain exact SKU letter case. Earlier exact batch
+fingerprints are also checked. Files without source keys retain separate equal-looking sales;
+overlap and reordered older unkeyed imports cannot be identified reliably. Review earlier
+imports before introducing keys: StockCast does not invent identities for existing records.
+For partially accepted unkeyed files, inspect results and retry only the missing rows.
 
 After adding history, the owner should **Refresh forecasts**.
 
@@ -405,7 +460,8 @@ records, or trained models. They are not a full-system backup.
 
 ## 11. Settings
 
-Open **Inventory > Settings**. The **Your account** card shows your name, email, role, and
+Open **Inventory > Account & settings** as an owner, or **Inventory > Account** as staff.
+The **Your account** card shows your name, email, role, and
 Business ID. For public registration, StockCast generates this UUID automatically; it is
 different from your store name. Owners and staff can use **Connect Google account** there when
 Google is enabled.
@@ -430,10 +486,14 @@ The history summary shows the date range and calendar coverage. Its **Limited hi
 below 56 calendar days is a broad history check, not proof that an individual product passes
 the machine-learning rules.
 
-The normal web settings keep the minimum nonzero-day requirement at 100 and the business
-timezone at `Asia/Manila`; neither has a web-editable control. The minimum-history default is
-eight weeks. A stored CV-fold setting is not used as repeated cross-validation by the current
-Python trainer, which uses one chronological validation segment.
+The web settings preserve the backend's minimum nonzero-day requirement, business timezone,
+and CV-fold count when saving other controls. Their defaults are 100 nonzero days,
+`Asia/Manila`, and three folds; these values have no web-editable control. The minimum-history
+default is eight weeks. Python uses the saved fold count for expanding training-only
+cross-validation, with a 14-day validation window per fold and at least 45 days in the initial
+training segment. If the training period cannot support all requested folds, conservative
+parameters are used and the run records zero effective folds and the requested count. Separate
+later validation and final-test periods are not borrowed to complete CV folds.
 
 Save changed forecasting settings, then explicitly refresh forecasts. Changes to stock counts,
 lead time, and safety stock affect restock calculations using current demand estimates; they do
@@ -455,20 +515,29 @@ baseline. A product without an eligible ML result can continue using that fallba
 The run snapshots its sales totals, settings, and active products. Records added after it is
 queued need a later refresh. Navigating to a page does not itself retrain the Python model.
 
+When the forecast horizon ends before the store's current business date, the website displays
+**Forecast expired**. Passed prediction dates are excluded from current reorder advice and future
+charts; historical evaluation remains available. The final forecast date is still usable on that
+business day. Check that recent sales are recorded or reviewed, then have the owner refresh.
+Refreshing old history does not move its forecast dates forward. If the business date changes
+while an API request fails, cached advice is withheld until current recommendations load.
+
 At least three calendar days of history are required to queue a run; that is only a baseline
 minimum, not ML eligibility. Future-dated history is rejected.
 
 ### Why a product may use Moving Average
 
-Machine-learning checks apply to the **training period only**:
+History and sales-volume checks apply to the **training period only**:
 
 - At least the configured minimum history, normally eight calendar weeks, and a minimum of 31 days for the model's 30-day feature history.
 - At least 100 distinct days with positive sales.
-- A position inside the top-N active products ranked by training sales volume. Ranking comes before the separate history and nonzero-day checks.
+- A position inside the top-N eligible active products ranked by training-period sales volume. History, nonzero-day, and calendar-completeness checks run before this limit is applied. Ineligible products do not consume ML slots.
 
 Eight weeks contain 56 calendar days, so eight weeks alone cannot provide 100 distinct nonzero
 days. Validation and final-test days are kept separate and cannot satisfy the training gates.
-Products that fail these checks use the Python Moving Average fallback.
+Products that fail these checks use the Python Moving Average fallback. A complete observed-or-confirmed-zero
+calendar sequence through validation and final testing is also required before a product can
+enter the ranked ML scope; validation/test sales quantities do not affect its training rank.
 
 Missing calendar dates do not count as zero sales. A confirmed zero must be recorded on the Data quality screen. An unrecorded day or a stockout can differ
 from genuine zero demand; confirm ledger completeness and the interpretation of such days with
@@ -502,7 +571,7 @@ through the observed history.
 - The three model cards show aggregate **MAE** and **RMSE** on matching ML-eligible observations. With no eligible products, XGBoost/ensemble scores may be unavailable.
 - **MAE** means average absolute error in product units. **RMSE** gives more weight to larger errors. Lower values mean smaller errors on the evaluated data.
 - **Better model** reflects the validation selection. It does not mean the smallest displayed final-test error was used to choose it.
-- The product selector changes the chart and its method, daily demand, grain, nonzero-day count, and confidence label.
+- The product selector changes the chart and its method, daily demand, grain, nonzero-day count, fallback reason, unknown/excluded-day counts, and interval evidence.
 - Hover over the chart to inspect dates and available Actual, Moving Average, XGBoost, and Ensemble values.
 - Actuals cover the final-test period; future dates have predictions rather than observed outcomes.
 - In **Per-product holdout errors**, **Obs** means nonzero sales days, not total calendar days.
@@ -512,14 +581,28 @@ through the observed history.
 Future predictions start after the **latest recorded sale date**, which can be earlier than
 today. Keep sales history current and inspect chart dates before treating a forecast as current.
 
-All normal-mode operational confidence labels remain **low** pending research validation.
-No certified accuracy, calibrated prediction intervals, or confidence percentages are claimed.
-A generic interval legend in a chart does not establish an evaluated interval; normal API
-forecasts do not provide a calibrated band. Forecasts support decisions and do not guarantee sales.
+**Prediction interval evidence** states whether current bounds are available and shows the
+saved calibration sample, dates, method, nominal target, and observed final-test coverage with its
+observation count. With at least 20 usable validation observations, Python reserves the later
+segment (at least 10 observations) after selecting the operating method. The 10th/90th percentiles
+of its prediction residuals form a nominal **80%** band, with bounds clipped at zero. Final-test
+observations measure coverage; they never select or calibrate those bounds.
+
+A small time-ordered calibration sample and later model refits do not guarantee future coverage.
+The interval concerns observed sales, which can differ from unmet demand. Baselines and runs with
+insufficient calibration data have no interval; older runs may lack saved evidence. Charts show a
+band only where bounds exist. Expired forecasts retain historical calibration evidence while
+current advice is withheld. Browser-demo bands remain illustrative and separate from Python runs.
+Operational confidence labels remain low pending research validation. No certified accuracy or
+guaranteed sales are claimed.
 
 ## 13. Restock: statuses and calculations
 
-Open **Restock** to review **Order now**, **Watch list**, and **Healthy stock**.
+Open **Restock** to review **Order now**, **Watch list**, **Healthy stock**, **Zero usable demand**, and **Demand unavailable**.
+Expired forecasts appear under Demand unavailable with no current suggested reorder quantity.
+Actual deliveries can still be recorded for these products. Products without usable history are
+not described as having healthy coverage. Review their fallback/unavailable reason and saved
+unknown/excluded-day counts; an absent legacy count means **not saved**, not zero.
 Each card shows the product, SKU, category, supplier lead time, safety stock, operating demand
 method, on-hand stock, daily demand, reorder point, days of cover, and recommended quantity.
 
@@ -540,8 +623,10 @@ Days of cover = I / D, when D is positive
 
 Above the reorder trigger, suggested quantity is zero even if current stock is below target
 stock. The displayed reorder point is rounded up; the trigger calculation uses the unrounded
-value. With zero estimated demand, days of cover cannot be estimated and the UI displays an
-em dash.
+value. With usable observations but zero estimated demand, days of cover is not estimated;
+the UI shows an em dash with a **Zero usable demand** explanation. Such a product may still need
+safety-stock replenishment. Unavailable history/current advice shows **Demand unavailable**,
+with numeric advice withheld and no suggested quantity.
 
 | Status   | Normal API meaning                                                                                 |
 | -------- | -------------------------------------------------------------------------------------------------- |
@@ -716,22 +801,27 @@ Choose backup frequency, retention, destination, and responsibility with the tea
 Installation administrators manage root `.env`. The website's Settings screen manages the
 business/forecast fields described earlier.
 
-| Environment value                      | What it controls                                                     |
-| -------------------------------------- | -------------------------------------------------------------------- |
-| `POSTGRES_PASSWORD`                    | Initial database administrator password                              |
-| `APP_DB_PASSWORD`                      | Initial restricted application database-role password                |
-| `OWNER_PASSWORD`                       | Initial owner's password, at least 12 characters                     |
-| `OWNER_BUSINESS_ID`                    | Initial business UUID                                                |
-| `OWNER_BUSINESS_NAME`                  | Initial business name                                                |
-| `OWNER_DISPLAY_NAME` and `OWNER_EMAIL` | Initial account identity                                             |
-| `OWNER_DATA_ORIGIN`                    | `demo` or `partner` record provenance                                |
-| `APP_ENV`                              | Development or production behavior, including secure cookies         |
-| `APP_ADDRESS`                          | `:80` for local HTTP, or a public hostname for HTTPS                 |
-| `HTTP_PORT` and `HTTPS_PORT`           | Published host ports; local defaults 8080 and 8443                   |
-| `CORS_ORIGIN`                          | Allowed frontend origin; Compose defaults to `http://localhost:8080` |
-| `GOOGLE_CLIENT_ID`                     | Optional Google Web application OAuth client ID                      |
-| `GOOGLE_CLIENT_SECRET`                 | Optional private server-only Google OAuth secret                     |
-| `GOOGLE_REDIRECT_URI`                  | Optional registered callback at the exact website origin             |
+| Environment value                      | What it controls                                                            |
+| -------------------------------------- | --------------------------------------------------------------------------- |
+| `POSTGRES_PASSWORD`                    | Initial database administrator password                                     |
+| `APP_DB_PASSWORD`                      | Initial restricted application database-role password                       |
+| `OWNER_PASSWORD`                       | Initial owner's password, at least 12 characters                            |
+| `OWNER_BUSINESS_ID`                    | Initial business UUID                                                       |
+| `OWNER_BUSINESS_NAME`                  | Initial business name                                                       |
+| `OWNER_DISPLAY_NAME` and `OWNER_EMAIL` | Initial account identity                                                    |
+| `OWNER_DATA_ORIGIN`                    | `demo` or `partner` record provenance                                       |
+| `APP_ENV`                              | Development or production behavior, including secure cookies                |
+| `APP_ADDRESS`                          | `:80` for local HTTP, or a public hostname for HTTPS                        |
+| `HTTP_PORT` and `HTTPS_PORT`           | Published host ports; local defaults 8080 and 8443                          |
+| `CORS_ORIGIN`                          | Allowed frontend origin; Compose defaults to `http://localhost:8080`        |
+| `PUBLIC_APP_URL`                       | Website URL in recovery/invitation email; Compose defaults to `CORS_ORIGIN` |
+| `SMTP_HOST` and `SMTP_PORT`            | Optional mail server and port; default port 587                             |
+| `SMTP_USERNAME` and `SMTP_PASSWORD`    | Private mail-server credentials                                             |
+| `SMTP_FROM`                            | Sender address for recovery/invitation email                                |
+| `SMTP_STARTTLS`                        | Upgrade the SMTP connection with STARTTLS; defaults to `true`               |
+| `GOOGLE_CLIENT_ID`                     | Optional Google Web application OAuth client ID                             |
+| `GOOGLE_CLIENT_SECRET`                 | Optional private server-only Google OAuth secret                            |
+| `GOOGLE_REDIRECT_URI`                  | Optional registered callback at the exact website origin                    |
 
 Use URL-safe generated database passwords, such as hex values. Changing environment database
 passwords after PostgreSQL's persistent volume exists does not rotate the existing role
@@ -757,6 +847,18 @@ CORS_ORIGIN=https://stockcast.your-domain.com
 Production cookies require HTTPS. Keep the configuration, server access, storage, and backup
 retention under the deployment administrator's control. A laptop and the server do not
 automatically share existing records.
+
+### Recovery and staff-invitation email
+
+Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, and
+`SMTP_STARTTLS` in the private root `.env` for Docker Compose. The API receives these
+variables; the worker and initializer do not. For direct Python development, use
+`backend/.env` instead. Both environment examples list the settings.
+
+Compose defaults `PUBLIC_APP_URL` to `CORS_ORIGIN`. Set it explicitly if email links need
+another recipient-accessible website URL; hosted links must use the public HTTPS website.
+Run `npm start` to recreate the API with changed configuration. Verify recovery and invitation
+delivery on the configured installation; automated tests use a mock mail transport.
 
 ### Optional Google setup
 
@@ -881,12 +983,12 @@ Increasing the container-readiness timeout does not repair registry TLS failures
 - **Google button missing:** the administrator must configure a valid Google client, secret, callback, and matching website origin, then restart the API.
 - **Google redirect URI mismatch:** register the exact configured callback in Google Cloud, including scheme, hostname, port, and `/api/v1/auth/google/callback`.
 - **Google setup expired:** restart Continue with Google; temporary flow/setup records last ten minutes.
-- **Google email already has an account:** sign in with its password, then connect Google under **Inventory > Settings > Your account**. Emails do not automatically connect identities.
+- **Google email already has an account:** sign in with its password, then connect Google under **Inventory > Account & settings (Account for staff) > Your account**. Emails do not automatically connect identities.
 - **Google denied or connection failed:** start again from StockCast and review the Google Cloud audience/consent configuration and API logs, excluding secrets.
 - **Session expired or CSRF error:** sign in again using the same configured website origin. Avoid switching between localhost and 127.0.0.1 during a session; production uses HTTPS.
 - **Owner role required:** use an owner account for the management action.
 - **Insufficient stock:** check the physical count; record an actual receipt or an authorized count correction before a new sale.
-- **CSV row rejected:** check the exact column order, known SKUs, ISO dates, numeric precision, duplicate rows, and unsupported commas/newlines.
+- **CSV row rejected:** check supported headers or headerless column order, known SKUs, ISO dates, numeric precision, quoting, and source-key conflicts. Quoted delimiters and newlines are supported.
 - **Historical import changed the ledger but stock stayed the same:** this is intentional; it adds history without deducting the current count.
 - **Another user's catalog changes are absent:** reload the application to fetch that catalog/ledger.
 
@@ -896,7 +998,7 @@ Increasing the container-readiness timeout does not repair registry TLS failures
 - **Forecast queued indefinitely:** check the worker with `docker compose logs --tail 100 worker`.
 - **Worker interrupted; refresh to retry:** after the worker is running, the owner can explicitly refresh the failed job.
 - **A stale forecast warning:** record/import complete history, save settings, and refresh.
-- **Forecast dates look old:** predictions start after the latest recorded sale date. Check that recent sales are recorded before refreshing.
+- **Forecast expired:** passed prediction dates are excluded from current advice. Predictions start after the latest recorded sale date; record or review recent sales before refreshing.
 - **Low confidence:** all operational confidence remains low pending validation; it is not evidence of a certified probability.
 - **Days of cover is an em dash:** the current demand estimate is zero or unavailable.
 - **Clipboard blocked:** use a browser that permits clipboard access at the configured origin, or manually copy the displayed values.
@@ -1000,7 +1102,8 @@ manuscript, completed partner evaluation, or certified model accuracy.
 Open **Quality** to record a confirmed zero, closure, incomplete record, full stockout, or partial
 stockout for one product or all products. Add the evidence or correction reason in the note. Saving
 a later classification updates the current review while retaining both values in the audit log.
-Removing a classification is also audited. Use **Export audit CSV** for review. Confirmed zeros may
+Simultaneous saves are serialized before the prior-state read, so each revision retains the value
+it replaced and its correct created/updated action. Removing a classification is also audited. Use **Export audit CSV** for review. Confirmed zeros may
 be model targets; the other classifications and unclassified absent dates are excluded rather than
 converted into demand. The conservative XGBoost path requires complete calendar-spaced training
 lags and explains a Moving Average fallback when that evidence is unavailable.

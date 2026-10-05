@@ -787,7 +787,11 @@ def test_worker_preserves_frozen_exclusions_after_live_classification_deletion(
     assert client.get(base + "/forecast-dashboard").json()["data"]["stale"]
 
 
-def test_dashboard_baseline_preserves_empty_unknown_and_excluded_history(pg_client):
+def test_dashboard_baseline_preserves_empty_unknown_and_excluded_history(pg_client, monkeypatch):
+    from datetime import date
+    from app.repository import Repository
+
+    monkeypatch.setattr(Repository, "business_day", lambda *_: date(2026, 1, 4))
     client, business, _dsn = pg_client
     product = create_product(client, business)
     base = f"/api/v1/businesses/{business}"
@@ -819,3 +823,533 @@ def test_dashboard_baseline_preserves_empty_unknown_and_excluded_history(pg_clie
     assert excluded["predictions"] == []
     assert not excluded["recommendations"][0]["demandAvailable"]
     assert excluded["summaries"][product["id"]]["excludedDays"] == 1
+
+
+def test_rule_recommendations_regenerate_with_reviewed_day_policy(pg_client):
+    client, business, _dsn = pg_client
+    product = create_product(client, business, stock="100")
+    base = f"/api/v1/businesses/{business}"
+    for day, quantity in [("2026-01-01", "10"), ("2026-01-03", "6")]:
+        response = client.post(
+            base + "/sales",
+            json={"productId": product["id"], "saleDate": day, "quantity": quantity},
+            headers={"Idempotency-Key": f"reviewed-rule-sale-{day}"},
+        )
+        assert response.status_code == 201, response.text
+    payload = {"recommendationDate": "2026-01-03", "lookbackDays": 7}
+
+    def generate():
+        response = client.post(base + "/reorder-recommendations/generate", json=payload)
+        assert response.status_code == 201, response.text
+        return response.json()["data"]
+
+    sparse = generate()
+    assert float(sparse[0]["forecastDailyDemand"]) == 6
+    assert sparse[0]["calculationVersion"] == "rule-v2-reviewed-days"
+    response = client.put(
+        base + "/data-quality",
+        json={"classificationDate": "2026-01-02", "classification": "confirmed_zero"},
+    )
+    assert response.status_code == 200, response.text
+    assert float(generate()[0]["forecastDailyDemand"]) == pytest.approx(5.333)
+    response = client.put(
+        base + "/data-quality",
+        json={"classificationDate": "2026-01-03", "classification": "partial_stockout"},
+    )
+    assert response.status_code == 200, response.text
+    assert generate() == []
+    assert client.get(base + "/reorder-recommendations").json()["data"] == []
+    response = client.put(
+        base + "/data-quality",
+        json={
+            "classificationDate": "2026-01-03",
+            "classification": "confirmed_zero",
+            "productId": product["id"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert float(generate()[0]["forecastDailyDemand"]) == pytest.approx(5.333)
+
+
+def test_dashboard_expiration_uses_business_day_and_preserves_archived_predictions(
+    pg_client, monkeypatch
+):
+    from datetime import date
+    from app.repository import Repository
+
+    client, business, _dsn = pg_client
+    product = create_product(client, business, stock="100")
+    base = f"/api/v1/businesses/{business}"
+    for index in range(1, 6):
+        assert client.post(
+            base + "/sales",
+            json={
+                "productId": product["id"],
+                "saleDate": f"2026-01-0{index}",
+                "quantity": "2",
+            },
+            headers={"Idempotency-Key": f"expiry-sale-{index}"},
+        ).status_code == 201
+    response = client.post(
+        base + "/forecast-runs",
+        json={
+            "trainingStart": "2026-01-01",
+            "trainingEnd": "2026-01-03",
+            "validationStart": "2026-01-04",
+            "validationEnd": "2026-01-04",
+            "finalTestStart": "2026-01-05",
+            "finalTestEnd": "2026-01-05",
+            "forecastHorizonDays": 7,
+        },
+    )
+    assert response.status_code == 202, response.text
+    run_id = response.json()["data"]["id"]
+    from app import worker
+
+    assert worker.run_once()
+    monkeypatch.setattr(Repository, "business_day", lambda *_: date(2026, 1, 12))
+    final_day = client.get(base + "/forecast-dashboard").json()["data"]
+    assert not final_day["expired"]
+    assert final_day["recommendations"][0]["demandAvailable"]
+    assert {point["predictionDate"] for point in final_day["predictions"]
+            if point["datasetSplit"] == "future"} == {"2026-01-12"}
+    monkeypatch.setattr(Repository, "business_day", lambda *_: date(2026, 1, 13))
+    expired = client.get(base + "/forecast-dashboard").json()["data"]
+    assert expired["expired"] and not expired["stale"]
+    assert expired["forecastThrough"] == "2026-01-12"
+    advice = expired["recommendations"][0]
+    assert advice["forecastExpired"] and not advice["demandAvailable"]
+    assert advice["daily_demand"] is None and advice["suggested_quantity"] == "0"
+    assert not any(point["datasetSplit"] == "future" for point in expired["predictions"])
+    archived = client.get(base + f"/forecast-runs/{run_id}/predictions").json()["data"]
+    assert len([point for point in archived if point["datasetSplit"] == "future"]) == 7
+
+
+def test_forecast_snapshot_uses_database_clock_for_classification_staleness(pg_client, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+    from app import repository as repository_module
+
+    client, business, _dsn = pg_client
+    product = create_product(client, business)
+    base = f"/api/v1/businesses/{business}"
+    classification = {"classificationDate": "2026-01-03", "productId": product["id"]}
+    assert client.put(
+        base + "/data-quality", json={**classification, "classification": "confirmed_zero"}
+    ).status_code == 200
+
+    class AheadClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz) + timedelta(days=2)
+
+    monkeypatch.setattr(repository_module, "datetime", AheadClock)
+    response = client.post(
+        base + "/forecast-runs",
+        json={
+            "trainingStart": "2026-01-01", "trainingEnd": "2026-01-03",
+            "validationStart": "2026-01-04", "validationEnd": "2026-01-04",
+            "finalTestStart": "2026-01-05", "finalTestEnd": "2026-01-05",
+            "forecastHorizonDays": 7,
+        },
+    )
+    assert response.status_code == 202, response.text
+    queued = response.json()["data"]
+    captured = datetime.fromisoformat(queued["dataSnapshot"]["capturedAt"])
+    assert abs(captured - datetime.now(UTC)) < timedelta(seconds=30)
+    assert client.request("DELETE", base + "/data-quality", json=classification).status_code == 200
+    from app import worker
+
+    assert worker.run_once()
+    dashboard = client.get(base + "/forecast-dashboard").json()["data"]
+    assert dashboard["stale"]
+
+
+def test_worker_uses_frozen_nondefault_forecast_settings(pg_client):
+    from datetime import date, timedelta
+    from app import worker
+
+    client, business, _dsn = pg_client
+    product = create_product(client, business)
+    base = f"/api/v1/businesses/{business}"
+    start = date(2025, 1, 1)
+    imported = client.post(
+        base + "/data-imports",
+        json={
+            "source": "csv",
+            "rows": [
+                {
+                    "sku": product["sku"],
+                    "saleDate": str(start + timedelta(days=i)),
+                    "quantity": str(12 + i % 7),
+                }
+                for i in range(160)
+            ],
+        },
+    )
+    assert imported.status_code == 201, imported.text
+    current = client.get(base + "/settings").json()["data"]
+    configured = {
+        **current,
+        "minimumNonzeroDays": 110,
+        "timezone": "America/New_York",
+        "cvFolds": 4,
+    }
+    saved = client.put(base + "/settings", json=configured)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["data"]["minimumNonzeroDays"] == 110
+    assert saved.json()["data"]["timezone"] == "America/New_York"
+    assert saved.json()["data"]["cvFolds"] == 4
+    queued = client.post(
+        base + "/forecast-runs",
+        json={
+            "trainingStart": str(start),
+            "trainingEnd": str(start + timedelta(days=119)),
+            "validationStart": str(start + timedelta(days=120)),
+            "validationEnd": str(start + timedelta(days=139)),
+            "finalTestStart": str(start + timedelta(days=140)),
+            "finalTestEnd": str(start + timedelta(days=159)),
+            "forecastHorizonDays": 7,
+        },
+    )
+    assert queued.status_code == 202, queued.text
+    run = queued.json()["data"]
+    assert run["dataSnapshot"]["settings"]["cv_folds"] == 4
+    # Live edits must not replace the settings captured for the queued run.
+    changed = client.put(
+        base + "/settings", json={**configured, "cvFolds": 2, "minimumNonzeroDays": 500}
+    )
+    assert changed.status_code == 200, changed.text
+    assert worker.run_once()
+    completed = client.get(base + f"/forecast-runs/{run['id']}").json()["data"]
+    assert completed["status"] == "completed", completed["failureMessage"]
+    configuration = completed["configuration"]
+    assert configuration["cvFolds"] == 4
+    assert configuration["cvValidationDays"] == 14
+    summary = configuration["products"][product["id"]]
+    assert summary["eligible"]
+    assert summary["requestedFolds"] == summary["effectiveFolds"] == 4
+    assert summary["selectionFallback"] is None
+    assert client.get(base + "/settings").json()["data"]["cvFolds"] == 2
+
+
+
+def test_sales_import_keys_deduplicate_overlaps_conflicts_and_reordered_batches(pg_client):
+    client, business, dsn = pg_client
+    product = create_product(client, business)
+    base = f"/api/v1/businesses/{business}"
+    first_rows = [
+        {"sku": "TEST-1", "saleDate": "2026-01-01", "quantity": "2", "sourceRecordKey": "sale-1"},
+        {"sku": "TEST-1", "saleDate": "2026-01-02", "quantity": "3", "sourceRecordKey": "sale-2"},
+    ]
+    first = client.post(base + "/data-imports", json={"source": "csv", "rows": first_rows})
+    assert first.status_code == 201, first.text
+    assert first.json()["data"]["acceptedRows"] == 2
+    reordered = [
+        {**first_rows[1], "sku": " TEST-1 ", "quantity": "3.000"},
+        {**first_rows[0], "sku": "TEST-1", "quantity": "2.0"},
+    ]
+    repeated = client.post(base + "/data-imports", json={"source": "csv", "rows": reordered})
+    assert repeated.status_code == 409, repeated.text
+    overlap = client.post(base + "/data-imports", json={
+        "source": "pos_export",
+        "rows": [
+            *reordered,
+            {"sku": "TEST-1", "saleDate": "2026-01-03", "quantity": "4", "sourceRecordKey": "sale-3"},
+        ],
+    })
+    assert overlap.status_code == 201, overlap.text
+    summary = overlap.json()["data"]
+    assert (summary["acceptedRows"], summary["rejectedRows"]) == (1, 2)
+    assert summary["errors"] == [
+        {"row": 1, "code": "duplicate_source_record_key"},
+        {"row": 2, "code": "duplicate_source_record_key"},
+    ]
+    second_product = client.post(base + "/products", json={
+        "sku": "TEST-2", "name": "Other Product", "category": "Test", "unit": "pc",
+        "currentStock": "20", "leadTimeDays": 2, "safetyStock": "2", "unitCost": "10",
+    })
+    assert second_product.status_code == 201, second_product.text
+    conflicts = client.post(base + "/data-imports", json={
+        "source": "spreadsheet", "rows": [
+            {**first_rows[0], "quantity": "5"},
+            {**first_rows[1], "saleDate": "2026-01-05"},
+            {**first_rows[0], "sku": "TEST-2"},
+        ],
+    })
+    assert conflicts.status_code == 201, conflicts.text
+    assert conflicts.json()["data"]["acceptedRows"] == 0
+    assert conflicts.json()["data"]["errors"] == [
+        {"row": index, "code": "source_record_key_conflict"} for index in range(1, 4)
+    ]
+    sales = client.get(base + "/sales").json()["data"]
+    assert len(sales) == 3
+    assert sorted(float(sale["quantity"]) for sale in sales) == [2, 3, 4]
+    products = client.get(base + "/products").json()["data"]
+    assert all(float(item["currentStock"]) == 20 for item in products)
+    assert len(client.get(base + "/inventory-movements").json()["data"]) == 2
+    with psycopg.connect(dsn) as conn:
+        keys = conn.execute(
+            "SELECT source_record_key FROM sales WHERE business_id=%s ORDER BY source_record_key",
+            (business,),
+        ).fetchall()
+    assert keys == [("sale-1",), ("sale-2",), ("sale-3",)]
+    assert product["id"] == sales[0]["productId"]
+
+
+def test_sales_import_preserves_distinct_identical_sales_and_within_batch_diagnostics(pg_client):
+    client, business, _dsn = pg_client
+    create_product(client, business)
+    base = f"/api/v1/businesses/{business}"
+    sale = {"sku": "TEST-1", "saleDate": "2026-01-01", "quantity": "2"}
+    response = client.post(base + "/data-imports", json={"rows": [
+        {**sale, "sourceRecordKey": " sale-1 \t"},
+        {**sale, "sourceRecordKey": "sale-1", "quantity": "2.000"},
+        {**sale, "sourceRecordKey": "sale-1", "quantity": "3"},
+        {**sale, "sourceRecordKey": "sale-2"},
+        {**sale, "sourceRecordKey": " \t"}, sale,
+    ]})
+    assert response.status_code == 201, response.text
+    result = response.json()["data"]
+    assert (result["totalRows"], result["acceptedRows"], result["rejectedRows"]) == (6, 4, 2)
+    assert result["errors"] == [
+        {"row": 2, "code": "duplicate_source_record_key"},
+        {"row": 3, "code": "source_record_key_conflict"},
+    ]
+    assert len(client.get(base + "/sales").json()["data"]) == 4
+    assert float(client.get(base + "/products").json()["data"][0]["currentStock"]) == 20
+
+
+def test_sales_import_source_keys_are_tenant_scoped(pg_client):
+    client, business, dsn = pg_client
+    create_product(client, business)
+    rows = [{
+        "sku": "TEST-1", "saleDate": "2026-01-01", "quantity": "2", "sourceRecordKey": "shared-sale",
+    }]
+    first = client.post(f"/api/v1/businesses/{business}/data-imports", json={"rows": rows})
+    assert first.status_code == 201, first.text
+    signed_up = signup_owner(client)
+    other_business = signed_up.json()["data"]["businessId"]
+    create_product(client, other_business)
+    second = client.post(f"/api/v1/businesses/{other_business}/data-imports", json={"rows": rows})
+    assert second.status_code == 201, second.text
+    assert second.json()["data"]["acceptedRows"] == 1
+    with psycopg.connect(dsn) as conn:
+        counts = conn.execute(
+            "SELECT business_id,count(*) FROM sales WHERE source_record_key=%s GROUP BY business_id",
+            ("shared-sale",),
+        ).fetchall()
+    assert {str(tenant): count for tenant, count in counts} == {business: 1, other_business: 1}
+
+
+def test_keyed_partial_sales_import_can_retry_after_catalog_correction(pg_client):
+    client, business, _dsn = pg_client
+    create_product(client, business)
+    base = f"/api/v1/businesses/{business}"
+    data = {"rows": [
+        {"sku": "TEST-1", "saleDate": "2026-01-01", "quantity": "2", "sourceRecordKey": "sale-1"},
+        {"sku": "LATER", "saleDate": "2026-01-02", "quantity": "3", "sourceRecordKey": "sale-2"},
+    ]}
+    first = client.post(base + "/data-imports", json=data)
+    assert first.status_code == 201, first.text
+    assert first.json()["data"]["errors"] == [{"row": 2, "code": "unknown_sku", "sku": "LATER"}]
+    created = client.post(base + "/products", json={
+        "sku": "LATER", "name": "Later Product", "category": "Test", "unit": "pc",
+        "currentStock": "20", "leadTimeDays": 2, "safetyStock": "2", "unitCost": "10",
+    })
+    assert created.status_code == 201, created.text
+    retried = client.post(base + "/data-imports", json=data)
+    assert retried.status_code == 201, retried.text
+    result = retried.json()["data"]
+    assert (result["acceptedRows"], result["rejectedRows"]) == (1, 1)
+    assert result["errors"] == [{"row": 1, "code": "duplicate_source_record_key"}]
+    assert len(client.get(base + "/sales").json()["data"]) == 2
+    assert all(float(product["currentStock"]) == 20 for product in client.get(base + "/products").json()["data"])
+
+
+def test_concurrent_overlapping_sales_imports_write_each_source_key_once(pg_client):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from app.repository import Repository
+    from app.schemas import SalesImportCreate
+    from app.security import Principal
+
+    client, business, dsn = pg_client
+    create_product(client, business)
+    with psycopg.connect(dsn) as conn:
+        user_id = conn.execute(
+            "SELECT id FROM users WHERE business_id=%s AND role='owner'", (business,),
+        ).fetchone()[0]
+    user = Principal(str(user_id), business, "owner@example.com", "Owner", "owner")
+    barrier = Barrier(2)
+
+    def submit(unique_key):
+        with psycopg.connect(dsn) as conn:
+            repository = Repository(conn)
+            data = SalesImportCreate(rows=[
+                {"sku": "TEST-1", "saleDate": "2026-01-01", "quantity": "2", "sourceRecordKey": "shared-sale"},
+                {"sku": "TEST-1", "saleDate": "2026-01-02", "quantity": "3", "sourceRecordKey": unique_key},
+            ])
+            barrier.wait(timeout=10)
+            return repository.create_sales_import(user, data)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(submit, key) for key in ["sale-a", "sale-b"]]
+        results = [future.result(timeout=20) for future in futures]
+    assert sorted((result["acceptedRows"], result["rejectedRows"]) for result in results) == [(1, 1), (2, 0)]
+    with psycopg.connect(dsn) as conn:
+        keys = conn.execute(
+            "SELECT source_record_key,count(*) FROM sales WHERE business_id=%s GROUP BY source_record_key",
+            (business,),
+        ).fetchall()
+    assert dict(keys) == {"shared-sale": 1, "sale-a": 1, "sale-b": 1}
+
+
+
+def test_sales_import_case_distinct_exact_skus_remain_separate_and_folded_match_is_ambiguous(pg_client):
+    client, business, dsn = pg_client
+    first_product = create_product(client, business)
+    base = f"/api/v1/businesses/{business}"
+    created = client.post(base + "/products", json={
+        "sku": "test-1", "name": "Case Distinct Product", "category": "Test", "unit": "pc",
+        "currentStock": "20", "leadTimeDays": 2, "safetyStock": "2", "unitCost": "10",
+    })
+    assert created.status_code == 201, created.text
+    second_product = created.json()["data"]
+    sale = {"saleDate": "2026-01-01", "quantity": "2"}
+    batches = []
+    for sku in [" TEST-1 ", "test-1"]:
+        response = client.post(base + "/data-imports", json={"rows": [{**sale, "sku": sku}]})
+        assert response.status_code == 201, response.text
+        batches.append(response.json()["data"])
+    assert batches[0]["contentSha256"] != batches[1]["contentSha256"]
+    assert all(batch["acceptedRows"] == 1 for batch in batches)
+    ambiguous = client.post(base + "/data-imports", json={"rows": [{**sale, "sku": "TeSt-1"}]})
+    assert ambiguous.status_code == 201, ambiguous.text
+    result = ambiguous.json()["data"]
+    assert (result["acceptedRows"], result["rejectedRows"]) == (0, 1)
+    assert result["errors"] == [{"row": 1, "code": "ambiguous_sku", "sku": "TeSt-1"}]
+    with psycopg.connect(dsn) as conn:
+        quantities = conn.execute(
+            "SELECT product_id,sum(quantity) FROM sales WHERE business_id=%s GROUP BY product_id",
+            (business,),
+        ).fetchall()
+    assert {str(product): float(quantity) for product, quantity in quantities} == {
+        first_product["id"]: 2, second_product["id"]: 2,
+    }
+    assert all(float(product["currentStock"]) == 20 for product in client.get(base + "/products").json()["data"])
+
+
+
+@pytest.mark.parametrize("scope", ["store-wide", "product"])
+@pytest.mark.parametrize("following_operation", ["update", "delete"])
+def test_concurrent_classification_audit_keeps_prior_revision_and_clock_order(
+    pg_client, scope, following_operation
+):
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import date, datetime
+    from queue import Queue
+    from threading import Event
+    from time import monotonic
+    from uuid import UUID
+    from app.repository import Repository
+    from app.schemas import DataQualityDelete, DataQualityUpsert
+    from app.security import Principal
+
+    client, business, dsn = pg_client
+    product = create_product(client, business)
+    product_id = UUID(product["id"]) if scope == "product" else None
+    day = date(2026, 1, 1)
+    with psycopg.connect(dsn) as conn:
+        user_id = conn.execute(
+            "SELECT id FROM users WHERE business_id=%s AND role='owner'", (business,),
+        ).fetchone()[0]
+    user = Principal(str(user_id), business, "owner@example.com", "Owner", "owner")
+    started = Queue()
+    attempt_mutation = Event()
+
+    def following_mutation():
+        with psycopg.connect(dsn) as conn:
+            with conn.transaction():
+                # Begin this transaction before the first revision, reproducing
+                # the old now() timestamp being earlier despite a later mutation.
+                transaction_started = conn.execute("SELECT now()").fetchone()[0]
+                started.put((conn.info.backend_pid, transaction_started))
+                assert attempt_mutation.wait(timeout=10)
+                repository = Repository(conn)
+                if following_operation == "delete":
+                    return repository.delete_data_quality(user, DataQualityDelete(
+                        product_id=product_id, classification_date=day,
+                    ))
+                return repository.upsert_data_quality(user, DataQualityUpsert(
+                    product_id=product_id, classification_date=day,
+                    classification="business_closed", note="Second review",
+                ))
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(following_mutation)
+        waiter_pid, transaction_started = started.get(timeout=10)
+        with psycopg.connect(dsn) as conn:
+            repository = Repository(conn)
+            with conn.transaction():
+                first = repository.upsert_data_quality(user, DataQualityUpsert(
+                    product_id=product_id, classification_date=day,
+                    classification="confirmed_zero", note="First review",
+                ))
+                # Keep the newly created row uncommitted while the other writer
+                # attempts the same key. An absent-row SELECT alone cannot lock it.
+                attempt_mutation.set()
+                deadline = monotonic() + 10
+                pause = Event()
+                with psycopg.connect(dsn, autocommit=True) as observer:
+                    while True:
+                        blockers = observer.execute(
+                            "SELECT pg_blocking_pids(%s)", (waiter_pid,),
+                        ).fetchone()[0]
+                        if conn.info.backend_pid in blockers:
+                            break
+                        if future.done():
+                            future.result()
+                            raise AssertionError("Concurrent writer bypassed the pending classification revision")
+                        assert monotonic() < deadline, "Concurrent classification writer did not wait"
+                        pause.wait(0.01)
+        following = future.result(timeout=10)
+
+    with psycopg.connect(dsn, row_factory=psycopg.rows.dict_row) as conn:
+        audits = conn.execute(
+            """SELECT quality_id,previous_classification,classification,previous_note,note,
+                      action,changed_at FROM sales_day_quality_audit
+               WHERE business_id=%s AND product_id IS NOT DISTINCT FROM %s
+                 AND classification_date=%s ORDER BY id""",
+            (business, product_id, day),
+        ).fetchall()
+        current = conn.execute(
+            """SELECT classification,note,created_at,updated_at FROM sales_day_quality
+               WHERE business_id=%s AND product_id IS NOT DISTINCT FROM %s
+                 AND classification_date=%s""",
+            (business, product_id, day),
+        ).fetchone()
+    assert len(audits) == 2
+    assert [audit["action"] for audit in audits] == [
+        "created", "deleted" if following_operation == "delete" else "updated",
+    ]
+    assert [audit["previous_classification"] for audit in audits] == [None, "confirmed_zero"]
+    assert [audit["previous_note"] for audit in audits] == [None, "First review"]
+    assert audits[0]["classification"] == "confirmed_zero"
+    assert audits[0]["note"] == "First review"
+    assert str(audits[0]["quality_id"]) == str(audits[1]["quality_id"]) == first["id"]
+    assert transaction_started <= audits[0]["changed_at"] < audits[1]["changed_at"]
+    assert datetime.fromisoformat(first["createdAt"]) == audits[0]["changed_at"]
+    assert datetime.fromisoformat(first["updatedAt"]) == audits[0]["changed_at"]
+    if following_operation == "delete":
+        assert following == {"deleted": True}
+        assert current is None
+        assert audits[1]["classification"] is None
+        assert audits[1]["note"] is None
+    else:
+        assert following["id"] == first["id"]
+        assert following["classification"] == current["classification"] == "business_closed"
+        assert current["created_at"] == audits[0]["changed_at"]
+        assert current["updated_at"] == audits[1]["changed_at"]
+        assert datetime.fromisoformat(following["updatedAt"]) == audits[1]["changed_at"]
+        assert audits[1]["classification"] == "business_closed"
+        assert audits[1]["note"] == current["note"] == "Second review"

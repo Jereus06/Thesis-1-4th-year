@@ -48,7 +48,7 @@ export const LEVELS = [
     bullets: [
       "Confidence score from the number of non-zero observations",
       "Products with fewer than 30 observations flagged as low confidence",
-      "Prediction intervals at the 10th, 50th, and 90th percentiles",
+      "Illustrative 10th–90th bands in the browser demonstration; coverage is not validated",
       "On-screen disclaimer: decision support only, not a guarantee",
     ],
   },

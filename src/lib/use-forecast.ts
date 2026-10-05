@@ -19,10 +19,16 @@ export type ForecastState = {
   progress: TrainProgress;
   refresh: () => Promise<void>;
   error?: string;
+  expired?: boolean;
+  forecastThrough?: string | null;
 };
 
 export function useForecastCompute(initialResult: PipelineResult): ForecastState {
-  const products = useAppStore((s) => s.products);
+  const catalog = useAppStore((s) => s.products);
+  const products = useMemo(
+    () => catalog.filter((product) => product.isActive !== false),
+    [catalog],
+  );
   const sales = useAppStore((s) => s.sales);
   const settings = useAppStore((s) => s.settings);
   const [result, setResult] = useState<PipelineResult>(initialResult);

@@ -146,9 +146,12 @@ def _intervals(predictions, lower_residual, upper_residual):
 
 
 def train_verified_xgboost(
-    rows: Sequence[Observation], bounds: SplitBoundaries, *, seed=42, window=7, horizon=14
+    rows: Sequence[Observation], bounds: SplitBoundaries, *, seed=42, window=7, horizon=14,
+    cv_folds=3,
 ):
     """Select entirely before final test, then evaluate from one fixed pre-test origin."""
+    if not isinstance(cv_folds, int) or isinstance(cv_folds, bool) or cv_folds < 2:
+        raise ValueError("CV folds must be an integer of at least two")
     evaluation_started = time.perf_counter()
     train, validation, final_test = chronological_partitions(rows, bounds)
     training_started = time.perf_counter()
@@ -157,7 +160,7 @@ def train_verified_xgboost(
         {"max_depth": 4, "learning_rate": 0.05, "n_estimators": 300},
         {"max_depth": 3, "learning_rate": 0.1, "n_estimators": 240},
     ]
-    folds = _folds(train)
+    folds = _folds(train, count=cv_folds)
     scored = []
     for params in candidates:
         fold_metrics = []
@@ -172,7 +175,10 @@ def train_verified_xgboost(
         selected = min(scored, key=lambda item: item[0])[1]
     else:
         selected = candidates[0]
-        selection_fallback = "Three training-only chronological folds were not feasible; conservative parameters were used."
+        selection_fallback = (
+            f"{cv_folds} training-only chronological folds were not feasible; "
+            "conservative parameters were used."
+        )
 
     # Reserve later pre-test validation observations for calibration after selection is frozen.
     if len(validation) >= 20:
@@ -287,6 +293,7 @@ def train_verified_xgboost(
             "evaluationMs": evaluation_ms,
             "totalModelingMs": total_modeling_ms,
         },
+        "requestedFolds": cv_folds,
         "effectiveFolds": len(folds),
         "selectionFallback": selection_fallback,
         "earlyStoppingUsed": best_iteration is not None,

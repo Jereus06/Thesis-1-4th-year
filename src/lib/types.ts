@@ -8,6 +8,45 @@ export type Product = {
   leadTimeDays: number;
   safetyStock: number;
   unitCost: number;
+  isActive?: boolean;
+};
+
+export type ProductPatch = Partial<
+  Pick<
+    Product,
+    | "sku"
+    | "name"
+    | "category"
+    | "unit"
+    | "currentStock"
+    | "leadTimeDays"
+    | "safetyStock"
+    | "unitCost"
+    | "isActive"
+  >
+>;
+
+export type InventoryMovement = {
+  id: string;
+  businessId?: string;
+  productId: string;
+  movementDate: string;
+  movementType: "opening_balance" | "sale" | "receipt" | "return" | "write_off" | "adjustment";
+  quantityDelta: number;
+  balanceAfter: number;
+  dataOrigin: "demo" | "partner";
+  saleId: string | null;
+  note: string | null;
+  recordedBy: string | null;
+};
+
+export type StockMovementInput = {
+  productId: string;
+  movementDate: string;
+  movementType: "receipt" | "return" | "write_off" | "adjustment";
+  quantityDelta: number;
+  note?: string;
+  idempotencyKey?: string;
 };
 
 export type Sale = {
@@ -15,6 +54,19 @@ export type Sale = {
   productId: string;
   date: string;
   qty: number;
+  sourceRecordKey?: string;
+};
+
+export type SalesImportError = {
+  row: number;
+  code: string;
+  sku?: string;
+};
+
+export type SalesImportResult = {
+  acceptedRows: number;
+  rejectedRows: number;
+  errors: SalesImportError[];
 };
 
 export type DataScenario = "partner" | "thin";
@@ -28,6 +80,8 @@ export type Settings = {
   coverDays: number;
   topNProducts: number;
   minWeeks: number;
+  minimumNonzeroDays: number;
+  timezone: string;
   cvFolds: number;
   useFallbackIfThin: boolean;
   dataScenario: DataScenario;
@@ -61,6 +115,21 @@ export type DataQuality = {
   sparse: boolean;
 };
 
+export type PredictionIntervalEvidence = {
+  available: boolean;
+  selectionObservations?: number;
+  calibrationObservations?: number;
+  calibrationStart?: string | null;
+  calibrationEnd?: string | null;
+  calibrationSplit?: string;
+  lowerResidual?: number | null;
+  upperResidual?: number | null;
+  finalTestCoverage?: number | null;
+  finalTestObservations?: number;
+  nominalCoverage?: number;
+  method?: string;
+};
+
 export type ProductForecast = {
   productId: string;
   maMae: number;
@@ -84,6 +153,13 @@ export type ProductForecast = {
   grain: Grain;
   trainedWithMl: boolean;
   fallbackReason?: string;
+  unavailableReason?: string;
+  demandAvailable?: boolean;
+  forecastExpired?: boolean;
+  unknownDays?: number;
+  excludedDays?: number;
+  qualityWarnings?: string[];
+  interval?: PredictionIntervalEvidence;
   cvMaeXgb: number;
   cvMaeMa: number;
 };
@@ -145,7 +221,12 @@ export type StockStatus = "stockout" | "reorder" | "watch" | "healthy";
 export type ReorderRow = {
   product: Product;
   demandAvailable?: boolean;
+  forecastExpired?: boolean;
   unavailableReason?: string;
+  fallbackReason?: string;
+  unknownDays?: number;
+  excludedDays?: number;
+  qualityWarnings?: string[];
   dailyDemand: number;
   demandDuringLead: number;
   reorderPoint: number;
@@ -158,7 +239,7 @@ export type ReorderRow = {
 };
 
 export type TrainProgress = {
-  status: "idle" | "serving" | "training" | "ready";
+  status: "idle" | "serving" | "training" | "ready" | "expired";
   completed: number;
   total: number;
   currentProduct?: string;

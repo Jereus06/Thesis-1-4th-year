@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ConfidenceBadge } from "@/components/confidence-badge";
 import { DemandChart } from "@/components/demand-chart";
+import { DemandEvidence } from "@/components/demand-evidence";
+import { IntervalEvidence } from "@/components/interval-evidence";
 import { useForecast } from "@/components/forecast-context";
 import { TrainingBanner } from "@/components/training-banner";
 import { Badge } from "@/components/ui/badge";
@@ -12,17 +13,23 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { DISCLAIMER, modelLabel } from "@/lib/forecast/constants";
 import { metric, num } from "@/lib/format";
+import { intervalAvailability } from "@/lib/forecast-interval";
+import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
 import type { ForecastPoint } from "@/lib/types";
 
 export const Route = createFileRoute("/forecasts")({ component: ForecastsPage });
 
 function ForecastsPage() {
-  const products = useAppStore((s) => s.products);
+  const catalog = useAppStore((s) => s.products);
+  const products = useMemo(
+    () => catalog.filter((product) => product.isActive !== false),
+    [catalog],
+  );
   const mode = useAppStore((s) => s.dataMode);
-  const session = useAppStore((s) => s.session);
+  const { canRefreshForecast } = usePermissions();
   const window = useAppStore((s) => s.settings.maWindow);
-  const { result, status, refresh } = useForecast();
+  const { result, status, refresh, forecastThrough } = useForecast();
   const ready = Boolean(result);
   const mlFirst =
     products.find((p) => result?.byProduct[p.id]?.trainedWithMl)?.id ?? products[0]?.id ?? "";
@@ -69,7 +76,7 @@ function ForecastsPage() {
           </p>
         </div>
         <div className="flex items-center gap-4">
-          {(mode === "browser-demo" || session?.role === "owner") && (
+          {canRefreshForecast && (
             <Button
               disabled={status === "training"}
               onClick={() => void refresh().catch((error: Error) => toast.error(error.message))}
@@ -89,6 +96,9 @@ function ForecastsPage() {
       </header>
 
       <TrainingBanner />
+      {!canRefreshForecast && (
+        <p className="text-sm text-muted">The owner can refresh forecasts after records change.</p>
+      )}
 
       <section className="grid gap-3 md:grid-cols-3">
         <Score
@@ -128,13 +138,12 @@ function ForecastsPage() {
             <CardDescription>
               {!forecast
                 ? "No forecast yet"
-                : `${modelLabel(forecast.method)} · daily demand ${num(forecast.dailyDemand, 1)} · ${forecast.grain} grain · ${forecast.nonzeroCount} non-zero days`}
+                : !Number.isFinite(forecast.dailyDemand) && forecast.fallbackReason
+                  ? forecast.fallbackReason
+                  : `${modelLabel(forecast.method)} · daily demand ${num(forecast.dailyDemand, 1)} · ${forecast.grain} grain · ${forecast.nonzeroCount} non-zero days`}
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {forecast && (
-              <ConfidenceBadge level={forecast.confidence} score={forecast.confidenceScore} />
-            )}
             <Select
               className="md:max-w-xs"
               value={selected?.id}
@@ -149,11 +158,34 @@ function ForecastsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {ready ? <DemandChart points={chartPoints} /> : <Skeleton className="h-72 w-full" />}
+          {forecast && mode === "api" && (
+            <DemandEvidence
+              forecast={forecast}
+              unavailableReason={forecast.unavailableReason}
+              className="mb-4 space-y-1 text-sm text-muted"
+            />
+          )}
+          {ready ? (
+            <DemandChart
+              points={chartPoints}
+              intervalLabel={
+                mode === "browser-demo"
+                  ? "Illustrative demonstration band"
+                  : forecast?.interval?.nominalCoverage !== undefined
+                    ? `${num(forecast.interval.nominalCoverage * 100)}% nominal interval`
+                    : "Saved prediction interval"
+              }
+            />
+          ) : (
+            <Skeleton className="h-72 w-full" />
+          )}
+          {forecast && (
+            <IntervalEvidence forecast={forecast} mode={mode} forecastThrough={forecastThrough} />
+          )}
           <p className="mt-3 text-xs text-muted">
             {mode === "api"
-              ? "Actuals are from the final-test period. Baseline-only products display no XGBoost score. Prediction intervals have not been calibrated."
-              : "Shaded band is the demonstration interval."}{" "}
+              ? "Actuals are from the final-test period. Baseline-only products display no XGBoost score. Shading appears only for saved interval bounds."
+              : "Shaded demonstration bands are illustrative; their coverage has not been validated."}{" "}
             {result?.diagnostics.disclaimer ?? DISCLAIMER}
           </p>
         </CardContent>
@@ -163,7 +195,7 @@ function ForecastsPage() {
         <CardHeader>
           <CardTitle>Per-product holdout errors</CardTitle>
           <CardDescription>
-            Lower is better. Low-confidence and rule-based SKUs are called out instead of hidden.
+            Lower errors are better. Each product shows its data evidence and interval availability.
           </CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto">
@@ -179,7 +211,8 @@ function ForecastsPage() {
                   <th className="pb-2 font-medium">XGB MAE</th>
                   <th className="pb-2 font-medium">Ens MAE</th>
                   <th className="pb-2 font-medium">Method</th>
-                  <th className="pb-2 font-medium">Confidence</th>
+                  <th className="pb-2 font-medium">Data evidence</th>
+                  <th className="pb-2 font-medium">Interval</th>
                 </tr>
               </thead>
               <tbody>
@@ -198,8 +231,15 @@ function ForecastsPage() {
                           {modelLabel(f.method)}
                         </Badge>
                       </td>
-                      <td>
-                        <ConfidenceBadge level={f.confidence} />
+                      <td className="min-w-48 py-2.5 pr-3">
+                        {mode === "api" ? (
+                          <DemandEvidence forecast={f} unavailableReason={f.unavailableReason} />
+                        ) : (
+                          <span className="text-xs text-muted">Synthetic demonstration</span>
+                        )}
+                      </td>
+                      <td className="min-w-40 text-xs text-muted">
+                        {intervalAvailability(f, mode)}
                       </td>
                     </tr>
                   );

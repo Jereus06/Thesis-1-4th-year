@@ -140,6 +140,10 @@ export function ApiGate({ children }: { children: ReactNode }) {
   }
 
   if (mode === "browser-demo") return <>{children}</>;
+  const resetToken = new URLSearchParams(window.location.search).get("reset");
+  const invitationToken = new URLSearchParams(window.location.search).get("invitation");
+  if (resetToken || invitationToken)
+    return <TokenPasswordForm resetToken={resetToken} invitationToken={invitationToken} />;
   if (session)
     return (
       <>
@@ -147,10 +151,6 @@ export function ApiGate({ children }: { children: ReactNode }) {
         {children}
       </>
     );
-  const resetToken = new URLSearchParams(window.location.search).get("reset");
-  const invitationToken = new URLSearchParams(window.location.search).get("invitation");
-  if (resetToken || invitationToken)
-    return <TokenPasswordForm resetToken={resetToken} invitationToken={invitationToken} />;
   if (bootstrapping)
     return (
       <main className="grid min-h-dvh place-items-center bg-bg p-6 text-fg">

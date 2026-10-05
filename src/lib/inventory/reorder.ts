@@ -20,9 +20,16 @@ export function buildReorderRows(
   settings: Settings,
 ): ReorderRow[] {
   return products
+    .filter((product) => product.isActive !== false)
     .map((product) => {
       const forecast = pipeline.byProduct[product.id];
-      const dailyDemand = forecast?.dailyDemand ?? 0;
+      const demandAvailable =
+        Boolean(forecast) &&
+        forecast?.demandAvailable !== false &&
+        Number.isFinite(forecast?.dailyDemand) &&
+        (forecast?.dailyDemand ?? -1) >= 0 &&
+        (forecast?.observationCount ?? 0) > 0;
+      const dailyDemand = demandAvailable ? forecast!.dailyDemand : NaN;
       const demandDuringLead = dailyDemand * product.leadTimeDays;
       const reorderPoint = demandDuringLead + product.safetyStock;
       const targetStock =
@@ -31,11 +38,24 @@ export function buildReorderRows(
         product.currentStock <= reorderPoint
           ? Math.max(0, Math.ceil(targetStock - product.currentStock))
           : 0;
-      const daysOfCover = dailyDemand > 0 ? product.currentStock / dailyDemand : 99;
+      const daysOfCover = !demandAvailable
+        ? NaN
+        : dailyDemand > 0
+          ? product.currentStock / dailyDemand
+          : Infinity;
       const status = stockStatus(product.currentStock, reorderPoint, daysOfCover);
       const confidence: ConfidenceLevel = forecast?.confidence ?? "low";
       return {
         product,
+        demandAvailable,
+        forecastExpired: forecast?.forecastExpired,
+        unavailableReason: demandAvailable
+          ? undefined
+          : (forecast?.unavailableReason ?? "No usable demand history is available."),
+        fallbackReason: forecast?.fallbackReason,
+        unknownDays: forecast?.unknownDays,
+        excludedDays: forecast?.excludedDays,
+        qualityWarnings: forecast?.qualityWarnings,
         dailyDemand,
         demandDuringLead,
         reorderPoint,

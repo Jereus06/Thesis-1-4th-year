@@ -11,9 +11,16 @@ import {
 } from "recharts";
 import { chartColors } from "@/lib/chart-theme";
 import { formatShort } from "@/lib/dates";
+import { chartIntervalBounds } from "@/lib/forecast-interval";
 import type { ForecastPoint } from "@/lib/types";
 
-export function DemandChart({ points }: { points: ForecastPoint[] }) {
+export function DemandChart({
+  points,
+  intervalLabel = "Prediction interval",
+}: {
+  points: ForecastPoint[];
+  intervalLabel?: string;
+}) {
   if (!points.length) {
     return (
       <div className="flex h-72 items-center justify-center rounded-xl bg-surface-2 text-sm text-muted">
@@ -27,10 +34,10 @@ export function DemandChart({ points }: { points: ForecastPoint[] }) {
     ma: Number.isFinite(p.ma) ? p.ma : null,
     xgb: Number.isFinite(p.xgb) ? p.xgb : null,
     ensemble: Number.isFinite(p.ensemble) ? p.ensemble : null,
-    p10: Number.isFinite(p.p10) ? p.p10 : null,
     label: formatShort(p.date),
-    interval: Number.isFinite(p.p90 - p.p10) ? Math.max(0, p.p90 - p.p10) : null,
+    intervalBounds: chartIntervalBounds(p),
   }));
+  const hasIntervals = data.some((point) => point.intervalBounds !== null);
 
   return (
     <div className="h-72 w-full">
@@ -60,25 +67,18 @@ export function DemandChart({ points }: { points: ForecastPoint[] }) {
             }}
           />
           <Legend />
-          <Area
-            type="monotone"
-            dataKey="p10"
-            stackId="int"
-            stroke="none"
-            fill="transparent"
-            legendType="none"
-            isAnimationActive={false}
-          />
-          <Area
-            type="monotone"
-            dataKey="interval"
-            stackId="int"
-            name="10–90 interval"
-            stroke="none"
-            fill={chartColors.band}
-            fillOpacity={1}
-            isAnimationActive={false}
-          />
+          {hasIntervals && (
+            <Area
+              type="monotone"
+              dataKey="intervalBounds"
+              name={intervalLabel}
+              stroke="none"
+              fill={chartColors.band}
+              fillOpacity={1}
+              connectNulls={false}
+              isAnimationActive={false}
+            />
+          )}
           <Line
             type="monotone"
             dataKey="actual"
