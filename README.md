@@ -26,11 +26,20 @@ initial owner account. The first start creates a private `.env` file and prints 
 
 - Optional Business ID: `00000000-0000-4000-8000-000000000001`
 - Email: `owner@example.com`
-- Password: the generated `OWNER_PASSWORD` = `92a0ecce9eead6e8ec17abbe9fcd34071d16`
+- Password: read `OWNER_PASSWORD` from your private, locally generated `.env` file. There is no shared default password.
 
 Keep `.env` private and keep a copy of it. To choose your account details before first startup,
 run `npm run setup`, edit `.env`, then run `npm start`. Owner creation runs once per account;
 restarting the app preserves its existing password.
+
+To change an existing owner password, sign in, open **Inventory > Account & settings >
+Account maintenance**, enter the current password and a new password of 12 to 128 characters,
+and choose **Change password**. This ends all active sessions; sign in again with the new password.
+This workflow does not require SMTP. If access is lost, **Forgot password** requires working SMTP
+configuration. Editing `.env` alone does not change the existing account.
+
+If an account used a password previously shared in documentation, its owner must change it through
+that workflow. Removing text from this repository does not rotate any local or deployed credential.
 
 | Command             | Purpose                                        |
 | ------------------- | ---------------------------------------------- |
@@ -38,7 +47,7 @@ restarting the app preserves its existing password.
 | `npm run stop`      | Stop containers; saved database records remain |
 | `npm run logs`      | Follow service logs                            |
 | `npm run backup`    | Save a PostgreSQL backup under `backups/`      |
-| `npm run benchmark` | Measure the read-only API and export JSON      |
+| `npm run benchmark` | Generate an isolated synthetic account/workload and measure idle/busy API reads |
 | `docker compose ps` | Inspect service status                         |
 
 ## Accounts and Google sign-in
@@ -63,7 +72,8 @@ including Google Cloud's Web application client, consent/Audience configuration,
 testing/publishing rules. Google may require account selection or consent. A first Google user
 finishes store setup; a connected user signs in to the existing account.
 
-Password users connect Google intentionally from **Inventory > Settings > Your account**.
+Password users connect Google intentionally from **Inventory > Account & settings** (owners)
+or **Inventory > Account** (staff).
 Matching emails do not automatically connect identities. This preserves the signed-in user's
 store and owner/staff permissions.
 
@@ -83,8 +93,8 @@ works only on that person's computer.
 
 ## Where records are saved
 
-Products, sales, stock movements, imports, settings, accounts, forecast runs, predictions, and
-metrics are saved in PostgreSQL. Docker keeps the database in the persistent
+Products, sales, stock movements, imports, settings, accounts, forecast runs, predictions,
+metrics, and submitted client surveys are saved in PostgreSQL. Docker keeps the database in the persistent
 `stockcast_postgres_data` volume, including on Windows through Docker Desktop. Official XGBoost
 model files are saved in `stockcast_model_data`. Containers can be recreated without clearing
 those volumes.
@@ -99,9 +109,18 @@ imports add history; inventory counts are saved as audited stock adjustments.
 Open **Strategies > User guide** for the searchable guide covering every current page,
 daily workflows, CSV formats, forecasts, restock calculations, setup, backups, hosting, and
 troubleshooting. The manual can also be downloaded there and its source is
-[the complete user guide](docs/USER_GUIDE.md). **Strategies > Evaluation** restores the earlier
-five-criterion rating form. Ratings are browser-saved drafts, separate for each signed-in
-business/account; they are not uploaded to the server.
+[the complete user guide](docs/USER_GUIDE.md). **Strategies > Evaluation** provides a versioned
+client questionnaire covering functional suitability, reliability, interaction capability, and
+perceived performance efficiency. **Save draft** keeps answers in this browser; **Submit** saves
+one final questionnaire per authenticated account/version in PostgreSQL, with server-derived
+role, timestamp, and record provenance. Staff see their own submissions; owners see business
+summaries by role and can download submitted CSV. Unanswered and Not applicable items are
+excluded from rating means. Earlier browser ratings remain a read-only archive.
+
+Maintainability is documented separately in [the engineering review](docs/MAINTAINABILITY_REVIEW.md).
+Demo submissions and generated benchmark records are software test evidence; they do not represent
+actual client evaluation or research findings. See [the review verification record](docs/REVIEW_VERIFICATION.md)
+and the repeatable [API](docs/PERFORMANCE_BENCHMARK.md) and [browser](docs/BROWSER_BENCHMARK.md) procedures.
 
 1. Sign in and add products in **Inventory**.
 2. Record sales and deliveries. A sale deducts stock; a delivery increases stock.
@@ -113,13 +132,18 @@ business/account; they are not uploaded to the server.
 XGBoost eligibility requires enough _training_ history: eight calendar weeks and 100 nonzero sales
 days by default. Short histories still receive a Python Moving Average baseline. Refresh uses
 separate chronological training, validation, and final-test periods; fewer than three calendar
-days can use the baseline but cannot form all three evaluation periods.
+days can use the baseline but cannot form all three evaluation periods. Valid sales and effective
+confirmed-zero reviews for active products determine usable history through the current business
+date. Missing or excluded dates remain unknown/excluded, and old forecast dates stay fixed.
 
 The worker uses the official CPU XGBoost package, selects parameters using the configured
 training-only CV folds (default three), then chooses its operating method on later validation.
 It evaluates identical final-test dates for all compared methods, then refits for future
-operations. Frontend settings saves preserve backend thresholds, timezone, and fold count. Saved runs retain their input snapshot, model parameters, weights, predictions,
-and metrics. New records or settings prompt a forecast refresh. See
+operations. Normal Refresh expands validation for separate interval calibration when sufficient
+eligible history remains; shorter histories show unavailable intervals. Frontend settings saves
+preserve backend thresholds, timezone, and fold count. Saved runs retain their input snapshot, model parameters, weights, predictions,
+metrics, and measured processing phases. Missing timings remain unavailable; total processing is
+separate from model training and browser responsiveness. New records or settings prompt a forecast refresh. See
 [backend/README.md](backend/README.md) for the evaluation contract.
 
 ## Host online

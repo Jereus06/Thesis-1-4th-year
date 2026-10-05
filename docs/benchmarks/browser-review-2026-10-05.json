@@ -1,0 +1,2111 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-10-05T08:56:38.974Z",
+  "outcome": "passed",
+  "provenance": "Actual browser observations using a dedicated synthetic account; no client evaluation findings",
+  "environmentLabel": "isolated-local-compose",
+  "targetOrigin": "http://localhost:18089",
+  "expectedRole": "owner",
+  "repetitions": 10,
+  "measurement": "Controller elapsed time from navigation/input dispatch to the documented DOM-ready condition and two animation frames; includes CDP and readiness-poll overhead. Cold launch is separate; repeated reloads retain HTTP cache and the session.",
+  "host": {
+    "platform": "win32",
+    "release": "10.0.26200",
+    "cpuModel": "Intel(R) Core(TM) i7-8550U CPU @ 1.80GHz",
+    "logicalCpuCount": 8,
+    "totalRamBytes": 8442302464
+  },
+  "software": {
+    "node": "v24.13.1",
+    "edge": "Edg/154.0.4258.53",
+    "protocol": "1.3",
+    "javascript": "15.4.11.7"
+  },
+  "samples": [
+    {
+      "action": "cold-sign-in-page",
+      "iteration": 1,
+      "elapsedMs": 2206.8064999999997
+    },
+    {
+      "action": "sign-in-submit-to-dashboard",
+      "iteration": 1,
+      "elapsedMs": 1711.6148999999996
+    },
+    {
+      "action": "authenticated-dashboard-reload",
+      "iteration": 1,
+      "elapsedMs": 725.9642999999996,
+      "browser": {
+        "navigation": {
+          "type": "navigate",
+          "responseEndMs": 28.599999994039536,
+          "domContentLoadedMs": 69.39999997615814,
+          "loadMs": 75.7999999821186,
+          "transferBytes": 0
+        },
+        "paints": [
+          {
+            "name": "first-paint",
+            "startTimeMs": 136
+          },
+          {
+            "name": "first-contentful-paint",
+            "startTimeMs": 136
+          }
+        ],
+        "longTasks": []
+      }
+    },
+    {
+      "action": "inventory-navigation",
+      "iteration": 1,
+      "elapsedMs": 194.4274000000005
+    },
+    {
+      "action": "product-status-filter-all",
+      "iteration": 1,
+      "elapsedMs": 166.41820000000007
+    },
+    {
+      "action": "stock-ledger-navigation",
+      "iteration": 1,
+      "elapsedMs": 221.78840000000127
+    },
+    {
+      "action": "account-tab-and-member-load",
+      "iteration": 1,
+      "elapsedMs": 296.8839000000007
+    },
+    {
+      "action": "staff-list-refresh",
+      "iteration": 1,
+      "elapsedMs": 243.8089999999993
+    },
+    {
+      "action": "authenticated-dashboard-reload",
+      "iteration": 2,
+      "elapsedMs": 657.0411999999997,
+      "browser": {
+        "navigation": {
+          "type": "navigate",
+          "responseEndMs": 9.800000011920929,
+          "domContentLoadedMs": 53.900000005960464,
+          "loadMs": 55,
+          "transferBytes": 0
+        },
+        "paints": [
+          {
+            "name": "first-paint",
+            "startTimeMs": 136
+          },
+          {
+            "name": "first-contentful-paint",
+            "startTimeMs": 136
+          }
+        ],
+        "longTasks": []
+      }
+    },
+    {
+      "action": "inventory-navigation",
+      "iteration": 2,
+      "elapsedMs": 159.27499999999964
+    },
+    {
+      "action": "product-status-filter-all",
+      "iteration": 2,
+      "elapsedMs": 308.47289999999884
+    },
+    {
+      "action": "stock-ledger-navigation",
+      "iteration": 2,
+      "elapsedMs": 239.20540000000074
+    },
+    {
+      "action": "account-tab-and-member-load",
+      "iteration": 2,
+      "elapsedMs": 548.0938000000006
+    },
+    {
+      "action": "staff-list-refresh",
+      "iteration": 2,
+      "elapsedMs": 155.1836999999996
+    },
+    {
+      "action": "authenticated-dashboard-reload",
+      "iteration": 3,
+      "elapsedMs": 345.2507000000005,
+      "browser": {
+        "navigation": {
+          "type": "navigate",
+          "responseEndMs": 56.5,
+          "domContentLoadedMs": 78.7999999821186,
+          "loadMs": 83.09999999403954,
+          "transferBytes": 0
+        },
+        "paints": [
+          {
+            "name": "first-paint",
+            "startTimeMs": 308
+          },
+          {
+            "name": "first-contentful-paint",
+            "startTimeMs": 308
+          }
+        ],
+        "longTasks": []
+      }
+    },
+    {
+      "action": "inventory-navigation",
+      "iteration": 3,
+      "elapsedMs": 132.29100000000108
+    },
+    {
+      "action": "product-status-filter-all",
+      "iteration": 3,
+      "elapsedMs": 199.14480000000003
+    },
+    {
+      "action": "stock-ledger-navigation",
+      "iteration": 3,
+      "elapsedMs": 183.6831000000002
+    },
+    {
+      "action": "account-tab-and-member-load",
+      "iteration": 3,
+      "elapsedMs": 306.6112000000012
+    },
+    {
+      "action": "staff-list-refresh",
+      "iteration": 3,
+      "elapsedMs": 770.1324999999997
+    },
+    {
+      "action": "authenticated-dashboard-reload",
+      "iteration": 4,
+      "elapsedMs": 508.04619999999886,
+      "browser": {
+        "navigation": {
+          "type": "navigate",
+          "responseEndMs": 7.9000000059604645,
+          "domContentLoadedMs": 45.400000005960464,
+          "loadMs": 68.40000000596046,
+          "transferBytes": 0
+        },
+        "paints": [
+          {
+            "name": "first-paint",
+            "startTimeMs": 144
+          },
+          {
+            "name": "first-contentful-paint",
+            "startTimeMs": 144
+          }
+        ],
+        "longTasks": []
+      }
+    },
+    {
+      "action": "inventory-navigation",
+      "iteration": 4,
+      "elapsedMs": 123.22519999999895
+    },
+    {
+      "action": "product-status-filter-all",
+      "iteration": 4,
+      "elapsedMs": 142.85000000000036
+    },
+    {
+      "action": "stock-ledger-navigation",
+      "iteration": 4,
+      "elapsedMs": 133.16309999999976
+    },
+    {
+      "action": "account-tab-and-member-load",
+      "iteration": 4,
+      "elapsedMs": 148.73439999999937
+    },
+    {
+      "action": "staff-list-refresh",
+      "iteration": 4,
+      "elapsedMs": 168.83129999999983
+    },
+    {
+      "action": "authenticated-dashboard-reload",
+      "iteration": 5,
+      "elapsedMs": 493.53510000000097,
+      "browser": {
+        "navigation": {
+          "type": "navigate",
+          "responseEndMs": 12.099999994039536,
+          "domContentLoadedMs": 73.59999999403954,
+          "loadMs": 77.59999999403954,
+          "transferBytes": 0
+        },
+        "paints": [
+          {
+            "name": "first-paint",
+            "startTimeMs": 160
+          },
+          {
+            "name": "first-contentful-paint",
+            "startTimeMs": 160
+          }
+        ],
+        "longTasks": []
+      }
+    },
+    {
+      "action": "inventory-navigation",
+      "iteration": 5,
+      "elapsedMs": 111.17720000000008
+    },
+    {
+      "action": "product-status-filter-all",
+      "iteration": 5,
+      "elapsedMs": 196.2365000000009
+    },
+    {
+      "action": "stock-ledger-navigation",
+      "iteration": 5,
+      "elapsedMs": 154.04169999999976
+    },
+    {
+      "action": "account-tab-and-member-load",
+      "iteration": 5,
+      "elapsedMs": 151.2476999999999
+    },
+    {
+      "action": "staff-list-refresh",
+      "iteration": 5,
+      "elapsedMs": 159.8734000000004
+    },
+    {
+      "action": "authenticated-dashboard-reload",
+      "iteration": 6,
+      "elapsedMs": 430.3240999999998,
+      "browser": {
+        "navigation": {
+          "type": "navigate",
+          "responseEndMs": 9.099999994039536,
+          "domContentLoadedMs": 51.39999997615814,
+          "loadMs": 52.79999998211861,
+          "transferBytes": 0
+        },
+        "paints": [
+          {
+            "name": "first-paint",
+            "startTimeMs": 152
+          },
+          {
+            "name": "first-contentful-paint",
+            "startTimeMs": 152
+          }
+        ],
+        "longTasks": []
+      }
+    },
+    {
+      "action": "inventory-navigation",
+      "iteration": 6,
+      "elapsedMs": 113.89020000000164
+    },
+    {
+      "action": "product-status-filter-all",
+      "iteration": 6,
+      "elapsedMs": 197.86419999999998
+    },
+    {
+      "action": "stock-ledger-navigation",
+      "iteration": 6,
+      "elapsedMs": 230.25790000000052
+    },
+    {
+      "action": "account-tab-and-member-load",
+      "iteration": 6,
+      "elapsedMs": 211.79049999999916
+    },
+    {
+      "action": "staff-list-refresh",
+      "iteration": 6,
+      "elapsedMs": 170.0709999999999
+    },
+    {
+      "action": "authenticated-dashboard-reload",
+      "iteration": 7,
+      "elapsedMs": 386.8835999999974,
+      "browser": {
+        "navigation": {
+          "type": "navigate",
+          "responseEndMs": 11.200000017881393,
+          "domContentLoadedMs": 60.599999994039536,
+          "loadMs": 61.900000005960464,
+          "transferBytes": 0
+        },
+        "paints": [
+          {
+            "name": "first-paint",
+            "startTimeMs": 152
+          },
+          {
+            "name": "first-contentful-paint",
+            "startTimeMs": 152
+          }
+        ],
+        "longTasks": []
+      }
+    },
+    {
+      "action": "inventory-navigation",
+      "iteration": 7,
+      "elapsedMs": 221.49289999999746
+    },
+    {
+      "action": "product-status-filter-all",
+      "iteration": 7,
+      "elapsedMs": 338.7440999999999
+    },
+    {
+      "action": "stock-ledger-navigation",
+      "iteration": 7,
+      "elapsedMs": 230.26499999999942
+    },
+    {
+      "action": "account-tab-and-member-load",
+      "iteration": 7,
+      "elapsedMs": 237.11480000000302
+    },
+    {
+      "action": "staff-list-refresh",
+      "iteration": 7,
+      "elapsedMs": 152.46039999999994
+    },
+    {
+      "action": "authenticated-dashboard-reload",
+      "iteration": 8,
+      "elapsedMs": 436.4338000000025,
+      "browser": {
+        "navigation": {
+          "type": "navigate",
+          "responseEndMs": 26.299999982118607,
+          "domContentLoadedMs": 67.69999998807907,
+          "loadMs": 68.39999997615814,
+          "transferBytes": 0
+        },
+        "paints": [
+          {
+            "name": "first-paint",
+            "startTimeMs": 164
+          },
+          {
+            "name": "first-contentful-paint",
+            "startTimeMs": 164
+          }
+        ],
+        "longTasks": []
+      }
+    },
+    {
+      "action": "inventory-navigation",
+      "iteration": 8,
+      "elapsedMs": 140.14800000000105
+    },
+    {
+      "action": "product-status-filter-all",
+      "iteration": 8,
+      "elapsedMs": 220.56020000000353
+    },
+    {
+      "action": "stock-ledger-navigation",
+      "iteration": 8,
+      "elapsedMs": 227.77400000000125
+    },
+    {
+      "action": "account-tab-and-member-load",
+      "iteration": 8,
+      "elapsedMs": 168.02409999999873
+    },
+    {
+      "action": "staff-list-refresh",
+      "iteration": 8,
+      "elapsedMs": 243.37420000000202
+    },
+    {
+      "action": "authenticated-dashboard-reload",
+      "iteration": 9,
+      "elapsedMs": 439.1921000000002,
+      "browser": {
+        "navigation": {
+          "type": "navigate",
+          "responseEndMs": 9.200000017881393,
+          "domContentLoadedMs": 48.5,
+          "loadMs": 50,
+          "transferBytes": 0
+        },
+        "paints": [
+          {
+            "name": "first-paint",
+            "startTimeMs": 136
+          },
+          {
+            "name": "first-contentful-paint",
+            "startTimeMs": 136
+          }
+        ],
+        "longTasks": []
+      }
+    },
+    {
+      "action": "inventory-navigation",
+      "iteration": 9,
+      "elapsedMs": 182.66830000000118
+    },
+    {
+      "action": "product-status-filter-all",
+      "iteration": 9,
+      "elapsedMs": 1907.2007000000012
+    },
+    {
+      "action": "stock-ledger-navigation",
+      "iteration": 9,
+      "elapsedMs": 131.19830000000002
+    },
+    {
+      "action": "account-tab-and-member-load",
+      "iteration": 9,
+      "elapsedMs": 110.01670000000013
+    },
+    {
+      "action": "staff-list-refresh",
+      "iteration": 9,
+      "elapsedMs": 90.5518000000011
+    },
+    {
+      "action": "authenticated-dashboard-reload",
+      "iteration": 10,
+      "elapsedMs": 417.5352000000021,
+      "browser": {
+        "navigation": {
+          "type": "navigate",
+          "responseEndMs": 11.5,
+          "domContentLoadedMs": 44.70000001788139,
+          "loadMs": 50.099999994039536,
+          "transferBytes": 0
+        },
+        "paints": [
+          {
+            "name": "first-paint",
+            "startTimeMs": 152
+          },
+          {
+            "name": "first-contentful-paint",
+            "startTimeMs": 152
+          }
+        ],
+        "longTasks": []
+      }
+    },
+    {
+      "action": "inventory-navigation",
+      "iteration": 10,
+      "elapsedMs": 91.41049999999814
+    },
+    {
+      "action": "product-status-filter-all",
+      "iteration": 10,
+      "elapsedMs": 118.84119999999893
+    },
+    {
+      "action": "stock-ledger-navigation",
+      "iteration": 10,
+      "elapsedMs": 156.10699999999997
+    },
+    {
+      "action": "account-tab-and-member-load",
+      "iteration": 10,
+      "elapsedMs": 146.42020000000048
+    },
+    {
+      "action": "staff-list-refresh",
+      "iteration": 10,
+      "elapsedMs": 163.48649999999907
+    },
+    {
+      "action": "member-retry-after-injected-network-failure",
+      "iteration": 1,
+      "elapsedMs": 130.52410000000236
+    }
+  ],
+  "summariesMs": {
+    "cold-sign-in-page": {
+      "count": 1,
+      "median": 2206.8064999999997,
+      "p95": 2206.8064999999997,
+      "min": 2206.8064999999997,
+      "max": 2206.8064999999997
+    },
+    "sign-in-submit-to-dashboard": {
+      "count": 1,
+      "median": 1711.6148999999996,
+      "p95": 1711.6148999999996,
+      "min": 1711.6148999999996,
+      "max": 1711.6148999999996
+    },
+    "authenticated-dashboard-reload": {
+      "count": 10,
+      "median": 436.4338000000025,
+      "p95": 725.9642999999996,
+      "min": 345.2507000000005,
+      "max": 725.9642999999996
+    },
+    "inventory-navigation": {
+      "count": 10,
+      "median": 132.29100000000108,
+      "p95": 221.49289999999746,
+      "min": 91.41049999999814,
+      "max": 221.49289999999746
+    },
+    "product-status-filter-all": {
+      "count": 10,
+      "median": 197.86419999999998,
+      "p95": 1907.2007000000012,
+      "min": 118.84119999999893,
+      "max": 1907.2007000000012
+    },
+    "stock-ledger-navigation": {
+      "count": 10,
+      "median": 183.6831000000002,
+      "p95": 239.20540000000074,
+      "min": 131.19830000000002,
+      "max": 239.20540000000074
+    },
+    "account-tab-and-member-load": {
+      "count": 10,
+      "median": 168.02409999999873,
+      "p95": 548.0938000000006,
+      "min": 110.01670000000013,
+      "max": 548.0938000000006
+    },
+    "staff-list-refresh": {
+      "count": 10,
+      "median": 163.48649999999907,
+      "p95": 770.1324999999997,
+      "min": 90.5518000000011,
+      "max": 770.1324999999997
+    },
+    "member-retry-after-injected-network-failure": {
+      "count": 1,
+      "median": 130.52410000000236,
+      "p95": 130.52410000000236,
+      "min": 130.52410000000236,
+      "max": 130.52410000000236
+    }
+  },
+  "checks": [
+    {
+      "name": "real-sign-in-form-and-dashboard",
+      "passed": true
+    },
+    {
+      "name": "inventory-products-and-stock-ledger-navigation",
+      "passed": true
+    },
+    {
+      "name": "owner-staff-list-load-and-refresh",
+      "passed": true
+    },
+    {
+      "name": "visible-member-error-and-successful-retry",
+      "passed": true
+    }
+  ],
+  "injectedFailures": [
+    {
+      "operation": "GET /api/v1/auth/members",
+      "method": "Edge request blocking",
+      "errorVisible": true,
+      "actualRetrySucceeded": true
+    }
+  ],
+  "stages": [
+    {
+      "stage": "edge-process-start",
+      "at": "2026-10-05T08:56:38.983Z"
+    },
+    {
+      "stage": "devtools-port-ready",
+      "at": "2026-10-05T08:56:40.446Z"
+    },
+    {
+      "stage": "devtools-version-read",
+      "at": "2026-10-05T08:56:41.161Z"
+    },
+    {
+      "stage": "browser-websocket-connected",
+      "at": "2026-10-05T08:56:41.223Z"
+    },
+    {
+      "stage": "browser-target-created",
+      "at": "2026-10-05T08:56:41.562Z"
+    },
+    {
+      "stage": "page-websocket-connected",
+      "at": "2026-10-05T08:56:41.638Z"
+    },
+    {
+      "stage": "page-domain-enabled",
+      "at": "2026-10-05T08:56:42.391Z"
+    },
+    {
+      "stage": "runtime-domain-enabled",
+      "at": "2026-10-05T08:56:42.492Z"
+    },
+    {
+      "stage": "network-domain-enabled",
+      "at": "2026-10-05T08:56:42.550Z"
+    },
+    {
+      "stage": "browser-ready",
+      "at": "2026-10-05T08:56:42.576Z"
+    },
+    {
+      "stage": "cold-sign-in-page",
+      "iteration": 1,
+      "at": "2026-10-05T08:56:42.576Z"
+    },
+    {
+      "stage": "sign-in-submit-to-dashboard",
+      "iteration": 1,
+      "at": "2026-10-05T08:56:45.037Z"
+    },
+    {
+      "stage": "authenticated-dashboard-reload",
+      "iteration": 1,
+      "at": "2026-10-05T08:56:46.845Z"
+    },
+    {
+      "stage": "inventory-navigation",
+      "iteration": 1,
+      "at": "2026-10-05T08:56:47.574Z"
+    },
+    {
+      "stage": "product-status-filter-all",
+      "iteration": 1,
+      "at": "2026-10-05T08:56:47.768Z"
+    },
+    {
+      "stage": "stock-ledger-navigation",
+      "iteration": 1,
+      "at": "2026-10-05T08:56:47.935Z"
+    },
+    {
+      "stage": "account-tab-and-member-load",
+      "iteration": 1,
+      "at": "2026-10-05T08:56:48.156Z"
+    },
+    {
+      "stage": "staff-list-refresh",
+      "iteration": 1,
+      "at": "2026-10-05T08:56:48.453Z"
+    },
+    {
+      "stage": "authenticated-dashboard-reload",
+      "iteration": 2,
+      "at": "2026-10-05T08:56:48.697Z"
+    },
+    {
+      "stage": "inventory-navigation",
+      "iteration": 2,
+      "at": "2026-10-05T08:56:49.359Z"
+    },
+    {
+      "stage": "product-status-filter-all",
+      "iteration": 2,
+      "at": "2026-10-05T08:56:49.518Z"
+    },
+    {
+      "stage": "stock-ledger-navigation",
+      "iteration": 2,
+      "at": "2026-10-05T08:56:49.826Z"
+    },
+    {
+      "stage": "account-tab-and-member-load",
+      "iteration": 2,
+      "at": "2026-10-05T08:56:50.066Z"
+    },
+    {
+      "stage": "staff-list-refresh",
+      "iteration": 2,
+      "at": "2026-10-05T08:56:50.614Z"
+    },
+    {
+      "stage": "authenticated-dashboard-reload",
+      "iteration": 3,
+      "at": "2026-10-05T08:56:50.769Z"
+    },
+    {
+      "stage": "inventory-navigation",
+      "iteration": 3,
+      "at": "2026-10-05T08:56:51.119Z"
+    },
+    {
+      "stage": "product-status-filter-all",
+      "iteration": 3,
+      "at": "2026-10-05T08:56:51.251Z"
+    },
+    {
+      "stage": "stock-ledger-navigation",
+      "iteration": 3,
+      "at": "2026-10-05T08:56:51.450Z"
+    },
+    {
+      "stage": "account-tab-and-member-load",
+      "iteration": 3,
+      "at": "2026-10-05T08:56:51.634Z"
+    },
+    {
+      "stage": "staff-list-refresh",
+      "iteration": 3,
+      "at": "2026-10-05T08:56:51.941Z"
+    },
+    {
+      "stage": "authenticated-dashboard-reload",
+      "iteration": 4,
+      "at": "2026-10-05T08:56:52.711Z"
+    },
+    {
+      "stage": "inventory-navigation",
+      "iteration": 4,
+      "at": "2026-10-05T08:56:53.226Z"
+    },
+    {
+      "stage": "product-status-filter-all",
+      "iteration": 4,
+      "at": "2026-10-05T08:56:53.349Z"
+    },
+    {
+      "stage": "stock-ledger-navigation",
+      "iteration": 4,
+      "at": "2026-10-05T08:56:53.492Z"
+    },
+    {
+      "stage": "account-tab-and-member-load",
+      "iteration": 4,
+      "at": "2026-10-05T08:56:53.625Z"
+    },
+    {
+      "stage": "staff-list-refresh",
+      "iteration": 4,
+      "at": "2026-10-05T08:56:53.774Z"
+    },
+    {
+      "stage": "authenticated-dashboard-reload",
+      "iteration": 5,
+      "at": "2026-10-05T08:56:53.943Z"
+    },
+    {
+      "stage": "inventory-navigation",
+      "iteration": 5,
+      "at": "2026-10-05T08:56:54.440Z"
+    },
+    {
+      "stage": "product-status-filter-all",
+      "iteration": 5,
+      "at": "2026-10-05T08:56:54.551Z"
+    },
+    {
+      "stage": "stock-ledger-navigation",
+      "iteration": 5,
+      "at": "2026-10-05T08:56:54.748Z"
+    },
+    {
+      "stage": "account-tab-and-member-load",
+      "iteration": 5,
+      "at": "2026-10-05T08:56:54.902Z"
+    },
+    {
+      "stage": "staff-list-refresh",
+      "iteration": 5,
+      "at": "2026-10-05T08:56:55.053Z"
+    },
+    {
+      "stage": "authenticated-dashboard-reload",
+      "iteration": 6,
+      "at": "2026-10-05T08:56:55.213Z"
+    },
+    {
+      "stage": "inventory-navigation",
+      "iteration": 6,
+      "at": "2026-10-05T08:56:55.653Z"
+    },
+    {
+      "stage": "product-status-filter-all",
+      "iteration": 6,
+      "at": "2026-10-05T08:56:55.767Z"
+    },
+    {
+      "stage": "stock-ledger-navigation",
+      "iteration": 6,
+      "at": "2026-10-05T08:56:55.965Z"
+    },
+    {
+      "stage": "account-tab-and-member-load",
+      "iteration": 6,
+      "at": "2026-10-05T08:56:56.195Z"
+    },
+    {
+      "stage": "staff-list-refresh",
+      "iteration": 6,
+      "at": "2026-10-05T08:56:56.407Z"
+    },
+    {
+      "stage": "authenticated-dashboard-reload",
+      "iteration": 7,
+      "at": "2026-10-05T08:56:56.577Z"
+    },
+    {
+      "stage": "inventory-navigation",
+      "iteration": 7,
+      "at": "2026-10-05T08:56:56.969Z"
+    },
+    {
+      "stage": "product-status-filter-all",
+      "iteration": 7,
+      "at": "2026-10-05T08:56:57.190Z"
+    },
+    {
+      "stage": "stock-ledger-navigation",
+      "iteration": 7,
+      "at": "2026-10-05T08:56:57.529Z"
+    },
+    {
+      "stage": "account-tab-and-member-load",
+      "iteration": 7,
+      "at": "2026-10-05T08:56:57.759Z"
+    },
+    {
+      "stage": "staff-list-refresh",
+      "iteration": 7,
+      "at": "2026-10-05T08:56:57.997Z"
+    },
+    {
+      "stage": "authenticated-dashboard-reload",
+      "iteration": 8,
+      "at": "2026-10-05T08:56:58.149Z"
+    },
+    {
+      "stage": "inventory-navigation",
+      "iteration": 8,
+      "at": "2026-10-05T08:56:58.594Z"
+    },
+    {
+      "stage": "product-status-filter-all",
+      "iteration": 8,
+      "at": "2026-10-05T08:56:58.734Z"
+    },
+    {
+      "stage": "stock-ledger-navigation",
+      "iteration": 8,
+      "at": "2026-10-05T08:56:58.955Z"
+    },
+    {
+      "stage": "account-tab-and-member-load",
+      "iteration": 8,
+      "at": "2026-10-05T08:56:59.182Z"
+    },
+    {
+      "stage": "staff-list-refresh",
+      "iteration": 8,
+      "at": "2026-10-05T08:56:59.350Z"
+    },
+    {
+      "stage": "authenticated-dashboard-reload",
+      "iteration": 9,
+      "at": "2026-10-05T08:56:59.594Z"
+    },
+    {
+      "stage": "inventory-navigation",
+      "iteration": 9,
+      "at": "2026-10-05T08:57:00.040Z"
+    },
+    {
+      "stage": "product-status-filter-all",
+      "iteration": 9,
+      "at": "2026-10-05T08:57:00.222Z"
+    },
+    {
+      "stage": "stock-ledger-navigation",
+      "iteration": 9,
+      "at": "2026-10-05T08:57:02.130Z"
+    },
+    {
+      "stage": "account-tab-and-member-load",
+      "iteration": 9,
+      "at": "2026-10-05T08:57:02.261Z"
+    },
+    {
+      "stage": "staff-list-refresh",
+      "iteration": 9,
+      "at": "2026-10-05T08:57:02.371Z"
+    },
+    {
+      "stage": "authenticated-dashboard-reload",
+      "iteration": 10,
+      "at": "2026-10-05T08:57:02.462Z"
+    },
+    {
+      "stage": "inventory-navigation",
+      "iteration": 10,
+      "at": "2026-10-05T08:57:02.884Z"
+    },
+    {
+      "stage": "product-status-filter-all",
+      "iteration": 10,
+      "at": "2026-10-05T08:57:02.976Z"
+    },
+    {
+      "stage": "stock-ledger-navigation",
+      "iteration": 10,
+      "at": "2026-10-05T08:57:03.095Z"
+    },
+    {
+      "stage": "account-tab-and-member-load",
+      "iteration": 10,
+      "at": "2026-10-05T08:57:03.251Z"
+    },
+    {
+      "stage": "staff-list-refresh",
+      "iteration": 10,
+      "at": "2026-10-05T08:57:03.397Z"
+    },
+    {
+      "stage": "member-retry-after-injected-network-failure",
+      "iteration": 1,
+      "at": "2026-10-05T08:57:03.797Z"
+    }
+  ],
+  "stage": "member-retry-after-injected-network-failure",
+  "coldPage": {
+    "navigation": {
+      "type": "navigate",
+      "responseEndMs": 999.1999999880791,
+      "domContentLoadedMs": 1644.199999988079,
+      "loadMs": 1645,
+      "transferBytes": 948
+    },
+    "paints": [
+      {
+        "name": "first-paint",
+        "startTimeMs": 1480
+      },
+      {
+        "name": "first-contentful-paint",
+        "startTimeMs": 1872
+      }
+    ],
+    "longTasks": [
+      {
+        "startTime": 1560.4000000059605,
+        "duration": 84
+      }
+    ]
+  },
+  "workload": {
+    "role": "owner",
+    "dataOrigin": "demo",
+    "productCount": 0,
+    "activeProductCount": 0,
+    "savedPredictionCount": 0,
+    "latestRunStatus": "none",
+    "savedRunStatus": "none"
+  },
+  "finishedAt": "2026-10-05T08:57:03.928Z",
+  "networkSamples": [
+    {
+      "path": "/api/v1/auth/me",
+      "method": "GET",
+      "status": 401,
+      "elapsedMs": 166.60300001967698,
+      "encodedBytes": 269
+    },
+    {
+      "path": "/api/v1/auth/google/pending",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 181.65799998678267,
+      "encodedBytes": 240
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 191.88699999358505,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/sign-in",
+      "method": "POST",
+      "status": 200,
+      "elapsedMs": 633.7670000211801,
+      "encodedBytes": 760
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/sales",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 122.107999981381,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 144.48700001230463,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/settings",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 215.8730000082869,
+      "encodedBytes": 462
+    },
+    {
+      "path": "/api/v1/businesses/:businessId",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 261.8770000117365,
+      "encodedBytes": 372
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 375.15399997937493,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/auth/me",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 21.99900001869537,
+      "encodedBytes": 416
+    },
+    {
+      "path": "/api/v1/businesses/:businessId",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 18.416999984765425,
+      "encodedBytes": 372
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 17.672999994829297,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 24.36199999647215,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 47.46299999533221,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/me",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 57.222000003093854,
+      "encodedBytes": 416
+    },
+    {
+      "path": "/api/v1/auth/google/pending",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 56.22999998740852,
+      "encodedBytes": 240
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 24.376000015763566,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/sales",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 71.06100002420135,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/settings",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 78.69599998230115,
+      "encodedBytes": 462
+    },
+    {
+      "path": "/api/v1/businesses/:businessId",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 91.13399998750538,
+      "encodedBytes": 372
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 223.80599999451078,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/inventory-movements",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 92.95900000142865,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 101.83099997811951,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 53.28599998028949,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 15.636999974958599,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 52.30899999151006,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 73.41399998404086,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 33.73300001840107,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/google/pending",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 46.157000004313886,
+      "encodedBytes": 240
+    },
+    {
+      "path": "/api/v1/auth/me",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 83.36299998336472,
+      "encodedBytes": 416
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/sales",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 156.79199999431148,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 246.42399998265319,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 251.01399997947738,
+      "encodedBytes": 372
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/settings",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 276.93599998019636,
+      "encodedBytes": 462
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 125.53499999921769,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 111.97100000572391,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/inventory-movements",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 112.04900001757778,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 35.383000009460375,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 168.5820000129752,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 62.191000004531816,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 64.76099998690188,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 26.646999991498888,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/google/pending",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 30.658000003313646,
+      "encodedBytes": 240
+    },
+    {
+      "path": "/api/v1/auth/me",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 57.61499999789521,
+      "encodedBytes": 416
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/settings",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 46.92200000863522,
+      "encodedBytes": 462
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/sales",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 48.43399999663234,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 55.93400000361726,
+      "encodedBytes": 372
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 66.34100002702326,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 39.696000021649525,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 53.805000003194436,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/inventory-movements",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 82.21699998830445,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 84.13500001188368,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 45.64700002083555,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 81.36499999091029,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 658.5449999838602,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 114.85500002163462,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/google/pending",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 124.81300000217743,
+      "encodedBytes": 240
+    },
+    {
+      "path": "/api/v1/auth/me",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 164.14899998926558,
+      "encodedBytes": 416
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 42.73200000170618,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 50.32099998788908,
+      "encodedBytes": 372
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/settings",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 64.61600001784973,
+      "encodedBytes": 462
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/sales",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 77.0769999944605,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 58.36299998918548,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 38.22799999034032,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/inventory-movements",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 53.281999978935346,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 31.164999993052334,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 11.809000017819926,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 21.917000005487353,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 24.70300000277348,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 75.20999998087063,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/google/pending",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 75.85900000412948,
+      "encodedBytes": 240
+    },
+    {
+      "path": "/api/v1/auth/me",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 116.42800000845455,
+      "encodedBytes": 416
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/sales",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 54.060000024037436,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 69.00600000517443,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 86.78800001507625,
+      "encodedBytes": 372
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/settings",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 96.77199998986907,
+      "encodedBytes": 462
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 78.26800001203083,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 53.9989999961108,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/inventory-movements",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 71.59199999296106,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 44.21399999409914,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 22.52499997848645,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 31.703999993624166,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 35.98099999362603,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 43.416000000433996,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/google/pending",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 43.07800001697615,
+      "encodedBytes": 240
+    },
+    {
+      "path": "/api/v1/auth/me",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 100.53000002517365,
+      "encodedBytes": 416
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 40.33200000412762,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/sales",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 50.58300000382587,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 64.42400001105852,
+      "encodedBytes": 372
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/settings",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 70.3380000195466,
+      "encodedBytes": 462
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 60.90099998982623,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 82.55999998073094,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/inventory-movements",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 98.05400000186637,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 47.135000000707805,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 18.471999996108934,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 151.1700000264682,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 23.90699999523349,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 52.73299998953007,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/google/pending",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 55.286999995587394,
+      "encodedBytes": 240
+    },
+    {
+      "path": "/api/v1/auth/me",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 78.52500001899898,
+      "encodedBytes": 416
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 37.39000001223758,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 43.14299998804927,
+      "encodedBytes": 372
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/sales",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 53.22200001683086,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/settings",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 68.48699998226948,
+      "encodedBytes": 462
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 50.00899999868125,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/inventory-movements",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 35.78700000070967,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 62.37800000235438,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 29.898000007960945,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 71.7000000004191,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 95.93599999789149,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 38.828999997349456,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 27.67199999652803,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/google/pending",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 30.138000001898035,
+      "encodedBytes": 240
+    },
+    {
+      "path": "/api/v1/auth/me",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 42.22699999809265,
+      "encodedBytes": 416
+    },
+    {
+      "path": "/api/v1/businesses/:businessId",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 37.67299998435192,
+      "encodedBytes": 372
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/sales",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 43.20200000074692,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/settings",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 58.33999998867512,
+      "encodedBytes": 462
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 64.12699999054894,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 36.38100001262501,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 95.32799999578856,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/inventory-movements",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 104.5999999914784,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 81.57700000447221,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 25.91599998413585,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 46.747000014875084,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 74.76600000518374,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 41.67500001494773,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/google/pending",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 41.427999996813014,
+      "encodedBytes": 240
+    },
+    {
+      "path": "/api/v1/auth/me",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 89.90099999937229,
+      "encodedBytes": 416
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/sales",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 38.877999992109835,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 54.20099999173544,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 68.58600000850856,
+      "encodedBytes": 372
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/settings",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 79.60299999103881,
+      "encodedBytes": 462
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 103.86899998411536,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/inventory-movements",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 29.25699998741038,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 42.17100000823848,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 34.50400001020171,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 12.734000018099323,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 52.66400001710281,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 24.682999996002764,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 23.782000003848225,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/google/pending",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 23.44799999264069,
+      "encodedBytes": 240
+    },
+    {
+      "path": "/api/v1/auth/me",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 59.864999988349155,
+      "encodedBytes": 416
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 71.88299999688752,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/sales",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 97.03299999819137,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/settings",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 101.64599999552593,
+      "encodedBytes": 462
+    },
+    {
+      "path": "/api/v1/businesses/:businessId",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 117.19900000025518,
+      "encodedBytes": 372
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 70.39300000178628,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/inventory-movements",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 35.43099999660626,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/products",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 42.70599997835234,
+      "encodedBytes": 238
+    },
+    {
+      "path": "/api/v1/businesses/:businessId/forecast-dashboard",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 33.728000009432435,
+      "encodedBytes": 574
+    },
+    {
+      "path": "/api/v1/auth/options",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 54.10999999730848,
+      "encodedBytes": 280
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 57.53399999230169,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 30.515999998897314,
+      "encodedBytes": 378
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "outcome": "network-failure",
+      "deliberatelyBlocked": true
+    },
+    {
+      "path": "/api/v1/auth/members",
+      "method": "GET",
+      "status": 200,
+      "elapsedMs": 24.418999993940815,
+      "encodedBytes": 378
+    }
+  ]
+}

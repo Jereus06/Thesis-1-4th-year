@@ -24,6 +24,8 @@ TABLES = (
     "google_pending",
     "sales_day_quality",
     "sales_day_quality_audit",
+    "client_survey_submissions",
+    "client_survey_answers",
 )
 
 

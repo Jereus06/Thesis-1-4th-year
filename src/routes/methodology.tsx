@@ -456,7 +456,7 @@ function TechniqueEvidence({ id }: { id: number }) {
       <Evidence
         items={[
           d.servingFromCache || d.mode === "train"
-            ? `Cache hit · last fit ${result.trainedMs < 1000 ? `${result.trainedMs} ms` : `${(result.trainedMs / 1000).toFixed(1)}s`}`
+            ? `Cache hit · last processing ${result.trainedMs < 1000 ? `${result.trainedMs} ms` : `${(result.trainedMs / 1000).toFixed(1)}s`}`
             : "No trained cache yet — serving Moving Average",
           "Serialized forecasts live in memory + local cache (joblib analogue in the browser)",
         ]}
@@ -555,7 +555,7 @@ function ModelsPanel() {
           <CardDescription>
             Same chronological holdout for Moving Average, XGBoost, and the weighted ensemble.
             {ready && result?.trainedMs
-              ? ` Last train ${result.trainedMs < 1000 ? `${result.trainedMs} ms` : `${(result.trainedMs / 1000).toFixed(1)}s`}.`
+              ? ` Last processing ${result.trainedMs < 1000 ? `${result.trainedMs} ms` : `${(result.trainedMs / 1000).toFixed(1)}s`}.`
               : ""}
           </CardDescription>
         </CardHeader>

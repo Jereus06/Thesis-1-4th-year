@@ -3,6 +3,33 @@ import test from "node:test";
 import { toReorderRows, toResult } from "../src/lib/api-forecast.ts";
 import { currentForecastDashboard } from "../src/lib/forecast-validity.ts";
 import { buildReorderRows } from "../src/lib/inventory/reorder.ts";
+import { formatForecastDuration } from "../src/lib/forecast-timing.ts";
+
+test("saved training duration uses model fits and preserves separate total processing", () => {
+  const timing = { trainingMs: 125, preparationMs: 20, validationEvaluationMs: 40,
+    persistenceMs: 15, totalProcessingMs: 210, queueWaitMs: 1000 };
+  const data = dashboard({ run: { id: "timed-run", createdAt: "2026-10-04", timing } });
+  const mapped = toResult(data, [product], 8, 20);
+  assert.equal(mapped.trainedMs, 125);
+  assert.deepEqual(mapped.processingTiming, timing);
+});
+
+test("unmeasured training stays unavailable even when total processing is saved", () => {
+  for (const timing of [{ totalProcessingMs: 30 }, { trainingMs: null, totalProcessingMs: 30 }]) {
+    const mapped = toResult(dashboard({ run: { id: "baseline-run", createdAt: "2026-10-04", timing } }), [product], 8, 20);
+    assert.ok(Number.isNaN(mapped.trainedMs));
+    assert.deepEqual(mapped.processingTiming, timing);
+  }
+  assert.equal(toResult(dashboard(), [product], 8, 20).processingTiming, undefined);
+});
+
+test("duration labels preserve unavailable values and measured zero", () => {
+  for (const value of [null, undefined, NaN, Infinity, -1])
+    assert.equal(formatForecastDuration(value), "Unavailable");
+  assert.equal(formatForecastDuration(0), "0.0 ms");
+  assert.equal(formatForecastDuration(125), "125.0 ms");
+  assert.equal(formatForecastDuration(1250), "1.25 s");
+});
 
 const product = {
   id: "synthetic-product",

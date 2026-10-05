@@ -29,6 +29,7 @@ from .schemas import (
     SettingsUpdate,
 )
 from .security import Principal, token_hash
+from .survey import create_survey_router
 
 
 @asynccontextmanager
@@ -143,6 +144,7 @@ def health():
 
 
 app.include_router(create_auth_router(repo))
+app.include_router(create_survey_router(repo, principal, csrf_protected, business_user))
 
 
 @app.post("/api/v1/auth/sign-out")

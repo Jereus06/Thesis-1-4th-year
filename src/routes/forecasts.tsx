@@ -6,6 +6,7 @@ import { DemandEvidence } from "@/components/demand-evidence";
 import { IntervalEvidence } from "@/components/interval-evidence";
 import { useForecast } from "@/components/forecast-context";
 import { TrainingBanner } from "@/components/training-banner";
+import { ForecastTimingEvidence } from "@/components/forecast-timing-evidence";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
@@ -96,6 +97,7 @@ function ForecastsPage() {
       </header>
 
       <TrainingBanner />
+      {mode === "api" && <ForecastTimingEvidence timing={result?.processingTiming} />}
       {!canRefreshForecast && (
         <p className="text-sm text-muted">The owner can refresh forecasts after records change.</p>
       )}

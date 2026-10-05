@@ -1,6 +1,6 @@
 # StockCast project context
 
-Last checked against this branch: 2026-10-04. Read alongside [AGENTS.md](../AGENTS.md) and source.
+Last checked against this workspace: 2026-10-05. Read alongside [AGENTS.md](../AGENTS.md) and source.
 
 ## Purpose and confirmed research context
 
@@ -33,7 +33,7 @@ outside the repository. Downloads under `public/thesis/` can lag current drafts.
 | Data quality       | Missing/incomplete dates, explicit zeros, closures, and stockouts have reviewed classifications, audit history, and CSV export                                              |
 | Backups            | `npm run backup` creates a PostgreSQL dump; CI checks a separate restore and container recreation                                                                           |
 | User guide         | Strategies User guide tab with search, expandable topics, and manual download from docs/USER_GUIDE.md; legacy /guide redirects inside the authenticated app                 |
-| System evaluation  | Strategies Evaluation tab restores five selected quality ratings; API drafts are browser-local per business/user, demo drafts keep their existing storage                   |
+| System evaluation  | Strategies Evaluation collects four client-rated characteristics; local drafts remain separate from authenticated, durable submissions and authorized summaries/CSV          |
 | Optional prototype | Explicit `VITE_DATA_MODE=browser-demo` retains synthetic browser data and the custom TypeScript prototype                                                                   |
 
 `OWNER_DATA_ORIGIN=demo` describes test-record provenance, not a separate application runtime.
@@ -103,6 +103,16 @@ The web form reports accepted/skipped/conflicting outcomes and retains partially
 
 ## Account and Google access contract
 
+Startup generates private owner credentials only when `.env` is absent. README contains no shared
+owner password. Existing owners change their password through Inventory > Account & settings >
+Account maintenance; editing `.env` or restarting does not update an existing password hash.
+Removing a documented credential does not itself rotate any deployed credential.
+
+Owner staff lists use session-authenticated GET without a CSRF header; all account mutations retain
+CSRF and Origin protection. Account maintenance shows loading, failure, Retry, and an explicit empty
+staff list, and prevents duplicate management submissions. The existing owner/business restrictions
+and staff session revocation remain enforced by the repository.
+
 Each public signup creates its own owner store with default settings and an empty catalog.
 The existing PostgreSQL UUID default generates the Business ID for both password registration
 and first-time Google store setup; Inventory account controls exposes it in Your account. The
@@ -158,8 +168,12 @@ See [backend authentication details](../backend/README.md#authentication-contrac
 - The worker consumes saved `preparedProducts` targets and their policy version. Older queued
   snapshots are prepared using only their frozen sales/classifications, with the applied policy
   and legacy preparation source recorded in the completed run configuration.
-- Before refresh, dashboard baselines use the contiguous usable history ending at the latest
-  sale date; absent or excluded dates are not filled with zeros. Products with no usable history
+- Refresh history includes valid sales and effective confirmed-zero reviews for active products,
+  up to the current date in the configured business timezone. Product-specific classifications
+  override store-wide reviews; unknown and excluded dates cannot extend usable history. Immutable
+  snapshots save the usable observation bounds separately from transaction dates.
+- Before refresh, dashboard baselines use each product's contiguous usable history ending at its
+  last usable observation; absent or excluded dates are not filled with zeros. Products with no usable history
   retain unavailable demand, including after an empty-history worker run. The older recommendation
   generator applies this same reviewed-day policy within the requested window, ending on the
   requested recommendation date; it omits unavailable products and records `rule-v2-reviewed-days`.
@@ -178,6 +192,11 @@ See [backend authentication details](../backend/README.md#authentication-contrac
   legacy metadata is reported as unknown, and expired runs retain archived calibration evidence.
   Browser-demo bands are illustrative. No certified accuracy is claimed; operational confidence
   labels remain low pending research validation; `xgboost_verified` remains false.
+- Normal Refresh reserves up to 14 final-test days and expands validation to 20–28 calendar days
+  when training can retain the configured eligibility/CV minimum. Default complete daily histories
+  reach a 100/20/14 split at 134 days and 100/28/14 at 142 days. Shorter histories keep compact
+  splits and explicit unavailable interval evidence. Planned counts do not replace per-product
+  usable observations or nonzero-day gates, and final-test actuals never calibrate intervals.
 - Absent dates are not zero-filled. Audited `confirmed_zero` dates are eligible observations; closures, incomplete records, and full/partial stockouts are excluded. XGBoost conservatively requires a complete observed-or-confirmed-zero daily training sequence so calendar lag spacing is preserved. Confirm this policy with the partner before research evaluation.
 - The Data quality screen records store-wide or product-specific classifications with an immutable
   audit log and CSV export. Classification upserts and deletes acquire the existing business row
@@ -191,14 +210,21 @@ See [backend authentication details](../backend/README.md#authentication-contrac
   Forecast-run snapshots retain the classifications used by the worker.
 - Refresh is explicit from the frontend; the worker continuously polls queued jobs. Failed and
   interrupted jobs are recorded and can be refreshed.
+- Completed worker runs persist measured preparation, all model fits, validation/evaluation,
+  artifact/result persistence, and total processing durations. `disjoint_phases_v1` scopes do not
+  overlap; total ends after the result commit and excludes queue wait and final timing/status
+  publication. Failed/interrupted publication discards committed results before retry. Unexecuted
+  phases stay null, and legacy phase scopes are unknown. Forecasts displays these saved times;
+  total processing is never substituted for model training. API and actual Edge browser benchmarks
+  have separate procedures and raw reports; synthetic measurements are not client findings.
 
 The custom browser boosted-tree code is not the official XGBoost package and is isolated to
 demonstration mode. The normal frontend displays Python outputs and does not trigger that prototype.
 
 ## Boundaries and delivery checks
 
-Existing SQL migrations 001-003 are preserved; additive `004_public_auth` adds Google identity,
-OAuth flow, and pending-setup tables without replacing existing users or business-scoped emails.
+Existing SQL migrations 001–006 are preserved. Additive `007_client_survey` stores immutable survey
+submissions and item answers without replacing users, sessions, inventory, or forecast records.
 The owner retains database-design authority; no replacement schema or second TypeScript backend
 is introduced. The reserved `is_valid_iso_date` helper and its
 dedicated tests remain the groupmate's task.
@@ -217,12 +243,38 @@ team/business requirements. They are not filled in with fictional research resul
 - `compose.yaml`, `Dockerfile`, `backend/Dockerfile`, `deploy/`, `scripts/`: startup/hosting/backup.
 - src/lib/import-csv.ts and src/lib/sales-import.ts: spreadsheet parsing and browser source-identity checks.
 - [User guide](USER_GUIDE.md), `src/components/user-guide.tsx`, `src/lib/user-guide.ts`: the Strategies guide reader; `src/routes/guide.tsx` keeps old links working.
-- `src/components/system-evaluation.tsx`, `src/lib/iso-eval.ts`: shared Strategies evaluation and browser-local rating drafts.
+- `src/components/system-evaluation.tsx`, `src/lib/client-survey.ts`: client questionnaire, private drafts, durable submission and role-aware summaries; `iso-eval.ts` retains archived local prototype data.
+- `backend/app/survey.py`, `client_survey_v1.json`: authenticated survey contract, canonical versioned items, calculations and owner CSV export.
 - `backend/app/`: FastAPI, PostgreSQL repositories, worker, official model training, dashboard.
 - `backend/app/auth_routes.py`, `auth_repository.py`, `google_auth.py`: public signup, optional Google access, and existing cookie sessions.
-- `src/components/api-gate.tsx`, `account-access-card.tsx`: sign-in/store onboarding and intentional Google connection.
+- `src/components/api-gate.tsx`, `account-access-card.tsx`, `account-maintenance.tsx`: sign-in/store onboarding, intentional Google connection, password and owner staff management.
 - `backend/db/`: existing SQL migration history and package data.
 - `src/lib/api.ts`, `store.ts`, `use-api-forecast.ts`: normal frontend integration.
 - `src/lib/forecast/`: optional browser demonstration prototype.
 - `backend/tests/`, `.github/workflows/system.yml`: verification.
 - [README](../README.md), [backend README](../backend/README.md): run commands and contracts.
+
+## Client evaluation and separate engineering review
+
+The client survey has three statements for each of Functional suitability, Reliability,
+Interaction capability, and Perceived performance efficiency. Agreement is 1 (Strongly disagree)
+through 5 (Strongly agree). Unanswered and Not applicable are distinct statuses with null ratings;
+they are excluded from means and valid response counts. Summaries identify participant counts,
+valid item-response counts, rating frequencies, and contributing participants per characteristic.
+All valid rated item responses have equal weight; overall means are not averages of category means.
+
+The signed-in owner role records Owner / manager participation; staff records Staff participation.
+There is no new database user role. Each account can submit one immutable final response per
+questionnaire version, with database timestamps, stored item wording, and provenance. Repeating
+the same UUID and answers safely returns that record. Owners access their business's summaries,
+role breakdowns, submissions, and CSV; staff access only their own submitted evidence. Survey writes
+retain session, CSRF and Origin checks. Drafts remain local, and earlier five-category prototype
+drafts are retained separately without being converted or uploaded.
+
+Demo-origin feedback is visibly test feedback, including stored provenance when a business changes
+origin later. No responses are seeded into normal startup or presented as actual client findings.
+Browser demonstration supports drafts, with server submission unavailable. Database backups include
+submitted evidence, while local drafts remain outside the dump. Maintainability is assessed through
+[code, documentation, and change review](MAINTAINABILITY_REVIEW.md), without a client rating.
+Questionnaire wording/administration and actual partner evaluation still need team review.
+See [executed verification](REVIEW_VERIFICATION.md).

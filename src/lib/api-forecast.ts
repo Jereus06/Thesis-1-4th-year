@@ -187,7 +187,8 @@ export function toResult(
   const allPoints = Object.values(byProduct).flatMap((f) => [...f.holdout, ...f.future]);
   return {
     trainedAt: data.run?.createdAt ?? "",
-    trainedMs: data.run?.timing.totalProcessingMs ?? NaN,
+    trainedMs: data.run?.timing.trainingMs ?? NaN,
+    processingTiming: data.run?.timing,
     holdoutStart: data.run?.finalTestStart ?? "",
     holdoutEnd: data.run?.finalTestEnd ?? "",
     horizonEnd:

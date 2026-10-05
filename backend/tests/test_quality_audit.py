@@ -205,6 +205,9 @@ def test_forecast_snapshot_captures_time_after_waiting_for_included_classificati
 
     connection = SnapshotConnection()
     repository = Repository(connection)
+    # Freeze the independent future-date cutoff; this fixture exercises the
+    # classification lock and database snapshot clock, not business settings.
+    monkeypatch.setattr(repository, "business_day", lambda *_: DAY + timedelta(days=2))
     monkeypatch.setattr(repository, "_forecast_run", lambda row: row)
     result = repository.create_forecast_run(USER, ForecastRunCreate(
         training_start=DAY, training_end=DAY,

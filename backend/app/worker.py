@@ -19,6 +19,7 @@ from .config import get_settings
 from .data_quality import POLICY_VERSION, prepare_product_series
 from .forecasting import (
     Observation,
+    PhaseTimings,
     SplitBoundaries,
     evaluate,
     moving_average,
@@ -50,6 +51,8 @@ def claim_run(conn: Connection) -> dict[str, Any] | None:
                 (str(running["id"]),),
             ).fetchone()["locked"]
             if acquired:
+                _discard_run_results(conn, running["id"])
+                _discard_run_artifacts(running["id"])
                 conn.execute(
                     """UPDATE forecast_runs SET status='failed',completed_at=now(),
                                 failure_message='Worker interrupted; refresh to retry' WHERE id=%s""",
@@ -148,6 +151,7 @@ def select_training_scope(series, run, settings):
 
 def process_run(conn: Connection, run: dict[str, Any]) -> None:
     total_started = time.perf_counter()
+    phases = PhaseTimings()
     snapshot = run["data_snapshot"]
     if not all(key in snapshot for key in ("dailySales", "settings", "products")):
         raise ValueError(
@@ -205,16 +209,11 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
             "products": {},
         }
     )
-    modeling_timing = {
-        "trainingMs": 0.0,
-        "validationMs": 0.0,
-        "evaluationMs": 0.0,
-        "totalModelingMs": 0.0,
-    }
     artifacts = get_settings().artifact_dir / str(run["id"])
-    artifacts.mkdir(parents=True, exist_ok=True)
-    with conn.transaction():
-        for product_id in series:
+    phases.add("preparationMs", (time.perf_counter() - preparation_started) * 1000)
+    prepared_results = []
+    for product_id in series:
+        with phases.measure("preparationMs"):
             observations = series[product_id]
             eligible, days, nonzero, reason = scope[product_id]
             test = [item for item in observations if item.day > run["validation_end"]]
@@ -232,14 +231,15 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                     item["message"] for item in prepared_snapshot.get("warnings", [])
                 ],
             }
-            if eligible:
-                result = train_verified_xgboost(
-                    observations,
-                    bounds,
-                    window=settings["moving_average_window"],
-                    horizon=run["forecast_horizon_days"],
-                    cv_folds=settings.get("cv_folds", 3),
-                )
+        if eligible:
+            result = train_verified_xgboost(
+                observations,
+                bounds,
+                window=settings["moving_average_window"],
+                horizon=run["forecast_horizon_days"],
+                cv_folds=settings.get("cv_folds", 3),
+            )
+            with phases.measure("preparationMs"):
                 summary.update(
                     {
                         "parameters": result["parameters"],
@@ -252,100 +252,142 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                         "earlyStoppingUsed": result["earlyStoppingUsed"],
                         "bestIteration": result["bestIteration"],
                         "interval": result["interval"],
+                        "timing": result["timing"],
                     }
                 )
-                for key in modeling_timing:
-                    modeling_timing[key] += result["timing"][key]
-                result["model"].save_model(artifacts / f"{product_id}.json")
-                for split, metrics in (
+                for key, value in result["timing"].items():
+                    phases.add(key, value)
+                metric_groups = (
                     ("validation", result["validation"]),
                     ("final_test", result["finalTest"]),
-                ):
-                    for method, metric in metrics.items():
-                        _persist_metric_values(
-                            conn, run, product_id, _method(method), metric, split
-                        )
-                for method, predictions in result["testPredictions"].items():
-                    _persist_predictions(conn, run, product_id, test, _method(method), predictions)
+                )
+                test_predictions = result["testPredictions"]
                 future_predictions = result["futurePredictions"]
                 interval_method = _method(result["operatingMethod"])
                 future_lower, future_upper = result["futureLower"], result["futureUpper"]
-            else:
-                history = [
-                    item.quantity for item in observations if item.day <= run["validation_end"]
-                ]
-                ma = moving_average(history, len(test), settings["moving_average_window"])
-                _persist_predictions(conn, run, product_id, test, "moving_average", ma)
-                if test:
-                    metric = evaluate([item.quantity for item in test], ma)
-                    _persist_metric_values(
-                        conn,
-                        run,
-                        product_id,
-                        "moving_average",
-                        {
+                model = result["model"]
+        else:
+            metric_groups = ()
+            test_predictions = {}
+            future_predictions = {}
+            model = None
+            interval_method = future_lower = future_upper = None
+            if observations:
+                baseline_started = time.perf_counter()
+                with phases.measure("evaluationMs"):
+                    history = [
+                        item.quantity for item in observations if item.day <= run["validation_end"]
+                    ]
+                    ma = moving_average(history, len(test), settings["moving_average_window"])
+                    test_predictions = {"moving_average": ma}
+                    if test:
+                        metric = evaluate([item.quantity for item in test], ma)
+                        metric_groups = (("final_test", {"moving_average": {
                             "mae": metric.mae,
                             "rmse": metric.rmse,
                             "observations": metric.observations,
-                        },
-                    )
-                future_predictions = (
-                    {
+                        }}),)
+                    future_predictions = {
                         "fallback": moving_average(
                             [item.quantity for item in observations],
                             run["forecast_horizon_days"],
                             settings["moving_average_window"],
                         )
                     }
-                    if observations
-                    else {}
-                )
-                interval_method = None
-                future_lower = None
-                future_upper = None
-            for method, predictions in future_predictions.items():
-                for index, prediction in enumerate(predictions, start=1):
-                    persisted_method = _method(method)
-                    lower = (
-                        future_lower[index - 1]
-                        if future_lower is not None and persisted_method == interval_method
-                        else None
-                    )
-                    upper = (
-                        future_upper[index - 1]
-                        if future_upper is not None and persisted_method == interval_method
-                        else None
-                    )
-                    conn.execute(
-                        """INSERT INTO forecast_predictions
-                        (business_id,forecast_run_id,product_id,prediction_date,method,dataset_split,
-                         predicted_quantity,lower_bound,upper_bound,fallback_reason)
-                         VALUES(%s,%s,%s,%s,%s,'future',%s,%s,%s,%s)""",
-                        (
-                            run["business_id"],
-                            run["id"],
-                            product_id,
-                            run["final_test_end"] + timedelta(days=index),
-                            persisted_method,
-                            Decimal(str(prediction)),
-                            Decimal(str(lower)) if lower is not None else None,
-                            Decimal(str(upper)) if upper is not None else None,
-                            reason,
-                        ),
-                    )
+                phases.add("totalModelingMs", (time.perf_counter() - baseline_started) * 1000)
+        with phases.measure("preparationMs"):
             configuration["products"][product_id] = summary
-        total_ms = round((time.perf_counter() - total_started) * 1000, 3)
-        queue_ms = max(0.0, (run["started_at"] - run["created_at"]).total_seconds() * 1000)
-        timing = {
-            "queueWaitMs": round(queue_ms, 3),
-            "totalProcessingMs": total_ms,
-            "measuredWith": "time.perf_counter",
-            "workerCompletedAt": time.time(),
-        }
+            prepared_results.append((
+                product_id, model, test, test_predictions, metric_groups,
+                future_predictions, interval_method, future_lower, future_upper, reason,
+            ))
+
+    # Model computation is complete before this transaction. Its measured scope
+    # includes artifact writes, result SQL, and the result transaction's commit.
+    with phases.measure("persistenceMs"):
+        artifacts.mkdir(parents=True, exist_ok=True)
+        with conn.transaction():
+            for (
+                product_id, model, test, test_predictions, metric_groups,
+                future_predictions, interval_method, future_lower, future_upper, reason,
+            ) in prepared_results:
+                if model is not None:
+                    model.save_model(artifacts / f"{product_id}.json")
+                for split, metrics in metric_groups:
+                    for method, metric in metrics.items():
+                        _persist_metric_values(conn, run, product_id, _method(method), metric, split)
+                for method, predictions in test_predictions.items():
+                    _persist_predictions(conn, run, product_id, test, _method(method), predictions)
+                for method, predictions in future_predictions.items():
+                    for index, prediction in enumerate(predictions, start=1):
+                        persisted_method = _method(method)
+                        lower = (
+                            future_lower[index - 1]
+                            if future_lower is not None and persisted_method == interval_method
+                            else None
+                        )
+                        upper = (
+                            future_upper[index - 1]
+                            if future_upper is not None and persisted_method == interval_method
+                            else None
+                        )
+                        conn.execute(
+                            """INSERT INTO forecast_predictions
+                            (business_id,forecast_run_id,product_id,prediction_date,method,dataset_split,
+                             predicted_quantity,lower_bound,upper_bound,fallback_reason)
+                             VALUES(%s,%s,%s,%s,%s,'future',%s,%s,%s,%s)""",
+                            (
+                                run["business_id"], run["id"], product_id,
+                                run["final_test_end"] + timedelta(days=index), persisted_method,
+                                Decimal(str(prediction)),
+                                Decimal(str(lower)) if lower is not None else None,
+                                Decimal(str(upper)) if upper is not None else None,
+                                reason,
+                            ),
+                        )
+            conn.execute(
+                """UPDATE forecast_runs SET algorithm_version=%s,configuration=%s,
+                   xgboost_verified=false WHERE id=%s""",
+                (xgboost_version, Jsonb(configuration), run["id"]),
+            )
+    total_ms = (time.perf_counter() - total_started) * 1000
+    queue_ms = max(0.0, (run["started_at"] - run["created_at"]).total_seconds() * 1000)
+    validation_evaluation = [
+        value for key in ("validationMs", "evaluationMs")
+        if (value := phases.get(key)) is not None
+    ]
+    timing = {
+        key: round(value, 3) if value is not None else None
+        for key in (
+            "preparationMs", "trainingMs", "validationMs", "evaluationMs",
+            "persistenceMs", "totalModelingMs",
+        )
+        for value in (phases.get(key),)
+    }
+    timing.update({
+        "validationEvaluationMs": (
+            round(sum(validation_evaluation), 3) if validation_evaluation else None
+        ),
+        "queueWaitMs": round(queue_ms, 3),
+        "totalProcessingMs": round(total_ms, 3),
+        "measuredWith": "time.perf_counter",
+        "timingVersion": "disjoint_phases_v1",
+        "timingScope": (
+            "Processing starts at process_run and ends after artifact/result SQL commit; "
+            "queue wait and the final timing/status publication transaction are excluded. "
+            "Training includes every fit; validation includes training-CV and selection "
+            "predictions/metrics plus calibration residuals; evaluation includes final-test "
+            "metrics/coverage and future predictions. Phase durations do not overlap."
+        ),
+        "workerCompletedAt": time.time(),
+    })
+    # The run remains running until both results and their measured evidence exist.
+    # Failure or interruption here discards the already committed result rows.
+    with conn.transaction():
         conn.execute(
-            """UPDATE forecast_runs SET status='completed',algorithm_version=%s,configuration=%s,
-               timing=%s,completed_at=now(),xgboost_verified=false WHERE id=%s""",
-            (xgboost_version, Jsonb(configuration), Jsonb(timing), run["id"]),
+            """UPDATE forecast_runs SET status='completed',timing=%s,
+               completed_at=now() WHERE id=%s""",
+            (Jsonb(timing), run["id"]),
         )
 
 
@@ -389,6 +431,20 @@ def _persist_metric_values(conn, run, product_id, method, metric, split="final_t
     )
 
 
+def _discard_run_results(conn, run_id):
+    """Remove results committed before a failed/interrupted timing publication."""
+    conn.execute("DELETE FROM forecast_predictions WHERE forecast_run_id=%s", (run_id,))
+    conn.execute("DELETE FROM forecast_metrics WHERE forecast_run_id=%s", (run_id,))
+
+
+def _discard_run_artifacts(run_id):
+    artifact_root = get_settings().artifact_dir.resolve()
+    run_artifacts = (artifact_root / str(run_id)).resolve()
+    if run_artifacts.parent != artifact_root:
+        raise ValueError("Run artifact directory must be directly inside the artifact root")
+    shutil.rmtree(run_artifacts, ignore_errors=True)
+
+
 def run_once() -> bool:
     with psycopg.connect(
         str(get_settings().database_url), row_factory=dict_row, autocommit=True
@@ -399,14 +455,16 @@ def run_once() -> bool:
         try:
             process_run(conn, run)
         except Exception as error:
-            # The prediction transaction rolls back; commit the failed state independently.
+            # Result insertion rolls back on failure. If the later publication
+            # failed, remove its already committed results before marking failed.
             with conn.transaction():
+                _discard_run_results(conn, run["id"])
                 conn.execute(
                     """UPDATE forecast_runs SET status='failed',failure_message=%s,
                                 completed_at=now() WHERE id=%s""",
                     (str(error)[:2000], run["id"]),
                 )
-            shutil.rmtree(get_settings().artifact_dir / str(run["id"]), ignore_errors=True)
+            _discard_run_artifacts(run["id"])
             logger.exception("Forecast run %s failed", run["id"])
         finally:
             conn.execute("SELECT pg_advisory_unlock(hashtextextended(%s,0))", (str(run["id"]),))
