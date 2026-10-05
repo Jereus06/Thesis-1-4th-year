@@ -1,4 +1,13 @@
-import type { Product, Sale, Settings } from "@/lib/types";
+import type {
+  InventoryMovement,
+  Product,
+  ProductPatch,
+  Sale,
+  SalesImportResult,
+  Settings,
+  StockMovementInput,
+} from "@/lib/types";
+import { toApiSettings, type ApiSettings } from "@/lib/settings";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "/api/v1";
 
@@ -24,6 +33,10 @@ type ApiSale = {
   productId: string;
   saleDate: string;
   quantity: string;
+};
+type ApiMovement = Omit<InventoryMovement, "quantityDelta" | "balanceAfter"> & {
+  quantityDelta: string;
+  balanceAfter: string;
 };
 
 export type SessionUser = {
@@ -116,7 +129,7 @@ export const api = {
         idempotencyKey: crypto.randomUUID(),
       }),
     ),
-  updateProduct: async (businessId: string, productId: string, patch: Partial<Product>) =>
+  updateProduct: async (businessId: string, productId: string, patch: ProductPatch) =>
     toProduct(
       await request<ApiProduct>(`/businesses/${businessId}/products/${productId}`, {
         method: "PATCH",
@@ -125,20 +138,22 @@ export const api = {
     ),
   sales: async (businessId: string) =>
     (await allPages<ApiSale>(`/businesses/${businessId}/sales`)).map(toSale),
+  inventoryMovements: async (businessId: string) =>
+    (await allPages<ApiMovement>(`/businesses/${businessId}/inventory-movements`)).map(toMovement),
   importInventory: (businessId: string, rows: Omit<Product, "id">[]) =>
     request<{ created: number; updated: number }>(`/businesses/${businessId}/inventory-imports`, {
       method: "POST",
       body: { rows },
       idempotencyKey: crypto.randomUUID(),
     }),
-  importSales: (businessId: string, rows: { sku: string; saleDate: string; quantity: string }[]) =>
-    request<{ acceptedRows: number; rejectedRows: number; errors: unknown[] }>(
-      `/businesses/${businessId}/data-imports`,
-      {
-        method: "POST",
-        body: { source: "csv", rows },
-      },
-    ),
+  importSales: (
+    businessId: string,
+    rows: { sku: string; saleDate: string; quantity: string; sourceRecordKey?: string }[],
+  ) =>
+    request<SalesImportResult>(`/businesses/${businessId}/data-imports`, {
+      method: "POST",
+      body: { source: "csv", rows },
+    }),
   dataQuality: (businessId: string) =>
     request<DataQualityEntry[]>(`/businesses/${businessId}/data-quality`),
   saveDataQuality: (
@@ -168,34 +183,25 @@ export const api = {
         idempotencyKey: crypto.randomUUID(),
       }),
     ),
-  receiveStock: (businessId: string, productId: string, qty: number, date: string) =>
-    request(`/businesses/${businessId}/inventory-movements`, {
-      method: "POST",
-      idempotencyKey: crypto.randomUUID(),
-      body: {
-        productId,
-        movementDate: date,
-        movementType: "receipt",
-        quantityDelta: String(qty),
-      },
-    }),
-  settings: (businessId: string) =>
-    request<Record<string, unknown>>(`/businesses/${businessId}/settings`),
+  recordStockMovement: async (businessId: string, input: StockMovementInput) =>
+    toMovement(
+      await request<ApiMovement>(`/businesses/${businessId}/inventory-movements`, {
+        method: "POST",
+        idempotencyKey: input.idempotencyKey ?? crypto.randomUUID(),
+        body: {
+          productId: input.productId,
+          movementDate: input.movementDate,
+          movementType: input.movementType,
+          quantityDelta: String(input.quantityDelta),
+          note: input.note?.trim() || null,
+        },
+      }),
+    ),
+  settings: (businessId: string) => request<ApiSettings>(`/businesses/${businessId}/settings`),
   updateSettings: (businessId: string, settings: Settings) =>
-    request(`/businesses/${businessId}/settings`, {
+    request<ApiSettings>(`/businesses/${businessId}/settings`, {
       method: "PUT",
-      body: {
-        movingAverageWindow: settings.maWindow,
-        businessName: settings.storeName,
-        businessLocation: settings.storeLocation,
-        forecastHorizonDays: settings.forecastHorizon,
-        targetCoverDays: settings.coverDays,
-        minimumHistoryWeeks: settings.minWeeks,
-        minimumNonzeroDays: 100,
-        topNProducts: settings.topNProducts,
-        cvFolds: settings.cvFolds,
-        timezone: "Asia/Manila",
-      },
+      body: toApiSettings(settings),
     }),
 };
 
@@ -270,6 +276,13 @@ function toSale(value: ApiSale): Sale {
     qty: Number(value.quantity),
   };
 }
+function toMovement(value: ApiMovement): InventoryMovement {
+  return {
+    ...value,
+    quantityDelta: Number(value.quantityDelta),
+    balanceAfter: Number(value.balanceAfter),
+  };
+}
 async function allPages<T>(path: string): Promise<T[]> {
   const result: T[] = [];
   for (let offset = 0; ; offset += 200) {
@@ -298,6 +311,10 @@ export type ApiForecastRun = {
 };
 export type ApiDashboard = {
   stale: boolean;
+  expired: boolean;
+  forecastThrough: string | null;
+  businessDay: string;
+  businessTimezone: string;
   run: ApiForecastRun | null;
   latestRun: ApiForecastRun | null;
   asOf: string;
@@ -317,6 +334,17 @@ export type ApiDashboard = {
       unknownDays?: number;
       excludedDays?: number;
       qualityWarnings?: string[];
+      interval?: {
+        available: boolean;
+        selectionObservations?: number;
+        calibrationObservations?: number;
+        calibrationStart?: string | null;
+        calibrationEnd?: string | null;
+        calibrationSplit?: string;
+        lowerResidual?: number | null;
+        upperResidual?: number | null;
+        finalTestCoverage?: number | null;
+      };
     }
   >;
   predictions: {
@@ -342,6 +370,7 @@ export type ApiDashboard = {
     method: string;
     confidenceLevel: "low" | "medium" | "high";
     demandAvailable: boolean;
+    forecastExpired: boolean;
     unavailableReason: string | null;
     daily_demand: string | null;
     demand_during_lead_time: string | null;

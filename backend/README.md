@@ -58,8 +58,20 @@ settings, and forecast refresh require the owner role.
 - Persisted rule-based recommendation snapshots through the existing generation endpoint.
 
 Historical sales imports preserve current stock. Inventory snapshots update catalog/counts and
-record changes in the movement ledger. CSV content hashes prevent an identical historical import
-from being submitted again.
+record changes in the movement ledger. Historical imports use order-independent batch SHA-256
+fingerprints and the existing optional sourceRecordKey per sale line. Keys are trimmed,
+case-sensitive, and unique within a business across source formats; use receipt-plus-line IDs
+and prefix source/register names where their ID ranges overlap. Matching saved keys are skipped;
+reusing a key with a different product/date/quantity reports a conflict without altering sales.
+Distinct keys and unkeyed equal-looking rows stay separate. Fully keyed partially rejected
+batches can be retried after corrections without importing previously accepted rows again.
+Business row locking serializes duplicate checks and writes; no database migration is added.
+Earlier exact batch fingerprints are still checked, but unkeyed overlaps and reordered legacy
+batches cannot be safely distinguished from separate transactions.
+
+The frontend supports quoted/multiline CSV, comma/semicolon/tab delimiters, separator directives,
+named supported headers, and UTF-8 or BOM-marked UTF-16 uploads. It forwards source keys and
+reports accepted, skipped, and conflicted rows. Locale-specific dates/numbers are not guessed.
 
 The migration runner retains the existing SQL history, serializes migrations with an advisory lock,
 stores checksums, and rejects changes to previously applied migration files.
@@ -104,8 +116,9 @@ one user, and each user has at most one connected Google identity.
 Sessions use hashed opaque tokens and an HTTP-only cookie, with the existing readable CSRF cookie
 and token header for authenticated writes. Default expiry is 12 hours; valid cookies restore the
 frontend session. Browser auth POSTs validate their Origin against `CORS_ORIGIN`. Production
-cookies require HTTPS. Password signup does not verify email, and password recovery/change and
-staff invitations are not implemented.
+cookies require HTTPS. Password signup does not verify email. Password changes, single-use
+recovery, and owner-issued staff invitations are implemented; email delivery requires the
+private SMTP configuration described below.
 
 ### Optional Google configuration
 
@@ -136,7 +149,7 @@ IP, ten password-login attempts per minute per IP/email, ten Google starts per m
 a shared 120 throttled auth writes per minute per IP. HTTP 429 includes `Retry-After`.
 Counters are not shared between replicas and reset with the process. Use coordinated gateway
 limits for multiple API processes/replicas and configure trusted proxy handling for the actual
-client address. These limits do not add email verification or password recovery.
+client address. These limits do not add email verification.
 
 ## Forecast evaluation and persistence
 
@@ -147,9 +160,14 @@ run waits in the queue do not change its inputs.
 Training, validation, and final-test ranges are consecutive and disjoint. Training-only sales
 determine product ranking and the calendar-week/nonzero-day gates. For eligible products:
 
-1. Fit official `xgboost.XGBRegressor` candidates on training data.
-2. Predict the full validation range recursively from the training cutoff.
-3. Choose parameters, inverse-validation-MAE ensemble weights, and operating method on validation.
+1. Select official `xgboost.XGBRegressor` parameters with the saved `cvFolds` count (default three,
+   minimum two) on expanding training-only folds. Each check window is 14 days; the initial fit
+   requires at least 45 days. If all folds cannot fit inside training, use conservative parameters
+   and record `requestedFolds`, zero `effectiveFolds`, and `selectionFallback`.
+2. Use later validation for early stopping and recursive method comparison from the training cutoff.
+   When sufficient validation data exists, reserve its final segment for interval calibration.
+3. Choose inverse-validation-MAE ensemble weights and operating method on the method-selection
+   validation observations. Final testing remains separate from all selection and calibration.
 4. Refit on training plus validation and forecast all final-test dates recursively from that cutoff.
    Moving Average uses the same full observed cutoff history and the same test observations.
 5. Save final-test metrics, then refit the operating model on all observed history with the frozen
@@ -160,9 +178,41 @@ Short-history or out-of-scope products use a named Moving Average fallback. The 
 ML comparisons over matching eligible product/date observations. No final-test observation selects
 parameters, weights, eligibility, or intervals. Prediction intervals are not fabricated.
 
-Current data interpretation treats missing calendar days as zero sales; the ledger must be complete
-and this policy must be confirmed for actual partner data. The implementation uses fixed
-chronological validation rather than cross-validation/early stopping. The historical function name
+Intervals require at least 20 validation observations. The final validation segment reserves
+at least 10 calibration observations after early stopping, weights, and operating-method selection.
+The operating method's recursive predictions over that segment produce fixed 10th/90th residual
+offsets (nominal 80%), clipped to nonnegative bounds. Saved product summaries retain selection and
+calibration counts, calibration dates/split, offsets, and untouched final-test coverage. The frontend
+uses the selected method's final-test metric observation count as its denominator. No count,
+protocol, or coverage is invented for older runs lacking that evidence. These empirical bands have
+no guaranteed future coverage, especially with a small time-ordered sample or after later model refits.
+
+Classification upserts and deletes lock the existing business row before reading prior state and
+writing the audit revision. One database clock timestamp captured after lock acquisition is used
+for each revision, including the classification's update time. Forecast snapshot timestamps are
+also captured after the business lock. This preserves audit order and stale detection when a
+transaction began before waiting; API fields and SQL migration history remain unchanged.
+
+Missing calendar days are unknown unless explicitly classified as confirmed zero. Recorded
+sales on closures, full/partial stockouts, and incomplete days are excluded by the shared reviewed-day
+policy; product-specific classifications override store-wide ones. XGBoost requires a complete
+observed-or-confirmed-zero calendar sequence, while pre-refresh baselines use the contiguous usable
+tail ending at the latest sale date. Confirm the classification policy with the future partner.
+
+The older `reorder-recommendations/generate` endpoint uses this policy in its requested lookback
+window, ending at the requested recommendation date. Products without a usable contiguous tail
+are omitted; regenerating removes their obsolete same-date rule snapshots. New snapshots retain
+the existing schema and record `rule-v2-reviewed-days`.
+
+The dashboard computes expiration using the configured business timezone. Only future prediction
+dates on or after that business day contribute to demand and reorder advice. The final forecast
+day is usable; after it passes, the dashboard returns `expired`, `forecastThrough`, `businessDay`,
+and `businessTimezone`, removes passed future points, and marks affected recommendations
+`forecastExpired` with unavailable demand and zero suggestion. Baseline dates remain anchored
+to observed history. Per-run prediction endpoints and historical metrics retain their saved data.
+The frontend also withholds cached advice across business midnight while waiting for an API response.
+
+The implementation uses chronological validation and training-only model selection. The historical function name
 `train_verified_xgboost` refers to the official package integration; it does not certify thesis
 accuracy. `xgboost_verified` remains false until the team's research validation supports that claim.
 
@@ -196,7 +246,20 @@ The groupmate's standalone ISO-date helper remains reserved in
 ## Account-maintenance mail
 
 Password recovery and staff invitation links are random, stored only as hashes, expire, and are
-consumed once. Set `PUBLIC_APP_URL` and the private `SMTP_*` variables documented in
-`backend/.env.example`. An owner may invite staff; staff cannot administer membership. Password
-changes and recovery invalidate existing sessions. The test suite uses a mock SMTP transport and is
-not evidence of real email delivery.
+consumed once. For Docker Compose, configure the private root `.env` from
+[../.env.example](../.env.example): `SMTP_HOST`, `SMTP_PORT` (default 587), `SMTP_USERNAME`,
+`SMTP_PASSWORD`, `SMTP_FROM`, and `SMTP_STARTTLS` (default `true`). These variables and
+`PUBLIC_APP_URL` are passed only to the API container. Compose defaults an unset or empty
+`PUBLIC_APP_URL` to `CORS_ORIGIN`; email links must point to the website recipients can open,
+using the public HTTPS URL when hosted. Recreate the API with `npm start` after changes.
+Direct Python development uses `backend/.env` from [.env.example](.env.example).
+
+Password recovery returns the same HTTP 200 accepted response for existing and nonexistent
+accounts, even when SMTP is unconfigured or an SMTP/network failure prevents delivery. These
+failures produce a generic server warning without the recipient, reset token, or transport
+details. Invitation creation reports HTTP 503 when mail is unavailable. Reset and invitation
+links open their token password form even if the browser already has an authenticated session.
+
+An owner may invite staff; staff cannot administer membership. Password changes and recovery
+invalidate existing sessions. The test suite uses a mock SMTP transport and is not evidence of
+real email delivery.

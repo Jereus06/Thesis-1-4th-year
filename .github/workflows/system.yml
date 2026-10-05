@@ -18,6 +18,12 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm run lint
+      - name: Check CSV parsing and import transaction identity
+        run: node --test scripts/test-import-csv.mjs scripts/test-sales-import.mjs
+      - name: Check stock maintenance and role controls
+        run: node --test scripts/test-stock-maintenance.mjs
+      - name: Check forecast availability and evidence displays
+        run: node --test scripts/test-forecast-evidence.mjs scripts/test-demand-evidence.mjs scripts/test-interval-evidence.mjs
       - run: npm run build
       - name: Configure disposable test installation
         run: |

@@ -1,6 +1,8 @@
+import smtplib
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 from app.mailer import MailUnavailable, Mailer
 
@@ -34,10 +36,30 @@ def test_mock_smtp_transport_uses_tls_auth_and_message():
 
 def test_unconfigured_mail_never_attempts_delivery():
     with patch("app.mailer.smtplib.SMTP") as smtp:
-        try:
+        with pytest.raises(MailUnavailable, match="Email delivery is not configured"):
             Mailer(config(smtp_host="")).send("nobody@example.invalid", "x", "x")
-        except MailUnavailable:
-            pass
-        else:
-            raise AssertionError("missing configuration must fail")
     smtp.assert_not_called()
+
+
+@pytest.mark.parametrize("stage", ["connect", "enter", "starttls", "login", "send", "exit"])
+@pytest.mark.parametrize("error_type", [smtplib.SMTPException, OSError])
+def test_smtp_and_network_failures_become_mail_unavailable(stage, error_type):
+    error = error_type("private transport diagnostics")
+    client = MagicMock()
+    context = MagicMock()
+    context.__enter__.return_value = client
+    with patch("app.mailer.smtplib.SMTP", return_value=context) as smtp:
+        failing_call = {
+            "connect": smtp,
+            "enter": context.__enter__,
+            "starttls": client.starttls,
+            "login": client.login,
+            "send": client.send_message,
+            "exit": context.__exit__,
+        }[stage]
+        failing_call.side_effect = error
+        with pytest.raises(MailUnavailable) as raised:
+            Mailer(config()).send("synthetic@example.invalid", "Test", "single-use link")
+
+    assert str(raised.value) == "Email delivery is temporarily unavailable"
+    assert raised.value.__cause__ is error

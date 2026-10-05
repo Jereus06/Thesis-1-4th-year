@@ -109,6 +109,13 @@ class ImportSaleRow(ApiModel):
     quantity: Decimal = Field(gt=0, decimal_places=3)
     source_record_key: str | None = Field(default=None, max_length=200)
 
+    @field_validator("source_record_key", mode="before")
+    @classmethod
+    def normalize_source_record_key(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
 
 class SalesImportCreate(ApiModel):
     source: str = Field(default="csv", pattern="^(csv|pos_export|spreadsheet|migration)$")

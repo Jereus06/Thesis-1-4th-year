@@ -11,6 +11,8 @@ from .inventory import calculate_reorder
 def dashboard(repository, business_id):
     conn = repository.conn
     settings = repository.get_settings(business_id)
+    today = repository.business_day(business_id)
+    today_text = str(today)
     latest = repository.list_forecast_runs(business_id, 1, 0)
     completed = conn.execute(
         """SELECT * FROM forecast_runs WHERE business_id=%s AND status='completed'
@@ -18,6 +20,11 @@ def dashboard(repository, business_id):
         (business_id,),
     ).fetchone()
     run = repository._forecast_run(completed) if completed else None
+    forecast_through = (
+        completed["final_test_end"] + timedelta(days=completed["forecast_horizon_days"])
+        if completed
+        else None
+    )
     predictions = (
         [
             repository._prediction(row)
@@ -40,7 +47,7 @@ def dashboard(repository, business_id):
         FROM sales_day_quality WHERE business_id=%s ORDER BY classification_date""",
         (business_id,),
     ).fetchall()
-    end = max((row["sale_date"] for row in sales), default=repository.business_day(business_id))
+    end = max((row["sale_date"] for row in sales), default=today)
     start = min((row["sale_date"] for row in sales), default=end)
     summaries = dict(completed["configuration"].get("products", {})) if completed else {}
     products = [product for product in repository.list_products(business_id) if product["isActive"]]
@@ -128,6 +135,16 @@ def dashboard(repository, business_id):
                 for i, value in enumerate(values)
             ]
             predictions.extend(future)
+            if not completed:
+                forecast_through = end + timedelta(days=settings["forecastHorizonDays"])
+        product_forecast_through = max(
+            (point["predictionDate"] for point in future), default=None
+        )
+        forecast_expired = (
+            product_forecast_through is not None and product_forecast_through < today_text
+        )
+        # Keep saved dates fixed: old predictions never become a newly dated baseline.
+        future = [point for point in future if point["predictionDate"] >= today_text]
         method = summaries[pid].get("operatingMethod", "fallback")
         method = "moving_average" if method == "movingAverage" else method
         selected = [
@@ -171,15 +188,31 @@ def dashboard(repository, business_id):
                 "method": method,
                 "confidenceLevel": "low",
                 "demandAvailable": demand_available,
-                "unavailableReason": None if demand_available else summaries[pid]["fallbackReason"],
+                "forecastExpired": forecast_expired,
+                "unavailableReason": (
+                    None
+                    if demand_available
+                    else f"Forecast expired after {product_forecast_through}; refresh forecasts."
+                    if forecast_expired
+                    else summaries[pid].get("fallbackReason")
+                    or "No usable current predictions; review sales history and refresh forecasts."
+                ),
                 **serialized,
             }
         )
     return {
         "run": run,
         "stale": stale,
+        "expired": forecast_through is not None and forecast_through < today,
+        "forecastThrough": str(forecast_through) if forecast_through else None,
+        "businessDay": today_text,
+        "businessTimezone": settings["timezone"],
         "latestRun": latest[0] if latest else None,
-        "predictions": predictions,
+        "predictions": [
+            point
+            for point in predictions
+            if point["datasetSplit"] != "future" or point["predictionDate"] >= today_text
+        ],
         "metrics": metrics,
         "summaries": summaries,
         "recommendations": recommendations,

@@ -49,6 +49,13 @@ services:
     <<: *backend
     environment:
       <<: *backend-env
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-${CORS_ORIGIN:-http://localhost:8080}}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
       # The API port is private; Caddy supplies the authenticated client address.
       FORWARDED_ALLOW_IPS: "*"
     volumes:

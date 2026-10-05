@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, type DataQualityClassification, type DataQualityEntry } from "@/lib/api";
 import { todayISO } from "@/lib/dates";
+import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +22,7 @@ const LABELS: Record<DataQualityClassification, string> = {
 
 function DataQualityPage() {
   const { session, products, dataMode } = useAppStore();
+  const { canReviewDataQuality } = usePermissions();
   const [rows, setRows] = useState<DataQualityEntry[]>([]);
   const [date, setDate] = useState(todayISO());
   const [productId, setProductId] = useState("");
@@ -43,6 +45,7 @@ function DataQualityPage() {
     );
   if (!session) return null;
   const save = async () => {
+    if (!canReviewDataQuality) return;
     await api.saveDataQuality(session.businessId, {
       productId: productId || null,
       classificationDate: date,
@@ -93,6 +96,7 @@ function DataQualityPage() {
               {products.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.sku} — {p.name}
+                  {p.isActive === false ? " (inactive)" : ""}
                 </option>
               ))}
             </Select>
@@ -122,9 +126,11 @@ function DataQualityPage() {
             />
           </div>
           <div className="flex gap-2 sm:col-span-2">
-            <Button onClick={() => void save().catch((e: Error) => toast.error(e.message))}>
-              Save classification
-            </Button>
+            {canReviewDataQuality && (
+              <Button onClick={() => void save().catch((e: Error) => toast.error(e.message))}>
+                Save classification
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={() =>
@@ -161,28 +167,35 @@ function DataQualityPage() {
                     {row.note ? ` · ${row.note}` : ""}
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    void api
-                      .deleteDataQuality(session.businessId, row.productId, row.classificationDate)
-                      .then(load)
-                      .catch((e: Error) => toast.error(e.message))
-                  }
-                >
-                  Remove
-                </Button>
+                {canReviewDataQuality && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      void api
+                        .deleteDataQuality(
+                          session.businessId,
+                          row.productId,
+                          row.classificationDate,
+                        )
+                        .then(load)
+                        .catch((e: Error) => toast.error(e.message))
+                    }
+                  >
+                    Remove
+                  </Button>
+                )}
               </div>
             ))}
           </div>
         </CardContent>
       </Card>
       <p className="text-sm text-muted">
-        Confirmed zeros are explicit observations. Closures, incomplete records, and full stockouts
-        are not demand targets. Partial stockouts remain warnings because sales may understate
-        demand. Forecast intervals remain unavailable until separately calibrated on pre-test
-        residuals.
+        Confirmed zeros are explicit observations. Closures, incomplete records, and full or partial
+        stockouts are excluded from demand targets because recorded sales may understate demand.
+        Eligible forecasts can show prediction intervals from at least ten separate late-validation
+        residuals. The Forecast evaluation page shows each product's calibration evidence and
+        interval availability; nominal coverage is a target, not a guarantee.
       </p>
     </div>
   );

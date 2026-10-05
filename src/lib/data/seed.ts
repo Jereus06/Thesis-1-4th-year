@@ -305,6 +305,8 @@ export const defaultSettings: Settings = {
   coverDays: 7,
   topNProducts: 8,
   minWeeks: 8,
+  minimumNonzeroDays: 100,
+  timezone: "Asia/Manila",
   cvFolds: 3,
   useFallbackIfThin: true,
   dataScenario: "partner",

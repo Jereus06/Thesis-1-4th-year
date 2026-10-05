@@ -155,14 +155,14 @@ function forecastRuleProduct(opts: {
   const maRmse = rmse(holdoutActual, maPred);
   const stats = seriesStats(series);
   const conf = confidenceFromObs(stats.nonzeroCount, opts.weeks, opts.minWeeks);
-  const holdoutPts = points(
-    dates.slice(holdoutStartIdx),
-    holdoutActual,
-    maPred,
-    maPred,
-    maPred,
+  const holdoutPts = points(dates.slice(holdoutStartIdx), holdoutActual, maPred, maPred, maPred);
+  const futurePts = points(
+    futDates,
+    futDates.map(() => null),
+    futureMa,
+    futureMa,
+    futureMa,
   );
-  const futurePts = points(futDates, futDates.map(() => null), futureMa, futureMa, futureMa);
   const q = residualQuantiles(holdoutActual, maPred);
   return {
     productId: opts.product.id,
@@ -209,7 +209,10 @@ function forecastMlProduct(opts: {
   const { series, dates, grain, maWindow, horizon, holdoutDays, mode, categories } = opts;
   const lb = lookbackFor(grain);
   const holdoutDaysUsed = holdoutLen(dates.length, grain, holdoutDays);
-  const holdoutStartIdx = Math.max(lb + (grain === "weekly" ? 4 : 14), dates.length - holdoutDaysUsed);
+  const holdoutStartIdx = Math.max(
+    lb + (grain === "weekly" ? 4 : 14),
+    dates.length - holdoutDaysUsed,
+  );
   const holdoutActual = series.slice(holdoutStartIdx);
   const maPred = rollingMovingAverage(series, holdoutStartIdx, series.length, maWindow);
   const trainMean = mean(series.slice(0, holdoutStartIdx));
@@ -319,13 +322,15 @@ function forecastMlProduct(opts: {
   const maRmse = rmse(holdoutActual, maPred);
   const xgbMae = mae(holdoutActual, xgbHoldout);
   const xgbRmse = rmse(holdoutActual, xgbHoldout);
-  const unstable = !trained || isXgbUnstable({
-    xgbMae,
-    maMae,
-    trainRows: trainRows.length,
-    seriesMean: trainMean,
-    preds: xgbHoldout,
-  });
+  const unstable =
+    !trained ||
+    isXgbUnstable({
+      xgbMae,
+      maMae,
+      trainRows: trainRows.length,
+      seriesMean: trainMean,
+      preds: xgbHoldout,
+    });
 
   const weights = unstable
     ? { xgb: 0, ma: 1 }
@@ -377,7 +382,10 @@ function forecastMlProduct(opts: {
       maWeight: weights.ma,
       holdout: withIntervals(holdoutPts, q),
       future: withIntervals(futurePts, q),
-      dailyDemand: toDailyDemand(mean(chosenFuture.length ? chosenFuture : series.slice(-7)), grain),
+      dailyDemand: toDailyDemand(
+        mean(chosenFuture.length ? chosenFuture : series.slice(-7)),
+        grain,
+      ),
       seriesMean: toDailyDemand(mean(series), grain),
       confidence: conf.level,
       confidenceScore: conf.score,
@@ -385,7 +393,8 @@ function forecastMlProduct(opts: {
       nonzeroCount: stats.nonzeroCount,
       grain,
       trainedWithMl: trained && !unstable,
-      fallbackReason: unstable && mode === "train" ? "XGBoost unstable — fell back to Moving Average" : undefined,
+      fallbackReason:
+        unstable && mode === "train" ? "XGBoost unstable — fell back to Moving Average" : undefined,
       cvMaeXgb,
       cvMaeMa,
     },
@@ -409,6 +418,9 @@ export async function runPipeline(
   settings: Settings,
   options: PipelineOptions = {},
 ): Promise<PipelineResult> {
+  products = products.filter((product) => product.isActive !== false);
+  const activeIds = new Set(products.map((product) => product.id));
+  sales = sales.filter((sale) => activeIds.has(sale.productId));
   const started = Date.now();
   const mode: PipelineMode = options.mode ?? "train";
   const minWeeks = settings.minWeeks ?? MIN_WEEKS;
@@ -456,9 +468,10 @@ export async function runPipeline(
         maWindow: maUsed,
         horizon: horizonUsed,
         holdoutDays: settings.holdoutDays,
-        reason: mode === "serve" && scope.ml.some((p) => p.id === product.id)
-          ? "Serving cached path — Moving Average until background training finishes"
-          : scope.reasons[product.id],
+        reason:
+          mode === "serve" && scope.ml.some((p) => p.id === product.id)
+            ? "Serving cached path — Moving Average until background training finishes"
+            : scope.reasons[product.id],
         minWeeks,
         weeks,
       });
@@ -512,9 +525,19 @@ export async function runPipeline(
   const xgbRmse = allXgbActual.length ? rmse(allXgbActual, allXgbPred) : Number.NaN;
   const ensembleMae = allEnsActual.length ? mae(allEnsActual, allEnsPred) : maMae;
   const ensembleRmse = allEnsActual.length ? rmse(allEnsActual, allEnsPred) : maRmse;
-  const winner = pickWinner(maMae, maRmse, xgbMae, xgbRmse, ensembleMae, ensembleRmse, !allXgbActual.length);
+  const winner = pickWinner(
+    maMae,
+    maRmse,
+    xgbMae,
+    xgbRmse,
+    ensembleMae,
+    ensembleRmse,
+    !allXgbActual.length,
+  );
 
-  const lowConfidenceCount = Object.values(byProduct).filter((p) => p.nonzeroCount < LOW_CONFIDENCE_OBS).length;
+  const lowConfidenceCount = Object.values(byProduct).filter(
+    (p) => p.nonzeroCount < LOW_CONFIDENCE_OBS,
+  ).length;
   const sparseProductCount = Object.values(byProduct).filter((p) => p.grain === "weekly").length;
 
   const diagnostics: PipelineDiagnostics = {
@@ -551,7 +574,8 @@ export async function runPipeline(
   return {
     trainedAt: AS_OF,
     trainedMs: Date.now() - started,
-    holdoutStart: range.dates[Math.max(0, range.dates.length - settings.holdoutDays)] ?? range.start,
+    holdoutStart:
+      range.dates[Math.max(0, range.dates.length - settings.holdoutDays)] ?? range.start,
     holdoutEnd: range.end,
     horizonEnd: addDays(range.end, horizon),
     dates: range.dates,

@@ -11,7 +11,7 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from .data_quality import POLICY_VERSION, prepare_product_series
+from .data_quality import POLICY_VERSION, contiguous_tail, prepare_product_series
 from .inventory import calculate_reorder
 from .schemas import (
     BusinessUpdate,
@@ -135,6 +135,15 @@ class Repository:
 
     def upsert_data_quality(self, principal: Principal, data: DataQualityUpsert):
         with self.conn.transaction():
+            # Lock an existing row even when this classification has not been created.
+            # Keep the prior-state read, mutation, and audit revision in one sequence.
+            self.conn.execute(
+                "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE",
+                (principal.business_id,),
+            )
+            revision_at = self.conn.execute(
+                "SELECT clock_timestamp() AS revision_at"
+            ).fetchone()["revision_at"]
             if data.product_id is not None:
                 product = self.conn.execute(
                     "SELECT 1 FROM products WHERE business_id=%s AND id=%s",
@@ -149,11 +158,12 @@ class Repository:
             ).fetchone()
             row = self.conn.execute(
                 """INSERT INTO sales_day_quality
-                   (business_id,product_id,classification_date,classification,note,created_by,updated_by)
-                   VALUES(%s,%s,%s,%s,%s,%s,%s)
+                   (business_id,product_id,classification_date,classification,note,created_by,updated_by,
+                    created_at,updated_at)
+                   VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)
                    ON CONFLICT (business_id,product_id,classification_date)
                    DO UPDATE SET classification=excluded.classification,note=excluded.note,
-                                 updated_by=excluded.updated_by,updated_at=now()
+                                 updated_by=excluded.updated_by,updated_at=excluded.updated_at
                    RETURNING *""",
                 (
                     principal.business_id,
@@ -163,13 +173,15 @@ class Repository:
                     data.note,
                     principal.user_id,
                     principal.user_id,
+                    revision_at,
+                    revision_at,
                 ),
             ).fetchone()
             self.conn.execute(
                 """INSERT INTO sales_day_quality_audit
                    (business_id,quality_id,product_id,classification_date,previous_classification,
-                    classification,previous_note,note,action,changed_by)
-                   VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    classification,previous_note,note,action,changed_by,changed_at)
+                   VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     principal.business_id,
                     row["id"],
@@ -181,12 +193,20 @@ class Repository:
                     data.note,
                     "updated" if old else "created",
                     principal.user_id,
+                    revision_at,
                 ),
             )
         return self._quality_row(row)
 
     def delete_data_quality(self, principal: Principal, data: DataQualityDelete):
         with self.conn.transaction():
+            self.conn.execute(
+                "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE",
+                (principal.business_id,),
+            )
+            revision_at = self.conn.execute(
+                "SELECT clock_timestamp() AS revision_at"
+            ).fetchone()["revision_at"]
             old = self.conn.execute(
                 """DELETE FROM sales_day_quality WHERE business_id=%s
                    AND product_id IS NOT DISTINCT FROM %s AND classification_date=%s RETURNING *""",
@@ -197,7 +217,8 @@ class Repository:
             self.conn.execute(
                 """INSERT INTO sales_day_quality_audit
                    (business_id,quality_id,product_id,classification_date,previous_classification,
-                    previous_note,action,changed_by) VALUES(%s,%s,%s,%s,%s,%s,'deleted',%s)""",
+                    previous_note,action,changed_by,changed_at)
+                   VALUES(%s,%s,%s,%s,%s,%s,'deleted',%s,%s)""",
                 (
                     principal.business_id,
                     old["id"],
@@ -206,6 +227,7 @@ class Repository:
                     old["classification"],
                     old["note"],
                     principal.user_id,
+                    revision_at,
                 ),
             )
         return {"deleted": True}
@@ -553,39 +575,6 @@ class Repository:
         return self.get_settings(business_id)
 
     def create_sales_import(self, principal: Principal, data: SalesImportCreate):
-        canonical = json.dumps(
-            {"source": data.source, "rows": [row.model_dump(mode="json") for row in data.rows]},
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-        digest = hashlib.sha256(canonical).hexdigest()
-        existing = self.conn.execute(
-            "SELECT id FROM data_imports WHERE business_id=%s AND content_sha256=%s",
-            (principal.business_id, digest),
-        ).fetchone()
-        if existing:
-            raise HTTPException(409, f"This import was already submitted as {existing['id']}")
-
-        sku_rows = self.conn.execute(
-            "SELECT id,lower(sku) AS sku FROM products WHERE business_id=%s AND is_active",
-            (principal.business_id,),
-        ).fetchall()
-        product_by_sku = {row["sku"]: row["id"] for row in sku_rows}
-        errors = []
-        accepted = []
-        seen_keys: set[str] = set()
-        for number, item in enumerate(data.rows, start=1):
-            product_id = product_by_sku.get(item.sku.strip().lower())
-            if not product_id:
-                errors.append({"row": number, "code": "unknown_sku", "sku": item.sku})
-                continue
-            if item.source_record_key and item.source_record_key in seen_keys:
-                errors.append({"row": number, "code": "duplicate_source_record_key"})
-                continue
-            if item.source_record_key:
-                seen_keys.add(item.source_record_key)
-            accepted.append((number, item, product_id))
-
         source_map = {
             "csv": "csv_import",
             "pos_export": "pos_import",
@@ -593,6 +582,104 @@ class Repository:
             "migration": "migration",
         }
         with self.conn.transaction():
+            # The business lock covers both duplicate checks and inserts, including
+            # concurrent overlapping batches. Imports never change current stock.
+            self.conn.execute(
+                "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE",
+                (principal.business_id,),
+            )
+            sku_rows = self.conn.execute(
+                "SELECT id,sku FROM products WHERE business_id=%s AND is_active",
+                (principal.business_id,),
+            ).fetchall()
+            product_by_sku = {row["sku"]: row["id"] for row in sku_rows}
+            product_ids_by_folded_sku = {}
+            for product in sku_rows:
+                product_ids_by_folded_sku.setdefault(product["sku"].lower(), []).append(product["id"])
+            canonical_rows = []
+            for item in data.rows:
+                quantity = decimal_text(item.quantity)
+                if "." in quantity:
+                    quantity = quantity.rstrip("0").rstrip(".")
+                canonical_rows.append({
+                    # Exact SKU identity stays stable as the catalog changes.
+                    "sku": item.sku.strip(),
+                    "sale_date": str(item.sale_date),
+                    "quantity": quantity,
+                    "source_record_key": item.source_record_key,
+                })
+            canonical_rows.sort(key=lambda row: (
+                row["sku"], row["sale_date"], row["quantity"], row["source_record_key"] or ""
+            ))
+            canonical = json.dumps(
+                {"source": data.source, "rows": canonical_rows},
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+            digest = hashlib.sha256(canonical).hexdigest()
+            # Preserve exact retries of batches recorded before canonical fingerprints.
+            legacy_digest = hashlib.sha256(json.dumps(
+                {"source": data.source, "rows": [row.model_dump(mode="json") for row in data.rows]},
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()).hexdigest()
+            existing = self.conn.execute(
+                """SELECT id,rejected_rows FROM data_imports
+                   WHERE business_id=%s AND content_sha256=ANY(%s)
+                   ORDER BY rejected_rows,id""",
+                (principal.business_id, [digest, legacy_digest]),
+            ).fetchone()
+            if existing and not (
+                existing["rejected_rows"] > 0
+                and all(item.source_record_key for item in data.rows)
+            ):
+                raise HTTPException(409, f"This import was already submitted as {existing['id']}")
+
+            requested_keys = {item.source_record_key for item in data.rows if item.source_record_key}
+            content_by_key = {}
+            if requested_keys:
+                # Legacy rows can have surrounding whitespace in their saved keys.
+                # Normalize them without modifying previously imported records.
+                keyed_sales = self.conn.execute(
+                    """SELECT source_record_key,product_id,sale_date,quantity FROM sales
+                       WHERE business_id=%s AND source_record_key IS NOT NULL""",
+                    (principal.business_id,),
+                ).fetchall()
+                for sale in keyed_sales:
+                    key = sale["source_record_key"].strip()
+                    if key in requested_keys:
+                        content_by_key.setdefault(key, set()).add((
+                            str(sale["product_id"]), sale["sale_date"], sale["quantity"]
+                        ))
+
+            errors = []
+            accepted = []
+            for number, item in enumerate(data.rows, start=1):
+                sku = item.sku.strip()
+                product_id = product_by_sku.get(sku)
+                if product_id is None:
+                    folded_matches = product_ids_by_folded_sku.get(sku.lower(), [])
+                    if len(folded_matches) > 1:
+                        errors.append({"row": number, "code": "ambiguous_sku", "sku": item.sku})
+                        continue
+                    if folded_matches:
+                        product_id = folded_matches[0]
+                content = (str(product_id), item.sale_date, item.quantity)
+                previous = content_by_key.get(item.source_record_key)
+                if previous:
+                    code = (
+                        "duplicate_source_record_key" if previous == {content}
+                        else "source_record_key_conflict"
+                    )
+                    errors.append({"row": number, "code": code})
+                    continue
+                if not product_id:
+                    errors.append({"row": number, "code": "unknown_sku", "sku": item.sku})
+                    continue
+                if item.source_record_key:
+                    content_by_key[item.source_record_key] = {content}
+                accepted.append((number, item, product_id))
+
             batch = self.conn.execute(
                 """INSERT INTO data_imports
                 (business_id,source,data_origin,original_filename,content_sha256,status,total_rows,
@@ -655,6 +742,9 @@ class Repository:
         self.conn.execute(
             "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE", (principal.business_id,)
         )
+        captured_at = self.conn.execute("SELECT clock_timestamp() AS captured_at").fetchone()[
+            "captured_at"
+        ]
         pending = self.conn.execute(
             "SELECT id FROM forecast_runs WHERE business_id=%s AND status IN ('queued','running')",
             (principal.business_id,),
@@ -734,7 +824,7 @@ class Repository:
                         "lastSaleDate": str(snapshot["last_sale_date"])
                         if snapshot["last_sale_date"]
                         else None,
-                        "capturedAt": datetime.now(UTC).isoformat(),
+                        "capturedAt": captured_at.isoformat(),
                         "products": product_ids,
                         "preparedProducts": prepared_products,
                         "preparationPolicyVersion": POLICY_VERSION,
@@ -837,12 +927,30 @@ class Repository:
             raise HTTPException(404, "Settings not found")
         start = data.recommendation_date - timedelta(days=data.lookback_days - 1)
         products = self.conn.execute(
-            """SELECT p.*,coalesce(sum(s.quantity),0) AS recent_quantity
-               FROM products p LEFT JOIN sales s ON s.business_id=p.business_id
-               AND s.product_id=p.id AND s.sale_date BETWEEN %s AND %s
-               WHERE p.business_id=%s AND p.is_active GROUP BY p.id ORDER BY p.name,p.id""",
-            (start, data.recommendation_date, principal.business_id),
+            "SELECT * FROM products WHERE business_id=%s AND is_active ORDER BY name,id",
+            (principal.business_id,),
         ).fetchall()
+        sales = self.conn.execute(
+            """SELECT product_id,sale_date,sum(quantity) AS quantity FROM sales
+               WHERE business_id=%s AND sale_date BETWEEN %s AND %s
+               GROUP BY product_id,sale_date ORDER BY product_id,sale_date""",
+            (principal.business_id, start, data.recommendation_date),
+        ).fetchall()
+        quality = self.conn.execute(
+            """SELECT product_id,classification_date,classification,note FROM sales_day_quality
+               WHERE business_id=%s AND classification_date BETWEEN %s AND %s
+               ORDER BY classification_date,product_id NULLS FIRST""",
+            (principal.business_id, start, data.recommendation_date),
+        ).fetchall()
+        quality_payload = [
+            {
+                "productId": str(row["product_id"]) if row["product_id"] else None,
+                "date": str(row["classification_date"]),
+                "classification": row["classification"],
+                "note": row["note"],
+            }
+            for row in quality
+        ]
         results = []
         with self.conn.transaction():
             self.conn.execute(
@@ -851,10 +959,22 @@ class Repository:
                 (principal.business_id, data.recommendation_date),
             )
             for product in products:
+                rows = [row for row in sales if str(row["product_id"]) == str(product["id"])]
+                prepared = prepare_product_series(
+                    rows, quality_payload, str(product["id"]), start, data.recommendation_date
+                )
+                history = contiguous_tail(prepared.targets, data.recommendation_date)
+                if not history:
+                    continue
+                # Preparation chooses reviewed dates; original totals retain Decimal precision.
+                totals = {row["sale_date"]: Decimal(row["quantity"]) for row in rows}
+                recent_quantity = sum(
+                    (totals.get(item.day, Decimal(0)) for item in history), Decimal(0)
+                )
                 calculation = calculate_reorder(
                     current_stock=product["current_stock"],
-                    recent_quantity=Decimal(product["recent_quantity"]),
-                    lookback_days=data.lookback_days,
+                    recent_quantity=recent_quantity,
+                    lookback_days=len(history),
                     lead_time_days=product["lead_time_days"],
                     safety_stock=product["safety_stock"],
                     target_cover_days=settings["target_cover_days"],
@@ -871,7 +991,7 @@ class Repository:
                      forecast_daily_demand,current_stock,lead_time_days,safety_stock,
                      target_cover_days,demand_during_lead_time,reorder_point,target_stock,
                      suggested_quantity,status,confidence_level,calculation_version)
-                    VALUES(%s,%s,NULL,'rule',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'low','rule-v1')
+                    VALUES(%s,%s,NULL,'rule',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'low','rule-v2-reviewed-days')
                     RETURNING *""",
                     (
                         principal.business_id,
