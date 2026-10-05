@@ -4,6 +4,7 @@ This guide explains the current StockCast application: installation, every scree
 record keeping, forecasting, inventory recommendations, and maintenance. It was checked against
 the source on **1 October 2026**. The Strategies User guide tab and its downloadable manual use this same
 document. Import, product maintenance, stock movement, and role guidance was updated on **4 October 2026**.
+Fallback calendar and forecast-origin guidance was updated on **5 October 2026**.
 
 The official thesis title is **Sales Forecasting and Inventory Optimization for Small Retail
 Businesses Using XGBoost Algorithm**. The team is still finding a partner business. Examples
@@ -509,6 +510,9 @@ not by themselves require retraining the sales-demand model.
 
 Open **Forecasts**. Before a trained run is available, the API can provide a Moving Average
 baseline. A product without an eligible ML result can continue using that fallback.
+The fallback uses the contiguous usable history ending at that product's own last usable day.
+Unknown or excluded dates break the history window; they are not compressed into adjacent days.
+An older saved baseline is marked stale and uses this conservative preview until Refresh.
 
 ### Refresh forecasts
 
@@ -589,10 +593,15 @@ through the observed history.
 - An em dash or `n/a` means a score is unavailable. Baseline-only products have no XGBoost score.
 - **Copy MAE / RMSE table** copies a tab-separated aggregate table suitable for a spreadsheet. Your browser can block clipboard access.
 
-Saved future predictions start after the run's **last usable history date**, which includes
-effective confirmed-zero reviews and can be earlier than today. Before Refresh, each product's
-preview starts after its own last usable observation. Keep sales and reviewed dates current and
+Saved ML predictions start after the run's **last usable history date**. Before and after Refresh,
+fallback predictions start after **each product's own last usable observation**, including effective
+confirmed-zero reviews; that date can be earlier than today. Another product's newer history
+cannot extend an older product's forecast. Keep sales and reviewed dates current and
 inspect chart dates before treating a forecast as current; unknown trailing dates do not move it.
+
+Fallback test metrics require usable history at the validation cutoff. Missing test targets remain
+unscored while forecast steps keep their elapsed calendar spacing. Without usable cutoff history,
+those metrics are unavailable rather than calculated from invented zero predictions.
 
 **Prediction interval evidence** states whether current bounds are available and shows the
 saved calibration sample, dates, method, nominal target, and observed final-test coverage with its

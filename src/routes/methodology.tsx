@@ -303,6 +303,13 @@ function PythonMethods({
                   becoming zero.
                 </p>
                 <p>
+                  Fallbacks use the contiguous usable tail and keep each product's own forecast
+                  origin. Missing test dates remain unscored but still count as elapsed forecast
+                  days. Without usable history at the test cutoff, baseline test metrics are
+                  unavailable. Expired predictions are not moved forward by another product's newer
+                  history; older saved baselines require Refresh.
+                </p>
+                <p>
                   After evaluation, the operating model is refitted on observed history with its
                   frozen configuration. When at least twenty validation observations exist, the
                   later portion is reserved for interval calibration after model selection. At least

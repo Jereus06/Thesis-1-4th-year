@@ -139,6 +139,36 @@ def test_reviewed_zeros_extend_refresh_and_preview_and_remain_frozen(history_cli
     assert get_dashboard(client, base)["stale"] is True
 
 
+def test_worker_refresh_preserves_each_products_expiry_and_latest_contiguous_history(history_client):
+    client, business, base = history_client
+    old = create_product(client, business)
+    current = create_extra_product(client, base, "CURRENT")
+    last_old = BUSINESS_DAY - timedelta(days=30)
+    import_sales(client, base, [
+        *sales_rows(old, [last_old - timedelta(days=2)], "100"),
+        *sales_rows(old, [last_old], "4"),
+        *sales_rows(current, [BUSINESS_DAY - timedelta(days=1), BUSINESS_DAY], "8"),
+    ])
+    queued = refresh(client, base)
+    from app import worker
+
+    assert worker.run_once()
+    completed = client.get(base + f"/forecast-runs/{queued['id']}").json()["data"]
+    assert completed["status"] == "completed", completed["failureMessage"]
+    predictions = client.get(base + f"/forecast-runs/{queued['id']}/predictions").json()["data"]
+    old_future = [point for point in predictions if point["productId"] == old["id"] and point["datasetSplit"] == "future"]
+    assert [point["predictionDate"] for point in old_future] == [str(last_old + timedelta(days=index)) for index in range(1, 8)]
+    assert all(Decimal(point["predictedQuantity"]) == 4 for point in old_future)
+    assert completed["configuration"]["products"][old["id"]]["forecastOriginDate"] == str(last_old)
+    result = get_dashboard(client, base)
+    recommendations = {row["productId"]: row for row in result["recommendations"]}
+    assert recommendations[old["id"]]["forecastExpired"] is True
+    assert recommendations[old["id"]]["demandAvailable"] is False
+    assert recommendations[current["id"]]["demandAvailable"] is True
+    assert Decimal(recommendations[current["id"]]["daily_demand"]) == 8
+    assert all(point["productId"] != old["id"] for point in result["predictions"])
+
+
 def test_product_overrides_and_inactive_records_keep_product_preview_dates(history_client):
     client, business, base = history_client
     excluded = create_product(client, business)

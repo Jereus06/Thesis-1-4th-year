@@ -16,7 +16,7 @@ from psycopg.types.json import Jsonb
 from xgboost import __version__ as xgboost_version
 
 from .config import get_settings
-from .data_quality import POLICY_VERSION, prepare_product_series
+from .data_quality import FALLBACK_POLICY_VERSION, POLICY_VERSION, contiguous_tail, prepare_product_series
 from .forecasting import (
     Observation,
     PhaseTimings,
@@ -206,6 +206,7 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
             "preparationSource": preparation_source,
             "preparationPolicyVersion": policy_version,
             "operationalRefitEnd": str(run["final_test_end"]),
+            "fallbackPolicy": FALLBACK_POLICY_VERSION,
             "products": {},
         }
     )
@@ -215,6 +216,7 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
     for product_id in series:
         with phases.measure("preparationMs"):
             observations = series[product_id]
+            forecast_origin = observations[-1].day if observations else None
             eligible, days, nonzero, reason = scope[product_id]
             test = [item for item in observations if item.day > run["validation_end"]]
             prepared_snapshot = prepared_products[product_id]
@@ -224,6 +226,9 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                 "eligible": eligible,
                 "fallbackReason": reason,
                 "operatingMethod": "fallback",
+                "firstUsableDate": str(observations[0].day) if observations else None,
+                "lastUsableDate": str(forecast_origin) if forecast_origin else None,
+                "forecastOriginDate": str(forecast_origin) if forecast_origin else None,
                 "preparationPolicyVersion": policy_version,
                 "unknownDays": len(prepared_snapshot.get("unknownDates", [])),
                 "excludedDays": len(prepared_snapshot.get("excludedDates", [])),
@@ -275,21 +280,39 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
             if observations:
                 baseline_started = time.perf_counter()
                 with phases.measure("evaluationMs"):
-                    history = [
-                        item.quantity for item in observations if item.day <= run["validation_end"]
-                    ]
-                    ma = moving_average(history, len(test), settings["moving_average_window"])
-                    test_predictions = {"moving_average": ma}
-                    if test:
+                    # Daily lags must not bridge an unknown/stockout day by
+                    # compressing the remaining observations into adjacent rows.
+                    history = contiguous_tail(
+                        [item for item in observations if item.day <= run["validation_end"]],
+                        run["validation_end"],
+                    )
+                    if history and test:
+                        calendar_predictions = moving_average(
+                            [item.quantity for item in history],
+                            (run["final_test_end"] - run["validation_end"]).days,
+                            settings["moving_average_window"],
+                        )
+                        # Missing targets remain unscored; elapsed calendar days
+                        # still count as recursive forecast steps.
+                        ma = [
+                            calendar_predictions[(item.day - run["validation_end"]).days - 1]
+                            for item in test
+                        ]
+                        test_predictions = {"moving_average": ma}
                         metric = evaluate([item.quantity for item in test], ma)
                         metric_groups = (("final_test", {"moving_average": {
                             "mae": metric.mae,
                             "rmse": metric.rmse,
                             "observations": metric.observations,
                         }}),)
+                    elif test:
+                        summary["baselineEvaluationReason"] = (
+                            "No contiguous usable history at the validation cutoff; "
+                            "final-test predictions and metrics are unavailable."
+                        )
                     future_predictions = {
                         "fallback": moving_average(
-                            [item.quantity for item in observations],
+                            [item.quantity for item in contiguous_tail(observations, forecast_origin)],
                             run["forecast_horizon_days"],
                             settings["moving_average_window"],
                         )
@@ -300,6 +323,7 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
             prepared_results.append((
                 product_id, model, test, test_predictions, metric_groups,
                 future_predictions, interval_method, future_lower, future_upper, reason,
+                forecast_origin,
             ))
 
     # Model computation is complete before this transaction. Its measured scope
@@ -310,6 +334,7 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
             for (
                 product_id, model, test, test_predictions, metric_groups,
                 future_predictions, interval_method, future_lower, future_upper, reason,
+                forecast_origin,
             ) in prepared_results:
                 if model is not None:
                     model.save_model(artifacts / f"{product_id}.json")
@@ -338,7 +363,7 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                              VALUES(%s,%s,%s,%s,%s,'future',%s,%s,%s,%s)""",
                             (
                                 run["business_id"], run["id"], product_id,
-                                run["final_test_end"] + timedelta(days=index), persisted_method,
+                                forecast_origin + timedelta(days=index), persisted_method,
                                 Decimal(str(prediction)),
                                 Decimal(str(lower)) if lower is not None else None,
                                 Decimal(str(upper)) if upper is not None else None,

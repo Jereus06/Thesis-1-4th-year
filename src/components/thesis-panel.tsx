@@ -60,11 +60,6 @@ export function ThesisPanel() {
             >
               Download Markdown
             </Button>
-            <Button variant="outline" asChild>
-              <a href="/thesis/Chapter_3_Two_Strategies.docx" download>
-                Download Word
-              </a>
-            </Button>
           </div>
         </CardContent>
       </Card>
@@ -96,7 +91,9 @@ export function ThesisPanel() {
                   </p>
                 ))}
                 {section.formula && (
-                  <p className="rounded-xl bg-surface-2 px-3 py-2 font-mono text-xs">{section.formula}</p>
+                  <p className="rounded-xl bg-surface-2 px-3 py-2 font-mono text-xs">
+                    {section.formula}
+                  </p>
                 )}
                 {section.bullets && (
                   <ul className="grid gap-1.5 text-sm text-muted">
@@ -110,7 +107,13 @@ export function ThesisPanel() {
                   size="sm"
                   onClick={() =>
                     copy(
-                      [section.heading, "", ...section.paragraphs, section.formula, ...(section.bullets ?? []).map((b) => `• ${b}`)]
+                      [
+                        section.heading,
+                        "",
+                        ...section.paragraphs,
+                        section.formula,
+                        ...(section.bullets ?? []).map((b) => `• ${b}`),
+                      ]
                         .filter(Boolean)
                         .join("\n\n"),
                       `Copied “${section.heading}.”`,

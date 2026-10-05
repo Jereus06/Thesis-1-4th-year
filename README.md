@@ -135,6 +135,9 @@ separate chronological training, validation, and final-test periods; fewer than 
 days can use the baseline but cannot form all three evaluation periods. Valid sales and effective
 confirmed-zero reviews for active products determine usable history through the current business
 date. Missing or excluded dates remain unknown/excluded, and old forecast dates stay fixed.
+Before and after Refresh, each fallback uses its contiguous usable tail and own forecast origin.
+Sparse test dates retain elapsed calendar steps; without usable cutoff history, baseline test
+metrics are unavailable. Earlier saved baselines require Refresh under the current calendar policy.
 
 The worker uses the official CPU XGBoost package, selects parameters using the configured
 training-only CV folds (default three), then chooses its operating method on later validation.

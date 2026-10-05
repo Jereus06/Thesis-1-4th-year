@@ -165,6 +165,13 @@ run waits in the queue do not change its inputs.
 Training, validation, and final-test ranges are consecutive and disjoint. Training-only sales
 determine product ranking and the calendar-week/nonzero-day gates.
 
+Fallbacks use each product's contiguous usable tail and own latest usable observation as the
+future origin, never another product's newer cutoff. Test forecasts require a usable tail at the
+validation cutoff and retain elapsed calendar steps while scoring only usable test targets.
+Missing cutoff history leaves metrics unavailable. Saved `fallbackPolicy` is
+`contiguous_tail_product_origin_v1`; older baseline rows remain archived, while dashboard serving
+uses a conservative preview and marks them stale until Refresh. No existing migrations change.
+
 Normal Refresh keeps up to 14 final-test calendar days and expands validation to 20–28 days when
 enough history remains for the configured training gates and training-only CV folds. With default
 settings, 134 complete daily observations allow a 100/20/14 split; 142 allow 100/28/14. Shorter
