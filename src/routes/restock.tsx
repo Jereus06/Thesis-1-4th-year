@@ -12,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DISCLAIMER, modelLabel } from "@/lib/forecast/constants";
 import { num } from "@/lib/format";
+import { forecastRefreshAdvice } from "@/lib/forecast-schedule";
 import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
 import type { ProductForecast, ReorderRow } from "@/lib/types";
@@ -28,13 +29,15 @@ function hasCurrentDemand(row: ReorderRow): boolean {
 }
 
 function RestockPage() {
-  const { rows, result } = useForecast();
+  const { rows, result, schedule } = useForecast();
+  const mode = useAppStore((state) => state.dataMode);
   const catalog = useAppStore((state) => state.products);
   const products = useMemo(
     () => catalog.filter((product) => product.isActive !== false),
     [catalog],
   );
   const { canReceiveStock, canRefreshForecast, canManageProducts } = usePermissions();
+  const refreshAdvice = forecastRefreshAdvice(mode, canRefreshForecast, schedule);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const selected = rows.find((row) => row.product.id === selectedProductId) ?? null;
   const [open, setOpen] = useState(false);
@@ -75,6 +78,7 @@ function RestockPage() {
         row={row}
         forecast={result?.byProduct[row.product.id]}
         canReceiveStock={canReceiveStock}
+        refreshAdvice={refreshAdvice}
         onReceive={() => openReceive(row)}
       />
     );
@@ -111,9 +115,7 @@ function RestockPage() {
               <h2 className="font-display text-xl font-medium">Waiting for demand estimates</h2>
               <p className="text-sm text-muted">
                 Current recommendations are not available for these products. Review their sales
-                history
-                {canRefreshForecast ? " or refresh forecasts" : "; the owner can refresh forecasts"}
-                . Actual deliveries can still be recorded in Inventory.
+                history and {refreshAdvice}. Actual deliveries can still be recorded in Inventory.
               </p>
               {missing.map((product) => (
                 <div key={product.id} className="rounded-xl border border-border p-3">
@@ -188,11 +190,13 @@ function RestockCard({
   forecast,
   onReceive,
   canReceiveStock,
+  refreshAdvice,
 }: {
   row: ReorderRow;
   forecast?: ProductForecast;
   onReceive: () => void;
   canReceiveStock: boolean;
+  refreshAdvice: string;
 }) {
   const p = row.product;
   const available = hasCurrentDemand(row);
@@ -237,7 +241,7 @@ function RestockCard({
                 ? (row.unavailableReason ??
                   forecast?.unavailableReason ??
                   (row.forecastExpired
-                    ? "The saved forecast period has ended. Review recent sales and refresh forecasts."
+                    ? `The saved forecast period has ended. Review recent sales and ${refreshAdvice}.`
                     : "No usable demand estimate is available. Review sales history and data quality."))
                 : undefined
             }

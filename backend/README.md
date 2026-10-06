@@ -255,7 +255,36 @@ accuracy. `xgboost_verified` remains false until the team's research validation 
 
 The worker uses session advisory locks to distinguish live jobs from interrupted workers. Failed
 runs commit their failed status independently; the worker continues with later jobs. Opening a page
-reads predictions, and **Refresh forecasts** explicitly queues another run.
+reads predictions, and owners can still explicitly queue **Refresh forecasts**.
+
+### Automatic daily forecast scheduling
+
+With the worker running, daily scheduling is enabled by default at 00:15 in each business's saved
+IANA timezone. `FORECAST_DAILY_ENABLED`, `FORECAST_DAILY_TIME` (HH:MM), and
+`FORECAST_SCHEDULE_POLL_SECONDS` configure it; the schedule check defaults to 60 seconds and is
+bounded to 1–60 seconds. These are deployment settings, not new business database columns.
+PostgreSQL's clock determines the most recent due local slot. Before today's scheduled time, that
+slot is yesterday's; after downtime, only the latest due slot is caught up. Automatic runs use
+history through the day preceding that slot, so an unfinished current business day is excluded.
+Manual owner refresh retains its existing current-business-day history policy.
+
+Only active businesses are candidates, with active status rechecked under the lock. Each business
+is checked in its own transaction under the existing business row lock and a shared
+settings row lock. Any queued/running job blocks another; successful scheduled slots are durable
+and are not queued again. A failed slot permits at most three attempts, separated by at least
+30 database-clock minutes. Empty, short, or invalid history skips that business without stopping
+other businesses. Automatic and manual jobs share chronological split, classification, immutable
+snapshot, worker, and publication rules. No migration is added. Existing `configuration` JSON
+records `requestedFrom: "daily_schedule"`, `scheduledFor`, `scheduledTime`, `scheduledTimezone`,
+`historyThrough`, and `scheduleAttempt`; automatic `requested_by` is NULL.
+
+The authenticated dashboard includes `forecastSchedule` with `enabled`, `localTime`, and the
+business `timezone`. The frontend polls about every five seconds for owners and staff. Staff
+receive saved results without a Refresh control or write request; owners keep the existing manual
+permission. Queue/running states do not claim measured product-by-product progress.
+
+Sales CSV requests accept at most 100,000 data rows; inventory requests remain limited to 5,000.
+Oversized files remain reviewable but cannot be submitted, and batches are not split automatically.
 
 ## Tests
 

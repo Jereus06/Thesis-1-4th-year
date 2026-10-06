@@ -533,7 +533,14 @@ def forecast_dashboard(
     business_user(business_id, user)
     from .dashboard import dashboard
 
-    return {"data": dashboard(repository, business_id)}
+    settings = get_settings()
+    return {"data": dashboard(
+        repository, business_id,
+        forecast_schedule={
+            "enabled": settings.forecast_daily_enabled,
+            "localTime": settings.forecast_daily_time,
+        },
+    )}
 
 
 @app.get("/api/v1/businesses/{business_id}/forecast-runs/{run_id}/predictions")

@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { DISCLAIMER, modelLabel } from "@/lib/forecast/constants";
 import { metric, num } from "@/lib/format";
 import { intervalAvailability } from "@/lib/forecast-interval";
+import { forecastRefreshAdvice, forecastScheduleMessage } from "@/lib/forecast-schedule";
 import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
 import type { ForecastPoint } from "@/lib/types";
@@ -30,7 +31,8 @@ function ForecastsPage() {
   const mode = useAppStore((s) => s.dataMode);
   const { canRefreshForecast } = usePermissions();
   const window = useAppStore((s) => s.settings.maWindow);
-  const { result, status, refresh, forecastThrough } = useForecast();
+  const { result, status, refresh, forecastThrough, schedule } = useForecast();
+  const refreshAdvice = forecastRefreshAdvice(mode, canRefreshForecast, schedule);
   const ready = Boolean(result);
   const mlFirst =
     products.find((p) => result?.byProduct[p.id]?.trainedWithMl)?.id ?? products[0]?.id ?? "";
@@ -98,7 +100,7 @@ function ForecastsPage() {
 
       <TrainingBanner />
       {mode === "api" && <ForecastTimingEvidence timing={result?.processingTiming} />}
-      {!canRefreshForecast && (
+      {!canRefreshForecast && !forecastScheduleMessage(mode, schedule) && (
         <p className="text-sm text-muted">The owner can refresh forecasts after records change.</p>
       )}
 
@@ -182,7 +184,12 @@ function ForecastsPage() {
             <Skeleton className="h-72 w-full" />
           )}
           {forecast && (
-            <IntervalEvidence forecast={forecast} mode={mode} forecastThrough={forecastThrough} />
+            <IntervalEvidence
+              forecast={forecast}
+              mode={mode}
+              forecastThrough={forecastThrough}
+              refreshAdvice={refreshAdvice}
+            />
           )}
           <p className="mt-3 text-xs text-muted">
             {mode === "api"

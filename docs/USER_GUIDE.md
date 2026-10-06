@@ -5,6 +5,8 @@ record keeping, forecasting, inventory recommendations, and maintenance. It was 
 the source on **1 October 2026**. The Strategies User guide tab and its downloadable manual use this same
 document. Import, product maintenance, stock movement, and role guidance was updated on **4 October 2026**.
 Fallback calendar and forecast-origin guidance was updated on **5 October 2026**.
+CSV upload, preview, and cancellation guidance was updated on **6 October 2026**.
+The 100,000-row sales limit and automatic daily forecasts were updated on **6 October 2026**.
 
 The official thesis title is **Sales Forecasting and Inventory Optimization for Small Retail
 Businesses Using XGBoost Algorithm**. The team is still finding a partner business. Examples
@@ -65,6 +67,8 @@ training runs in a separate worker so ordinary inventory and sales actions can c
 A forecast refresh creates a job with a snapshot of its input records and settings. The worker
 processes that snapshot, saves predictions and evaluation results to PostgreSQL, and stores
 trained model JSON files in the model volume. Pages use saved results while a new run is pending.
+The worker also queues a daily run automatically, normally at 00:15 in the store's saved timezone.
+Staff receive its saved outputs without pressing Refresh; the worker service must remain running.
 
 ## 3. Signing in and permissions
 
@@ -165,7 +169,7 @@ session cookie; it does not promise silent Google sign-in after that session exp
 | Activate/deactivate products                                              | Yes   | No    |
 | Import inventory snapshots or historical sales                            | Yes   | No    |
 | Save business/forecast settings                                           | Yes   | No    |
-| Refresh forecasts                                                         | Yes   | No    |
+| Manually refresh forecasts                                                | Yes   | No    |
 
 Staff see their permitted recording and review actions. Product management, imports, business/model
 settings, staff access, and forecast-refresh controls appear for owners. The API also checks every
@@ -190,7 +194,7 @@ On a large screen, use the sidebar. On a small screen, use the bottom navigation
 | ---------- | -------------------------------------------------------------------------------------- |
 | Overview   | Read the morning briefing, urgent restock queue, inventory value, and model comparison |
 | Restock    | Review reorder suggestions and record an actual delivery                               |
-| Forecasts  | Refresh forecasts, inspect product charts, and compare evaluation errors               |
+| Forecasts  | View daily forecasts, owner refresh, product charts, and evaluation errors             |
 | Inventory  | Manage products, inspect/import/export sales, and save settings                        |
 | Strategies | Read methodology/thesis text, search the User guide, and complete the Evaluation form  |
 
@@ -210,7 +214,7 @@ On a large screen, use the sidebar. On a small screen, use the bottom navigation
 3. Record new sales as they happen.
 4. Record received goods after the delivery arrives.
 5. Check Restock again; stock changes update recommendations using the available demand estimate.
-6. After adding sales history or changing forecasting settings, have the owner use **Refresh forecasts**.
+6. After adding history or changing forecasting settings, check the daily forecast status. The owner can use **Refresh forecasts** for an earlier update.
 7. Review the job status and product results; keep the business's own judgment in the ordering decision.
 
 Forecast suggestions do not place supplier orders, reserve stock, or receive goods automatically.
@@ -323,8 +327,19 @@ audits cover newly recorded movements; earlier synthetic records are not assigne
 An inventory snapshot establishes or corrects the current catalog and counts. It is suitable for
 bringing an authorized existing catalog into StockCast. It is not a list of deliveries.
 
-In **Inventory > Products**, choose **Import inventory**. Paste CSV text or select **Upload CSV
-file**. Uploading only fills the text area; choose **Import inventory** to submit it.
+In **Inventory > Products**, use **Import inventory**. Choose **Uploaded file > Upload CSV file**,
+or choose **Paste CSV** to enter editable text. Wait for preparation, review the result, then choose
+**Import inventory** to submit it.
+
+Uploaded files show the filename, size, preparation status, and a read-only preview of up to the
+first 50 logical CSV records, including any header. Larger previews and long values are labelled
+as truncated; the complete accepted file remains available for import. To edit an uploaded file,
+change the source file and select it again, or use **Paste CSV**. Pasted text is prepared after
+typing pauses.
+
+Use **Cancel preparation** to stop processing, then **Prepare again** to retry the retained source.
+Selecting another file replaces the pending preparation. Selecting or preparing a file does not
+save records; submission requires the import button.
 
 ### Import columns
 
@@ -356,7 +371,8 @@ line break. Invalid quoting or column counts report the logical record and its s
 
 Use a decimal point for numbers; locale-specific dates and decimal/grouping separators are not
 guessed. Stock/safety values support up to three decimal places; unit cost supports up to four.
-The API accepts at most 5,000 rows in a batch.
+The API accepts at most 5,000 data rows in a batch. Larger files remain reviewable and receive a
+limit message before submission; the importer does not split them into separate batches.
 
 ### What submitting changes
 
@@ -372,7 +388,9 @@ Review the file before submitting: its counts replace matched products' current 
 ## 9. Import historical sales
 
 First create or import the catalog. Then open **Inventory > Sales ledger**, use **Import CSV**,
-and paste rows or choose **Upload CSV file**. Choose **Import rows** to submit the filled text.
+and choose **Uploaded file > Upload CSV file** or **Paste CSV**. The preparation, read-only file
+preview, and cancellation controls work as described for inventory snapshots. Choose **Import
+rows** after successful preparation to submit all accepted source rows.
 
 ### Import columns
 
@@ -395,7 +413,9 @@ Quantity or Qty, and Source Record Key (also source_record_key or sourceRecordKe
 
 Quoted fields, embedded commas/newlines, escaped quotes, comma/semicolon/tab separators, UTF-8
 and BOM-marked UTF-16 uploads, and spreadsheet separator directives are supported. Dates and
-numbers must remain in the formats above. The API accepts at most 50,000 rows per batch.
+numbers must remain in the formats above. The API accepts at most 100,000 data rows per batch.
+Larger files remain reviewable and receive a limit message before submission; the importer does
+not split them into separate batches.
 
 To protect overlapping imports, use the same stable source key whenever a sale line reappears.
 A key identifies **one sale line**, not an entire receipt: use a receipt-plus-line ID and prefix
@@ -414,8 +434,9 @@ rejected records, and accepted records in such a response have already been save
 request shapes, dates, or quantity precision can reject the request.
 
 The form reports the number imported, already imported, and rejected, with row diagnostics,
-and retains text when any rows are rejected. Reordered or overlapping batches cannot reimport
-a previously saved **Source Record Key** in the same business, even if the source format changes.
+and retains the selected file or pasted text when any rows are rejected. Reordered or overlapping
+batches cannot reimport a previously saved **Source Record Key** in the same business, even if the
+source format changes.
 Matching keys are skipped. If a reused key has changed product/date/quantity, the row is rejected
 as a conflict; the saved sale is preserved. Fully keyed partially rejected batches may be retried
 after correcting the problem, safely skipping their accepted keys.
@@ -427,7 +448,8 @@ overlap and reordered older unkeyed imports cannot be identified reliably. Revie
 imports before introducing keys: StockCast does not invent identities for existing records.
 For partially accepted unkeyed files, inspect results and retry only the missing rows.
 
-After adding history, the owner should **Refresh forecasts**.
+Added history becomes available to the next automatic daily run. The owner can choose
+**Refresh forecasts** for an earlier update.
 
 ## 10. Sales ledger and exports
 
@@ -502,7 +524,7 @@ training segment. If the training period cannot support all requested folds, con
 parameters are used and the run records zero effective folds and the requested count. Separate
 later validation and final-test periods are not borrowed to complete CV folds.
 
-Save changed forecasting settings, then explicitly refresh forecasts. Changes to stock counts,
+Save changed forecasting settings for the next daily run, or have the owner refresh earlier. Changes to stock counts,
 lead time, and safety stock affect restock calculations using current demand estimates; they do
 not by themselves require retraining the sales-demand model.
 
@@ -514,24 +536,32 @@ The fallback uses the contiguous usable history ending at that product's own las
 Unknown or excluded dates break the history window; they are not compressed into adjacent days.
 An older saved baseline is marked stale and uses this conservative preview until Refresh.
 
-### Refresh forecasts
+### Automatic daily forecasts and owner refresh
 
-1. Record/import the history you want the run to use and save any forecasting settings.
-2. Have the owner choose **Refresh forecasts** on Forecasts or Strategies.
-3. The job is queued, then processed by the Python worker. Only one queued/running job per business is allowed.
-4. Watch the training/status banner. The website checks forecast status about every five seconds.
-5. When the job finishes, review the new results. A previous completed run remains available while a replacement is running or fails.
+1. Record/import the history you want the run to use, review missing dates, and save any forecasting settings.
+2. Keep the worker running. By default it queues a daily run at 00:15 in the store's saved timezone, using history through the preceding completed day.
+3. Watch the schedule and queued/running/saved status. The website checks forecast status about every five seconds for both owners and staff; staff need no Refresh action or reload.
+4. For an earlier update, the owner can choose **Refresh forecasts** on Forecasts or Strategies. Manual refresh can include usable records through the current business date.
+5. Review the new results after completion. A previous completed run remains visible while a replacement is queued, running, or fails. Expired predictions remain excluded from current advice.
+
+Only one queued/running job per business is allowed. After downtime, the worker catches up the
+most recent due local slot rather than processing every missed day. A completed daily slot is
+not repeated. A failed slot permits up to three attempts, with at least 30 minutes between
+failures and retries; after that, check the error and worker logs, or ask the owner to retry
+manually. Empty or insufficient history retains data-sufficiency messages and any available baseline. The administrator
+can change or disable the daily schedule; the displayed schedule comes from the API.
 
 The run snapshots its sales totals, reviewed-day classifications, settings, and active products.
 Valid sales and effective **Confirmed zero sales** reviews through the current business date
 determine the usable history range. Product-specific reviews override store-wide reviews;
 unknown dates, closures, incomplete records, and stockouts do not become zero sales. Records added after it is
-queued need a later refresh. Navigating to a page does not itself retrain the Python model.
+queued need a later daily or manual run. Navigating to a page does not itself retrain the Python model.
 
 When the forecast horizon ends before the store's current business date, the website displays
 **Forecast expired**. Passed prediction dates are excluded from current reorder advice and future
 charts; historical evaluation remains available. The final forecast date is still usable on that
-business day. Check that recent sales are recorded or reviewed, then have the owner refresh.
+business day. Keep recent sales and reviewed dates current for the next daily run; the owner can
+refresh earlier when needed.
 Refreshing old history does not move its forecast dates forward. If the business date changes
 while an API request fails, cached advice is withheld until current recommendations load.
 
@@ -1046,8 +1076,8 @@ Increasing the container-readiness timeout does not repair registry TLS failures
 
 - **No XGBoost score:** inspect training-only history, 100 nonzero days, and top-N eligibility. Moving Average is the fallback.
 - **Forecast queued indefinitely:** check the worker with `docker compose logs --tail 100 worker`.
-- **Worker interrupted; refresh to retry:** after the worker is running, the owner can explicitly refresh the failed job.
-- **A stale forecast warning:** record/import complete history, save settings, and refresh.
+- **Worker interrupted; refresh to retry:** scheduled jobs have bounded automatic retries while the worker is running. The owner can also explicitly refresh a failed job.
+- **A stale forecast warning:** record/import complete history and save settings for the next daily run, or ask the owner to refresh earlier.
 - **Forecast expired:** passed prediction dates are excluded from current advice. Predictions start after the last usable history date; record recent sales or confirm reviewed zero-sale dates before refreshing. Unknown or excluded dates do not move old forecasts forward.
 - **Low confidence:** all operational confidence remains low pending validation; it is not evidence of a certified probability.
 - **Days of cover is an em dash:** the current demand estimate is zero or unavailable.

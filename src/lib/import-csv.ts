@@ -1,16 +1,26 @@
 import type { Product, Sale } from "./types";
 
 /** Read standard spreadsheet Unicode exports without guessing legacy encodings. */
-export function decodeCsvFile(buffer: ArrayBuffer): string {
+export function csvFileEncoding(buffer: ArrayBuffer): "utf-8" | "utf-16le" | "utf-16be" {
   const bytes = new Uint8Array(buffer);
-  const encoding =
-    bytes[0] === 0xff && bytes[1] === 0xfe
-      ? "utf-16le"
-      : bytes[0] === 0xfe && bytes[1] === 0xff
-        ? "utf-16be"
-        : "utf-8";
+  if (
+    (bytes[0] === 0xff && bytes[1] === 0xfe && bytes[2] === 0 && bytes[3] === 0) ||
+    (bytes[0] === 0 && bytes[1] === 0 && bytes[2] === 0xfe && bytes[3] === 0xff)
+  )
+    throw new Error("UTF-32 CSV is not supported. Export as UTF-8 CSV or BOM-marked UTF-16 text.");
+  return bytes[0] === 0xff && bytes[1] === 0xfe
+    ? "utf-16le"
+    : bytes[0] === 0xfe && bytes[1] === 0xff
+      ? "utf-16be"
+      : "utf-8";
+}
+
+export function decodeCsvFile(buffer: ArrayBuffer): string {
+  const encoding = csvFileEncoding(buffer);
   try {
-    return new TextDecoder(encoding, { fatal: true }).decode(bytes);
+    const text = new TextDecoder(encoding, { fatal: true }).decode(buffer);
+    if (text.includes("\0")) throw new Error("Unsupported binary or unmarked UTF-16 file.");
+    return text;
   } catch {
     throw new Error(
       "Could not read CSV text. Export as UTF-8 CSV or UTF-16 Unicode text with a BOM.",
@@ -20,6 +30,19 @@ export function decodeCsvFile(buffer: ArrayBuffer): string {
 
 type Delimiter = "," | ";" | "\t";
 export type CsvRecord = { fields: string[]; record: number; line: number };
+
+/** Bound diagnostic text only; the parsed field and retained source stay complete. */
+function diagnosticValue(value: string): string {
+  if (value.length <= 200) return value;
+  let prefix = "";
+  let characters = 0;
+  for (const character of value) {
+    if (characters === 200) return `${prefix}\u2026`;
+    prefix += character;
+    characters++;
+  }
+  return value;
+}
 
 function recordError(record: CsvRecord, message: string): Error {
   return new Error(`CSV record ${record.record} (line ${record.line}): ${message}`);
@@ -135,21 +158,33 @@ function normalizeHeader(value: string): string {
     .replace(/[\s_-]/g, "");
 }
 
-function headerColumns(
+function headerColumnNames(
   record: CsvRecord | undefined,
   aliases: Record<string, string>,
   required: string[],
-): Record<string, number> | null {
+): (string | undefined)[] | null {
   if (!record) return null;
   const names = record.fields.map((value) => {
     const normalized = normalizeHeader(value);
     return Object.hasOwn(aliases, normalized) ? aliases[normalized] : undefined;
   });
   if (names[0] !== required[0] && !required.every((name) => names.includes(name))) return null;
+  return names;
+}
+
+function headerColumns(
+  record: CsvRecord | undefined,
+  aliases: Record<string, string>,
+  required: string[],
+): Record<string, number> | null {
+  const names = headerColumnNames(record, aliases, required);
+  if (!names || !record) return null;
   const columns: Record<string, number> = {};
   names.forEach((name, index) => {
-    if (!name) throw recordError(record, `Unsupported column "${record.fields[index]}".`);
-    if (name in columns) throw recordError(record, `Duplicate column "${record.fields[index]}".`);
+    if (!name)
+      throw recordError(record, `Unsupported column "${diagnosticValue(record.fields[index])}".`);
+    if (name in columns)
+      throw recordError(record, `Duplicate column "${diagnosticValue(record.fields[index])}".`);
     columns[name] = index;
   });
   if (!required.every((name) => name in columns))
@@ -174,7 +209,11 @@ const inventoryAliases: Record<string, string> = {
 const inventoryOrder = ["sku", "name", "category", "unit", "stock", "lead", "safety", "cost"];
 
 export function parseInventoryCsv(text: string): Omit<Product, "id">[] {
-  const records = parseCsvRecords(text);
+  return parseInventoryRecords(parseCsvRecords(text));
+}
+
+/** Validate already parsed records; worker preparation never parses the source twice. */
+export function parseInventoryRecords(records: CsvRecord[]): Omit<Product, "id">[] {
   const header = headerColumns(records[0], inventoryAliases, inventoryOrder);
   const columns = header ?? Object.fromEntries(inventoryOrder.map((name, index) => [name, index]));
   return records.slice(header ? 1 : 0).map((record) => {
@@ -217,15 +256,43 @@ const salesAliases: Record<string, string> = {
 };
 
 export function parseSalesCsv(text: string, products: Product[]): Sale[] {
-  const records = parseCsvRecords(text);
+  return parseSalesRecords(parseCsvRecords(text), products);
+}
+
+/** Count data records using the same header rules as validation. */
+export function csvDataRecordCount(records: CsvRecord[], kind: "inventory" | "sales"): number {
+  const header =
+    kind === "inventory"
+      ? headerColumnNames(records[0], inventoryAliases, inventoryOrder)
+      : headerColumnNames(records[0], salesAliases, ["date", "product", "quantity"]);
+  return Math.max(0, records.length - (header ? 1 : 0));
+}
+
+type ProductLookup = Map<string, Product | null>;
+
+function addMatch(lookup: ProductLookup, key: string, product: Product): void {
+  if (!lookup.has(key)) lookup.set(key, product);
+  else lookup.set(key, null);
+}
+
+/** Validate against indexed lookups, preserving each matching tier's ambiguity rules. */
+export function parseSalesRecords(records: CsvRecord[], products: Product[]): Sale[] {
   const header = headerColumns(records[0], salesAliases, ["date", "product", "quantity"]);
   const columns = header ?? { date: 0, product: 1, quantity: 2, key: 3 };
+  const exact: ProductLookup = new Map();
+  const foldedSku: ProductLookup = new Map();
+  const foldedName: ProductLookup = new Map();
+  for (const product of products) {
+    addMatch(exact, product.id, product);
+    // ID and SKU can be identical for one product. That is one match, as with filter().
+    if (product.sku !== product.id) addMatch(exact, product.sku, product);
+    addMatch(foldedSku, product.sku.toLowerCase(), product);
+    addMatch(foldedName, product.name.toLowerCase(), product);
+  }
+  const importedAt = Date.now();
+  const columnCount = header ? Object.keys(header).length : null;
   return records.slice(header ? 1 : 0).map((record, index) => {
-    if (
-      header
-        ? record.fields.length !== Object.keys(header).length
-        : ![3, 4].includes(record.fields.length)
-    )
+    if (header ? record.fields.length !== columnCount : ![3, 4].includes(record.fields.length))
       throw recordError(
         record,
         "Expected Date, Product, Quantity, and an optional Source Record Key.",
@@ -244,26 +311,27 @@ export function parseSalesCsv(text: string, products: Product[]): Sale[] {
       throw recordError(record, "Date must be a valid YYYY-MM-DD date.");
     if (!qtyRaw || !Number.isFinite(qty) || qty <= 0)
       throw recordError(record, "Quantity must be a positive number.");
-    const uniqueMatch = (predicate: (product: Product) => boolean) => {
-      const matches = products.filter(predicate);
-      if (matches.length > 1)
+    const uniqueMatch = (lookup: ProductLookup, key: string) => {
+      const match = lookup.get(key);
+      if (match === null)
         throw recordError(
           record,
-          `Product "${productKey}" matches multiple products. Use an unambiguous exact SKU or product ID.`,
+          `Product "${diagnosticValue(productKey)}" matches multiple products. Use an unambiguous exact SKU or product ID.`,
         );
-      return matches[0];
+      return match;
     };
+    const foldedKey = productKey.toLowerCase();
     const match =
-      uniqueMatch((product) => product.id === productKey || product.sku === productKey) ??
-      uniqueMatch((product) => product.sku.toLowerCase() === productKey.toLowerCase()) ??
-      uniqueMatch((product) => product.name.toLowerCase() === productKey.toLowerCase());
-    if (!match) throw recordError(record, `Unknown product: ${productKey}`);
+      uniqueMatch(exact, productKey) ??
+      uniqueMatch(foldedSku, foldedKey) ??
+      uniqueMatch(foldedName, foldedKey);
+    if (!match) throw recordError(record, `Unknown product: ${diagnosticValue(productKey)}`);
     const sourceRecordKey =
       columns.key === undefined ? "" : (record.fields[columns.key] ?? "").trim();
     if (Array.from(sourceRecordKey).length > 200)
       throw recordError(record, "Source Record Key must be at most 200 characters.");
     return {
-      id: `imp-${match.id}-${date}-${index}-${Date.now()}`,
+      id: `imp-${match.id}-${date}-${index}-${importedAt}`,
       productId: match.id,
       date,
       qty,

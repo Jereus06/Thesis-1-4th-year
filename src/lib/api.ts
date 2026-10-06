@@ -9,6 +9,7 @@ import type {
   StockMovementInput,
 } from "@/lib/types";
 import { toApiSettings, type ApiSettings } from "@/lib/settings";
+import type { ForecastSchedule } from "@/lib/forecast-schedule";
 import type {
   SurveyQuestionnaire,
   SurveySubmission,
@@ -323,6 +324,7 @@ export type ApiForecastRun = {
   configuration: Record<string, unknown>;
 };
 export type ApiDashboard = {
+  forecastSchedule?: ForecastSchedule;
   stale: boolean;
   expired: boolean;
   forecastThrough: string | null;

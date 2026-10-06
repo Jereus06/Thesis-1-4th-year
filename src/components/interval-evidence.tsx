@@ -7,10 +7,12 @@ export function IntervalEvidence({
   forecast,
   mode,
   forecastThrough,
+  refreshAdvice = "refresh forecasts",
 }: {
   forecast: ProductForecast;
   mode: "api" | "browser-demo";
   forecastThrough?: string | null;
+  refreshAdvice?: string;
 }) {
   const interval = forecast.interval;
   const status = intervalAvailability(forecast, mode);
@@ -52,7 +54,8 @@ export function IntervalEvidence({
       {forecast.forecastExpired && interval?.available && (
         <p className="mt-1 text-muted">
           The saved forecast{forecastThrough ? ` ended on ${forecastThrough}` : " has expired"}.
-          Calibration evidence below describes that saved run; refresh forecasts for current bounds.
+          Calibration evidence below describes that saved run. For current evidence, {refreshAdvice}
+          .
         </p>
       )}
       {!interval ? (

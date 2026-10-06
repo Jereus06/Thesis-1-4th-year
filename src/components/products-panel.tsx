@@ -1,7 +1,8 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { memo, useCallback, useMemo, useState, type FormEvent } from "react";
 import { Search } from "lucide-react";
 import { toast } from "sonner";
 import { ReceiveStockDialog } from "@/components/receive-stock-dialog";
+import { CsvImporter } from "@/components/csv-importer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,17 +18,19 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { num, peso } from "@/lib/format";
-import { decodeCsvFile, parseInventoryCsv } from "@/lib/import-csv";
+import { CSV_API_ROW_LIMITS } from "@/lib/csv-preparation";
 import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
 import type { Product } from "@/lib/types";
 
 type ProductAction = { productId: string; kind: "edit" | "count" | "status" };
+const InventoryCsvImporter = memo(CsvImporter);
 
 export function ProductsPanel() {
   const products = useAppStore((state) => state.products);
   const importInventory = useAppStore((state) => state.importInventory);
   const session = useAppStore((state) => state.session);
+  const mode = useAppStore((state) => state.dataMode);
   const { canManageProducts, canImportRecords, canReceiveStock } = usePermissions();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("active");
@@ -35,13 +38,23 @@ export function ProductsPanel() {
   const [action, setAction] = useState<ProductAction | null>(null);
   const [deliveryProductId, setDeliveryProductId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [inventoryCsv, setInventoryCsv] = useState("");
-  const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [saving, setSaving] = useState(false);
   const busy = importing || saving;
-  const activeCount = products.filter((product) => product.isActive !== false).length;
-  const selectedProduct = products.find((product) => product.id === action?.productId);
+  const activeCount = useMemo(
+    () => products.filter((product) => product.isActive !== false).length,
+    [products],
+  );
+  const selectedProduct = useMemo(
+    () => products.find((product) => product.id === action?.productId),
+    [products, action?.productId],
+  );
+  const deliveryProduct = useMemo(
+    () =>
+      products.find((product) => product.id === deliveryProductId && product.isActive !== false) ??
+      null,
+    [products, deliveryProductId],
+  );
   const filteredProducts = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return products.filter((product) => {
@@ -55,40 +68,26 @@ export function ProductsPanel() {
     });
   }, [products, query, status]);
 
-  async function importInventoryCsv() {
-    if (!canImportRecords || busy) return;
-    setImportError(null);
-    try {
-      const rows = parseInventoryCsv(inventoryCsv);
-      if (!rows.length) throw new Error("No inventory rows. Check the required CSV columns.");
-      for (const row of rows) {
-        for (const [label, value, maximum] of [
-          ["SKU", row.sku, 100],
-          ["Name", row.name, 200],
-          ["Category", row.category, 100],
-          ["Unit", row.unit, 50],
-        ] as const) {
-          if (value.length > maximum)
-            throw new Error(`${label} for ${row.sku} must be at most ${maximum} characters.`);
-        }
-        nonnegativeNumber(String(row.currentStock), `On hand for ${row.sku}`, 3);
-        nonnegativeNumber(String(row.leadTimeDays), `Lead time for ${row.sku}`, 0);
-        nonnegativeNumber(String(row.safetyStock), `Safety stock for ${row.sku}`, 3);
-        nonnegativeNumber(String(row.unitCost), `Unit cost for ${row.sku}`, 4);
-      }
+  const importPreparedInventory = useCallback(
+    async (rows: Omit<Product, "id">[]) => {
+      if (!canImportRecords || busy)
+        throw new Error("Inventory import is unavailable while another change is being saved.");
       setImporting(true);
-      await importInventory(rows);
-      toast.success(`Imported ${rows.length} inventory rows.`);
-      setInventoryCsv("");
-      setImportOpen(false);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Import failed.";
-      setImportError(message);
-      toast.error(message);
-    } finally {
-      setImporting(false);
-    }
-  }
+      try {
+        await importInventory(rows);
+        toast.success(`Imported ${rows.length} inventory rows.`);
+        setImportOpen(false);
+        return true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Import failed.";
+        toast.error(message);
+        throw error;
+      } finally {
+        setImporting(false);
+      }
+    },
+    [canImportRecords, busy, importInventory],
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -149,123 +148,32 @@ export function ProductsPanel() {
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3">
-            <Label htmlFor="inventory-csv">Inventory CSV</Label>
             <p className="text-xs text-muted">
               Columns: SKU, Product, Category, Unit, On Hand, Lead Time, Safety Stock, Unit Cost.
             </p>
-            <textarea
-              id="inventory-csv"
-              value={inventoryCsv}
-              disabled={importing}
-              onChange={(event) => setInventoryCsv(event.target.value)}
-              rows={7}
-              className="w-full rounded-xl border border-border bg-surface p-3 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            <InventoryCsvImporter
+              key={session ? `${session.businessId}:${session.userId}` : "browser-demo"}
+              kind="inventory"
+              disabled={saving}
+              rowLimit={mode === "api" ? CSV_API_ROW_LIMITS.inventory : null}
+              importLabel="Import inventory"
               placeholder={
                 "SKU,Product,Category,Unit,On Hand,Lead Time,Safety Stock,Unit Cost\nNS-500,Nature Spring Water 500ml,Beverages,bottle,80,2,24,12"
               }
+              onImport={importPreparedInventory}
             />
-            {importError && (
-              <p className="text-sm text-danger" role="alert">
-                {importError}
-              </p>
-            )}
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                onClick={importInventoryCsv}
-                disabled={busy || !inventoryCsv.trim()}
-              >
-                {importing ? "Importing…" : "Import inventory"}
-              </Button>
-              <InventoryCsvFileButton onLoad={setInventoryCsv} disabled={busy} />
-            </div>
           </CardContent>
         </Card>
       )}
-      <div className="grid gap-3">
-        {filteredProducts.map((product) => (
-          <Card key={product.id}>
-            <CardContent className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-center">
-              <div className="grid gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-medium">{product.name}</p>
-                  <Badge variant={product.isActive === false ? "outline" : "success"}>
-                    {product.isActive === false ? "Inactive" : "Active"}
-                  </Badge>
-                </div>
-                <p className="text-xs text-muted">
-                  {product.sku} · {product.category} · {peso(product.unitCost)} / {product.unit}
-                </p>
-                <dl className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
-                  <div>
-                    <dt className="inline text-muted">On hand: </dt>
-                    <dd className="inline tabular">
-                      {num(product.currentStock, 3)} {product.unit}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="inline text-muted">Lead time: </dt>
-                    <dd className="inline tabular">{num(product.leadTimeDays)} days</dd>
-                  </div>
-                  <div>
-                    <dt className="inline text-muted">Safety stock: </dt>
-                    <dd className="inline tabular">
-                      {num(product.safetyStock, 3)} {product.unit}
-                    </dd>
-                  </div>
-                </dl>
-              </div>
-              <div className="flex flex-wrap gap-2 sm:max-w-80 sm:justify-end">
-                {canReceiveStock && product.isActive !== false && (
-                  <Button
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => setDeliveryProductId(product.id)}
-                  >
-                    Record delivery
-                  </Button>
-                )}
-                {canManageProducts && (
-                  <>
-                    <Button
-                      variant="secondary"
-                      disabled={busy}
-                      onClick={() => setAction({ productId: product.id, kind: "edit" })}
-                    >
-                      Edit details
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={busy}
-                      onClick={() => setAction({ productId: product.id, kind: "count" })}
-                    >
-                      Correct stock count
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={busy}
-                      onClick={() => setAction({ productId: product.id, kind: "status" })}
-                    >
-                      {product.isActive === false ? "Activate" : "Deactivate"}
-                    </Button>
-                  </>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-        {filteredProducts.length === 0 && (
-          <Card>
-            <CardContent className="text-sm text-muted">
-              {products.length
-                ? "No products match your search and status filter."
-                : canManageProducts
-                  ? "Your catalog is empty. Add a product or import an inventory snapshot."
-                  : "Your catalog is empty. An owner can add products."}
-            </CardContent>
-          </Card>
-        )}
-      </div>
+      <ProductCards
+        products={filteredProducts}
+        totalCount={products.length}
+        canReceiveStock={canReceiveStock}
+        canManageProducts={canManageProducts}
+        busy={busy}
+        onDelivery={setDeliveryProductId}
+        onAction={setAction}
+      />
       <Dialog
         open={canManageProducts && (adding || !!selectedProduct)}
         onOpenChange={(open) => {
@@ -334,11 +242,7 @@ export function ProductsPanel() {
         </DialogContent>
       </Dialog>
       <ReceiveStockDialog
-        product={
-          products.find(
-            (product) => product.id === deliveryProductId && product.isActive !== false,
-          ) ?? null
-        }
+        product={deliveryProduct}
         open={canReceiveStock && deliveryProductId !== null}
         onOpenChange={(open) => {
           if (!open) setDeliveryProductId(null);
@@ -347,6 +251,135 @@ export function ProductsPanel() {
     </div>
   );
 }
+
+const ProductCards = memo(function ProductCards({
+  products,
+  totalCount,
+  canReceiveStock,
+  canManageProducts,
+  busy,
+  onDelivery,
+  onAction,
+}: {
+  products: Product[];
+  totalCount: number;
+  canReceiveStock: boolean;
+  canManageProducts: boolean;
+  busy: boolean;
+  onDelivery: (productId: string) => void;
+  onAction: (action: ProductAction) => void;
+}) {
+  return (
+    <div className="grid gap-3">
+      {products.map((product) => (
+        <ProductCard
+          key={product.id}
+          product={product}
+          canReceiveStock={canReceiveStock}
+          canManageProducts={canManageProducts}
+          busy={busy}
+          onDelivery={onDelivery}
+          onAction={onAction}
+        />
+      ))}
+      {products.length === 0 && (
+        <Card>
+          <CardContent className="text-sm text-muted">
+            {totalCount
+              ? "No products match your search and status filter."
+              : canManageProducts
+                ? "Your catalog is empty. Add a product or import an inventory snapshot."
+                : "Your catalog is empty. An owner can add products."}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+});
+
+const ProductCard = memo(function ProductCard({
+  product,
+  canReceiveStock,
+  canManageProducts,
+  busy,
+  onDelivery,
+  onAction,
+}: {
+  product: Product;
+  canReceiveStock: boolean;
+  canManageProducts: boolean;
+  busy: boolean;
+  onDelivery: (productId: string) => void;
+  onAction: (action: ProductAction) => void;
+}) {
+  return (
+    <Card>
+      <CardContent className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-center">
+        <div className="grid gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-medium">{product.name}</p>
+            <Badge variant={product.isActive === false ? "outline" : "success"}>
+              {product.isActive === false ? "Inactive" : "Active"}
+            </Badge>
+          </div>
+          <p className="text-xs text-muted">
+            {product.sku} · {product.category} · {peso(product.unitCost)} / {product.unit}
+          </p>
+          <dl className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
+            <div>
+              <dt className="inline text-muted">On hand: </dt>
+              <dd className="inline tabular">
+                {num(product.currentStock, 3)} {product.unit}
+              </dd>
+            </div>
+            <div>
+              <dt className="inline text-muted">Lead time: </dt>
+              <dd className="inline tabular">{num(product.leadTimeDays)} days</dd>
+            </div>
+            <div>
+              <dt className="inline text-muted">Safety stock: </dt>
+              <dd className="inline tabular">
+                {num(product.safetyStock, 3)} {product.unit}
+              </dd>
+            </div>
+          </dl>
+        </div>
+        <div className="flex flex-wrap gap-2 sm:max-w-80 sm:justify-end">
+          {canReceiveStock && product.isActive !== false && (
+            <Button variant="outline" disabled={busy} onClick={() => onDelivery(product.id)}>
+              Record delivery
+            </Button>
+          )}
+          {canManageProducts && (
+            <>
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => onAction({ productId: product.id, kind: "edit" })}
+              >
+                Edit details
+              </Button>
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => onAction({ productId: product.id, kind: "count" })}
+              >
+                Correct stock count
+              </Button>
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => onAction({ productId: product.id, kind: "status" })}
+              >
+                {product.isActive === false ? "Activate" : "Deactivate"}
+              </Button>
+            </>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+});
 
 type FormCallbacks = { onDone: () => void; onPendingChange: (pending: boolean) => void };
 
@@ -705,38 +738,5 @@ function NumericField({
         onChange={(event) => onChange(event.target.value)}
       />
     </div>
-  );
-}
-
-function InventoryCsvFileButton({
-  onLoad,
-  disabled,
-}: {
-  onLoad: (text: string) => void;
-  disabled: boolean;
-}) {
-  return (
-    <label
-      className={`inline-flex h-11 items-center justify-center rounded-lg border border-border bg-surface px-4 text-sm font-medium ${disabled ? "opacity-50" : "cursor-pointer hover:bg-surface-2"}`}
-    >
-      Upload CSV file
-      <input
-        type="file"
-        disabled={disabled}
-        accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain"
-        className="sr-only"
-        onChange={async (event) => {
-          const file = event.currentTarget.files?.[0];
-          event.currentTarget.value = "";
-          if (!file) return;
-          try {
-            onLoad(decodeCsvFile(await file.arrayBuffer()));
-            toast.success(`Loaded ${file.name}`);
-          } catch (error) {
-            toast.error(error instanceof Error ? error.message : "The CSV file could not be read.");
-          }
-        }}
-      />
-    </label>
   );
 }

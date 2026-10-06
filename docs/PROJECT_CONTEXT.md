@@ -1,6 +1,6 @@
 # StockCast project context
 
-Last checked against this workspace: 2026-10-05. Read alongside [AGENTS.md](../AGENTS.md) and source.
+Last checked against this workspace: 2026-10-06. Read alongside [AGENTS.md](../AGENTS.md) and source.
 
 ## Purpose and confirmed research context
 
@@ -67,7 +67,7 @@ does not include a creation timestamp or other users' display names; the UI does
 Backdated movements change current stock without recomputing earlier saved balances.
 
 Shared frontend capabilities mirror the Python permissions: owners manage products, imports,
-business/model settings, staff access, and forecast refresh; owners/staff record sales, deliveries,
+business/model settings, staff access, and manual forecast refresh; owners/staff record sales, deliveries,
 returns, and reviewed data-quality classifications and access records/exports. Personal account
 and password controls remain available to staff. Backend authorization remains authoritative.
 
@@ -85,6 +85,27 @@ headerless inventory keeps its eight-column order and headerless sales uses Date
 Quantity, with an optional fourth Source Record Key. Dates remain ISO YYYY-MM-DD and numbers
 use a decimal point; locale-specific date/number formats are not guessed.
 
+Inventory and sales use the shared `CsvImporter`, which owns selection, preparation, preview,
+and errors separately from the product cards and sales ledger. Existing sales sorting/history
+summaries and catalog filtering are memoized; CSV state changes do not repeat those calculations.
+A Vite module Web Worker reads, decodes, parses, validates, and retains the complete decoded source
+and validated rows. Import retrieves that cached payload without repeating preparation.
+
+Uploaded files show their filename, byte size, preparation status, and a read-only preview of at
+most the first 50 logical CSV records, including any header. Preview cells are capped at 500
+characters, 12 fields per record, and 24,000 source characters overall; truncation is labelled.
+These display bounds never trim the retained source or imported records. Manual paste remains a
+separate editable input, with worker preparation after a 300 ms typing pause.
+
+Cancellation, replacement, and unmount terminate the worker and invalidate older results. The
+importer remounts when the signed-in user/business changes; sales catalog changes invalidate
+prepared matches and trigger preparation against the current active catalog. API imports accept
+at most 5,000 inventory rows or 100,000 sales rows per request. Larger files can be prepared
+and previewed, with a clear limit error before submission; imports are never split automatically.
+See [CSV upload verification](CSV_UPLOAD_VERIFICATION.md) for browser measurements and test limits.
+That report records the original 50,000-row sales limit; the subsequent 100,000-row limit and daily
+forecast scheduling are documented in [the follow-up verification](CSV_SCHEDULE_FOLLOWUP_VERIFICATION.md).
+
 Product matching prefers exact IDs/SKUs and rejects ambiguous case-insensitive matches.
 The browser forwards the existing API sourceRecordKey field. It is a trimmed, case-sensitive,
 business-wide identifier of one source sale line (up to 200 characters), not just a receipt
@@ -99,7 +120,8 @@ and equivalent quantity formatting while preserving exact trimmed SKU case and r
 fingerprints are still checked. Fully keyed partially rejected batches can be retried without
 reimporting accepted keys. Unkeyed overlapping records and reordered legacy unkeyed batches
 cannot be identified reliably; earlier records are not assigned invented transaction IDs.
-The web form reports accepted/skipped/conflicting outcomes and retains partially rejected text.
+The web form reports accepted/skipped/conflicting outcomes and retains the selected file or
+pasted text when records are partially rejected.
 
 ## Account and Google access contract
 
@@ -214,8 +236,22 @@ See [backend authentication details](../backend/README.md#authentication-contrac
   zero demand. They show saved fallback reasons, unknown/excluded-day counts, and quality warnings;
   absent legacy counts are shown as not saved rather than zero. Delivery recording stays available.
   Forecast-run snapshots retain the classifications used by the worker.
-- Refresh is explicit from the frontend; the worker continuously polls queued jobs. Failed and
-  interrupted jobs are recorded and can be refreshed.
+- The Python worker automatically queues the most recent due daily forecast slot, by default at
+  00:15 in each business's saved timezone. The database clock determines the slot; only history
+  through the preceding completed business day enters an automatic run. Startup catches up the
+  latest due slot rather than backfilling every missed day. Owners retain explicit Refresh controls;
+  staff need no manual refresh and see queued/running/completed/failed outputs through the existing
+  five-second dashboard poll. Schedule claims require enabled metadata from the API.
+- Scheduling checks use a monotonic 60-second cadence between jobs, including while the queue
+  remains busy; a long-running job can delay the next check. Existing business/settings locks
+  serialize slot checks and snapshots with manual requests. Only active businesses are candidates,
+  with active status checked again under the lock;
+  any queued/running run blocks another for that business. Existing JSON configuration stores the
+  scheduled day/time/timezone, history cutoff, and attempt number; automatic jobs have no requested
+  user. A completed scheduled slot is not queued again. Failed scheduled slots allow at most three
+  attempts with a 30-minute database-clock backoff; invalid/empty/short history is skipped without
+  stopping another business. Missing-date, confirmed-zero, chronological split, and immutable input
+  rules are shared with manual refresh. No migration or database contract replacement is required.
 - Completed worker runs persist measured preparation, all model fits, validation/evaluation,
   artifact/result persistence, and total processing durations. `disjoint_phases_v1` scopes do not
   overlap; total ends after the result commit and excludes queue wait and final timing/status
@@ -247,7 +283,10 @@ team/business requirements. They are not filled in with fictional research resul
 ## File map
 
 - `compose.yaml`, `Dockerfile`, `backend/Dockerfile`, `deploy/`, `scripts/`: startup/hosting/backup.
-- src/lib/import-csv.ts and src/lib/sales-import.ts: spreadsheet parsing and browser source-identity checks.
+- `src/components/csv-importer.tsx`: shared upload/paste preparation, cancellation, bounded preview, and import controls.
+- `src/lib/csv-import.worker.ts`, `csv-preparation.ts`: worker source/row cache, decoding/parsing/validation timings, preview bounds, and existing API row limits.
+- `src/lib/import-csv.ts`, `sales-import.ts`: spreadsheet parsing, indexed product matching, and browser source-identity checks.
+- [CSV upload verification](CSV_UPLOAD_VERIFICATION.md), `scripts/test-csv-preparation.mjs`, `test-import-csv.mjs`, `test-sales-import.mjs`: browser measurements and CSV correctness regressions.
 - [User guide](USER_GUIDE.md), `src/components/user-guide.tsx`, `src/lib/user-guide.ts`: the Strategies guide reader; `src/routes/guide.tsx` keeps old links working.
 - `src/components/system-evaluation.tsx`, `src/lib/client-survey.ts`: client questionnaire, private drafts, durable submission and role-aware summaries; `iso-eval.ts` retains archived local prototype data.
 - `backend/app/survey.py`, `client_survey_v1.json`: authenticated survey contract, canonical versioned items, calculations and owner CSV export.

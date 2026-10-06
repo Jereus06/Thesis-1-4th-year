@@ -25,6 +25,7 @@ from .forecasting import (
     moving_average,
     train_verified_xgboost,
 )
+from .repository import Repository
 
 logger = logging.getLogger(__name__)
 
@@ -496,16 +497,37 @@ def run_once() -> bool:
         return True
 
 
+def schedule_once() -> int:
+    settings = get_settings()
+    if not settings.forecast_daily_enabled:
+        return 0
+    with psycopg.connect(
+        str(settings.database_url), row_factory=dict_row, autocommit=True
+    ) as conn:
+        now = conn.execute("SELECT clock_timestamp() AS scheduler_now").fetchone()["scheduler_now"]
+        return Repository(conn).schedule_daily_forecasts(now, settings.forecast_daily_time)
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
     settings = get_settings()
+    schedule_deadline = time.monotonic()
     while True:
         try:
+            if settings.forecast_daily_enabled and time.monotonic() >= schedule_deadline:
+                # Check even while queued jobs keep run_once busy. Downtime is caught up
+                # with one current due slot, instead of replaying every missed day.
+                schedule_deadline = time.monotonic() + settings.forecast_schedule_poll_seconds
+                schedule_once()
             if run_once():
                 continue
         except psycopg.Error:
             logger.exception("Database unavailable; worker will retry")
-        time.sleep(settings.forecast_poll_seconds)
+        if settings.forecast_daily_enabled:
+            until_schedule = max(0.0, schedule_deadline - time.monotonic())
+            time.sleep(min(settings.forecast_poll_seconds, until_schedule))
+        else:
+            time.sleep(settings.forecast_poll_seconds)
 
 
 if __name__ == "__main__":
