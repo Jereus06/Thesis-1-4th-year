@@ -4,6 +4,7 @@ import { AccountMaintenance } from "@/components/account-maintenance";
 import { ProductsPanel } from "@/components/products-panel";
 import { StockMovementsPanel } from "@/components/stock-movements-panel";
 import { RecordSaleDialog } from "@/components/record-sale-dialog";
+import { CsvImporter } from "@/components/csv-importer";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,7 @@ import { formatShort, parseDate } from "@/lib/dates";
 import { num } from "@/lib/format";
 import { useAppStore } from "@/lib/store";
 import type { Sale } from "@/lib/types";
-import { decodeCsvFile, parseSalesCsv } from "@/lib/import-csv";
+import { CSV_API_ROW_LIMITS } from "@/lib/csv-preparation";
 import { api } from "@/lib/api";
 import { usePermissions } from "@/lib/permissions";
 
@@ -65,31 +66,97 @@ function InventoryPage() {
 }
 
 function SalesPanel() {
-  const { canImportRecords, canRecordSales } = usePermissions();
+  const { canImportRecords } = usePermissions();
+  return (
+    <div className={`grid gap-4 ${canImportRecords ? "lg:grid-cols-[1.2fr_1fr]" : ""}`}>
+      <RecentSalesCard />
+      {canImportRecords && <SalesImportCard />}
+    </div>
+  );
+}
+
+function RecentSalesCard() {
+  const { canRecordSales } = usePermissions();
   const sales = useAppStore((s) => s.sales);
   const products = useAppStore((s) => s.products);
-  const importSales = useAppStore((s) => s.importSales);
-  const [csv, setCsv] = useState("");
-  const [importing, setImporting] = useState(false);
   const session = useAppStore((s) => s.session);
   const nameById = useMemo(
     () => Object.fromEntries(products.map((p) => [p.id, p.name])),
     [products],
   );
-  const recent = [...sales].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 40);
+  const recent = useMemo(
+    () => [...sales].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 40),
+    [sales],
+  );
+  const hasActiveProducts = useMemo(
+    () => products.some((product) => product.isActive !== false),
+    [products],
+  );
 
-  async function importCsv() {
-    if (!canImportRecords || importing) return;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Recent sales</CardTitle>
+        <CardDescription>
+          {num(sales.length)} sales rows ·{" "}
+          {session ? "saved in PostgreSQL" : "browser demonstration"}
+        </CardDescription>
+        {canRecordSales && (
+          <RecordSaleDialog
+            trigger={
+              <Button className="w-fit" disabled={!hasActiveProducts}>
+                Record sale
+              </Button>
+            }
+          />
+        )}
+        {session && (
+          <a
+            className="text-sm text-primary underline"
+            href={api.exportUrl(session.businessId, "sales")}
+          >
+            Export sales CSV
+          </a>
+        )}
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead className="text-xs tracking-wide text-muted uppercase">
+            <tr>
+              <th className="pb-2 font-medium">Date</th>
+              <th className="pb-2 font-medium">Product</th>
+              <th className="pb-2 font-medium">Qty</th>
+            </tr>
+          </thead>
+          <tbody>
+            {recent.map((sale) => (
+              <tr key={sale.id} className="border-t border-border">
+                <td className="py-2 pr-3 tabular">{sale.date}</td>
+                <td className="pr-3">{nameById[sale.productId] ?? sale.productId}</td>
+                <td className="tabular">{num(sale.qty)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function SalesImportCard() {
+  const { canImportRecords } = usePermissions();
+  const products = useAppStore((s) => s.products);
+  const importSales = useAppStore((s) => s.importSales);
+  const session = useAppStore((s) => s.session);
+  const mode = useAppStore((s) => s.dataMode);
+  const activeProducts = useMemo(
+    () => products.filter((product) => product.isActive !== false),
+    [products],
+  );
+
+  async function importPreparedRows(rows: Sale[]) {
+    if (!canImportRecords) throw new Error("Only an owner can import sales records.");
     try {
-      const rows = parseSalesCsv(
-        csv,
-        products.filter((product) => product.isActive !== false),
-      );
-      if (!rows.length) {
-        toast.error("No matching rows. Use Date, Product, Quantity.");
-        return;
-      }
-      setImporting(true);
       const result = await importSales(rows);
       const skipped = result.errors.filter(
         (error) => error.code === "duplicate_source_record_key",
@@ -119,124 +186,42 @@ function SalesPanel() {
         });
       } else {
         toast.success(messages.join(" "));
-        setCsv("");
       }
+      return result.rejectedRows === 0;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Import failed");
-    } finally {
-      setImporting(false);
+      throw error;
     }
   }
 
   return (
-    <div className={`grid gap-4 ${canImportRecords ? "lg:grid-cols-[1.2fr_1fr]" : ""}`}>
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent sales</CardTitle>
-          <CardDescription>
-            {num(sales.length)} sales rows ·{" "}
-            {session ? "saved in PostgreSQL" : "browser demonstration"}
-          </CardDescription>
-          {canRecordSales && (
-            <RecordSaleDialog
-              trigger={
-                <Button
-                  className="w-fit"
-                  disabled={!products.some((product) => product.isActive !== false)}
-                >
-                  Record sale
-                </Button>
-              }
-            />
-          )}
-          {session && (
-            <a
-              className="text-sm text-primary underline"
-              href={api.exportUrl(session.businessId, "sales")}
-            >
-              Export sales CSV
-            </a>
-          )}
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="text-xs tracking-wide text-muted uppercase">
-              <tr>
-                <th className="pb-2 font-medium">Date</th>
-                <th className="pb-2 font-medium">Product</th>
-                <th className="pb-2 font-medium">Qty</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recent.map((s) => (
-                <tr key={s.id} className="border-t border-border">
-                  <td className="py-2 pr-3 tabular">{s.date}</td>
-                  <td className="pr-3">{nameById[s.productId] ?? s.productId}</td>
-                  <td className="tabular">{num(s.qty)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
-      {canImportRecords && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Import CSV</CardTitle>
-            <CardDescription>
-              Columns: Date, Product, Quantity, and optional Source Record Key. Product can be name
-              or SKU.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            <textarea
-              value={csv}
-              onChange={(e) => setCsv(e.target.value)}
-              rows={10}
-              className="w-full rounded-xl border border-border bg-surface p-3 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-              placeholder={
-                "2026-09-18,Lucky Me Pancit Canton,12\n2026-09-18,Nature Spring Water 500ml,20"
-              }
-            />
-            <p className="text-sm text-muted">
-              Use a stable Source Record Key unique to each sale line and reuse it on retries or
-              overlapping imports. Separate sales need different keys even when their date, product,
-              and quantity match. Without a key, overlapping records cannot be identified.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={importCsv} disabled={importing}>
-                Import rows
-              </Button>
-              <CsvFileButton onLoad={setCsv} />
-            </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
-}
-
-function CsvFileButton({ onLoad }: { onLoad: (text: string) => void }) {
-  return (
-    <label className="inline-flex h-11 cursor-pointer items-center justify-center rounded-lg border border-border bg-surface px-4 text-sm font-medium hover:bg-surface-2">
-      Upload CSV file
-      <input
-        type="file"
-        accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain"
-        className="sr-only"
-        onChange={async (event) => {
-          const file = event.currentTarget.files?.[0];
-          event.currentTarget.value = "";
-          if (!file) return;
-          try {
-            onLoad(decodeCsvFile(await file.arrayBuffer()));
-            toast.success(`Loaded ${file.name}`);
-          } catch (error) {
-            toast.error(error instanceof Error ? error.message : "The CSV file could not be read.");
+    <Card>
+      <CardHeader>
+        <CardTitle>Import CSV</CardTitle>
+        <CardDescription>
+          Columns: Date, Product, Quantity, and optional Source Record Key. Product can be name or
+          SKU.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <CsvImporter
+          key={session ? `${session.businessId}:${session.userId}` : "browser-demo"}
+          kind="sales"
+          products={activeProducts}
+          rowLimit={mode === "api" ? CSV_API_ROW_LIMITS.sales : null}
+          importLabel="Import rows"
+          placeholder={
+            "2026-09-18,Lucky Me Pancit Canton,12\n2026-09-18,Nature Spring Water 500ml,20"
           }
-        }}
-      />
-    </label>
+          onImport={importPreparedRows}
+        />
+        <p className="text-sm text-muted">
+          Use a stable Source Record Key unique to each sale line and reuse it on retries or
+          overlapping imports. Separate sales need different keys even when their date, product, and
+          quantity match. Without a key, overlapping records cannot be identified.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -397,13 +382,14 @@ function SettingsPanel() {
 
 function getSalesHistory(sales: Sale[]) {
   if (!sales.length) return { start: "", end: "", days: 0, weeks: 0, months: 0, limited: true };
-  const dates = sales
-    .map((sale) => sale.date)
-    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
-    .sort();
-  if (!dates.length) return { start: "", end: "", days: 0, weeks: 0, months: 0, limited: true };
-  const start = dates[0];
-  const end = dates[dates.length - 1];
+  let start = "";
+  let end = "";
+  for (const { date } of sales) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    if (!start || date < start) start = date;
+    if (!end || date > end) end = date;
+  }
+  if (!start) return { start: "", end: "", days: 0, weeks: 0, months: 0, limited: true };
   const days = Math.floor((parseDate(end).getTime() - parseDate(start).getTime()) / 86_400_000) + 1;
   return {
     start,

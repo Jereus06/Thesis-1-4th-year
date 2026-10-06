@@ -12,6 +12,7 @@ import { AS_OF } from "@/lib/data/seed";
 import { formatLong, todayISO } from "@/lib/dates";
 import { DISCLAIMER, modelLabel } from "@/lib/forecast/constants";
 import { metric, num, peso } from "@/lib/format";
+import { forecastRefreshAdvice } from "@/lib/forecast-schedule";
 import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
 import type { ReorderRow } from "@/lib/types";
@@ -37,7 +38,8 @@ function Overview() {
   const { canManageProducts, canRefreshForecast } = usePermissions();
   const storeName = useAppStore((s) => s.settings.storeName);
   const forecastHorizon = useAppStore((s) => s.settings.forecastHorizon);
-  const { result, rows, expired } = useForecast();
+  const { result, rows, expired, schedule } = useForecast();
+  const refreshAdvice = forecastRefreshAdvice(mode, canRefreshForecast, schedule);
   const ready = Boolean(result);
 
   const available = rows.filter((row) => !expired && hasCurrentDemand(row));
@@ -86,9 +88,7 @@ function Overview() {
                 ? "Add or activate products and record sales history to start planning restocks."
                 : "Ask the owner to add or activate products before recording sales."
               : expired
-                ? canRefreshForecast
-                  ? "Forecasts have expired. Review recent sales and refresh before planning restocks."
-                  : "Forecasts have expired. Review recent sales and ask the owner to refresh before planning restocks."
+                ? `Forecasts have expired. Review recent sales and ${refreshAdvice} before planning restocks.`
                 : restock.length
                   ? `${restock.length} product${restock.length === 1 ? "" : "s"} should be reordered before supplier lead time catches you short.${unavailableCount ? ` Current demand is unavailable for ${unavailableCount} other product${unavailableCount === 1 ? "" : "s"}.` : ""}`
                   : unavailableCount
@@ -184,9 +184,7 @@ function Overview() {
                     ? "No active products to assess. Add or activate inventory and record sales history."
                     : "No active products to assess. Ask the owner to add or activate products."
                   : expired
-                    ? canRefreshForecast
-                      ? "Saved predictions have expired. Refresh forecasts before using reorder advice."
-                      : "Saved predictions have expired. Ask the owner to refresh forecasts before using reorder advice."
+                    ? `Saved predictions have expired. Review recent sales and ${refreshAdvice} before using reorder advice.`
                     : unavailableCount
                       ? "Current reorder advice is unavailable for part of the catalog. Review the demand evidence before planning restocks."
                       : zeroDemand.length === available.length && available.length > 0
@@ -210,7 +208,7 @@ function Overview() {
                           ? (row.unavailableReason ??
                             result?.byProduct[row.product.id]?.unavailableReason ??
                             (row.forecastExpired || expired
-                              ? "The saved forecast period has ended. Review recent sales and refresh forecasts."
+                              ? `The saved forecast period has ended. Review recent sales and ${refreshAdvice}.`
                               : "No usable demand estimate is available. Review sales history and data quality."))
                           : undefined
                       }

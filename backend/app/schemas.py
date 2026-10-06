@@ -120,7 +120,7 @@ class ImportSaleRow(ApiModel):
 class SalesImportCreate(ApiModel):
     source: str = Field(default="csv", pattern="^(csv|pos_export|spreadsheet|migration)$")
     original_filename: str | None = Field(default=None, max_length=255)
-    rows: list[ImportSaleRow] = Field(min_length=1, max_length=50_000)
+    rows: list[ImportSaleRow] = Field(min_length=1, max_length=100_000)
 
 
 class ForecastRunCreate(ApiModel):

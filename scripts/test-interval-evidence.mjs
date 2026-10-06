@@ -5,6 +5,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
 import { chartIntervalBounds, intervalAvailability } from "../src/lib/forecast-interval.ts";
+import { forecastRefreshAdvice } from "../src/lib/forecast-schedule.ts";
 
 const server = await createServer({
   root: fileURLToPath(new URL("../", import.meta.url)),
@@ -164,7 +165,23 @@ test("expired future intervals retain archived calibration evidence", () => {
   assert.match(html, /ended on 2026-10-02/);
   assert.match(html, /10 observations/);
   assert.match(html, /75\.0% of actual sales inside the bounds/);
-  assert.match(html, /refresh forecasts for current bounds/);
+  assert.match(html, /For current evidence, refresh forecasts\./);
+});
+
+test("expired intervals use enabled staff schedule advice while keeping archived calibration evidence", () => {
+  const html = renderEvidence(forecast({ forecastExpired: true, future: [] }), "api", {
+    forecastThrough: "2026-10-02",
+    refreshAdvice: forecastRefreshAdvice("api", false, {
+      enabled: true,
+      localTime: "00:15",
+      timezone: "Asia/Manila",
+    }),
+  });
+  assert.match(html, /For current evidence, wait for the daily automatic refresh\./);
+  assert.match(html, /ended on 2026-10-02/);
+  assert.match(html, /10 observations/);
+  assert.match(html, /75\.0% of actual sales inside the bounds/);
+  assert.doesNotMatch(html, /ask the owner|For current evidence, refresh forecasts/);
 });
 
 test("calibration availability and missing current bounds remain separate", () => {

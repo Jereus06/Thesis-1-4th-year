@@ -8,7 +8,7 @@ export type ThesisSection = {
 };
 
 export const THESIS_INTRO_NOTE =
-  "Implementation-aligned Chapter 3 text, revised 5 October 2026. Use this copy/Markdown for the current Python system; record research findings only from the cited dataset, measured installation, and collected client responses.";
+  "Implementation-aligned Chapter 3 text, revised 6 October 2026. Use this copy/Markdown for the current Python system; record research findings only from the cited dataset, measured installation, and collected client responses.";
 
 export const THESIS_SECTIONS: ThesisSection[] = [
   {
@@ -95,7 +95,7 @@ export const THESIS_SECTIONS: ThesisSection[] = [
     heading: "Technique 1 — Separate Training from Serving",
     placement: "Strategy 2, Technique 1",
     paragraphs: [
-      "Dashboard/API reads use saved results or a conservative Python baseline; they do not fit XGBoost. Explicit Refresh queues an immutable run for the separate worker. Offline training means computation outside the dashboard request, not a fixed daily 06:00 retraining schedule.",
+      "Dashboard/API reads use saved results or a conservative Python baseline; they do not fit XGBoost. Daily automatic refresh, when enabled, and owner-requested Refresh queue immutable runs for the separate worker. The daily schedule uses the configured local time in each business's timezone; the application displays the enabled schedule returned by the API. Staff can see newly saved forecasts without requesting Refresh. Offline training means computation outside the dashboard request; scheduled runs preserve the same chronological evaluation and data-sufficiency checks.",
     ],
   },
   {
@@ -104,7 +104,7 @@ export const THESIS_SECTIONS: ThesisSection[] = [
     placement: "Strategy 2, Technique 2",
     paragraphs: [
       "PostgreSQL stores forecast inputs, predictions, errors, model decisions, interval evidence, and timings. Official model JSON files use a persistent volume. New sales, product/settings changes, and reviewed-day audit revisions make saved results stale. Previous completed evidence remains archived. Dates are not shifted to today, and current advice excludes expired predictions.",
-      "Saved baselines from an older calendar policy require Refresh and are not served as current evidence. Ordinary container recreation retains database/model volumes. Database dumps, isolated restoration, and restart checks verify recovery on the tested installation.",
+      "Saved baselines from an older calendar policy require a new forecast run and are not served as current evidence. Ordinary container recreation retains database/model volumes. Database dumps, isolated restoration, and restart checks verify recovery on the tested installation.",
     ],
   },
   {

@@ -1,6 +1,7 @@
 import hashlib
 import json
-from datetime import UTC, datetime, timedelta
+import logging
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -33,6 +34,10 @@ from .schemas import (
     SettingsUpdate,
 )
 from .security import Principal, new_token, token_hash, verify_password
+from .scheduling import daily_schedule_slot, schedule_attempt
+
+
+logger = logging.getLogger(__name__)
 
 
 def decimal_text(value: Decimal | str) -> str:
@@ -777,10 +782,16 @@ class Repository:
         return self._data_import(row)
 
     def create_forecast_run(self, principal: Principal, data: ForecastRunCreate):
+        return self._create_forecast_run(principal.business_id, principal.user_id, data)
+
+    def _create_forecast_run(
+        self, business_id: str, requested_by: str | None, data: ForecastRunCreate,
+        *, business_day: date | None = None,
+    ):
         self.conn.execute(
-            "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE", (principal.business_id,)
+            "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE", (business_id,)
         )
-        business_day = self.business_day(principal.business_id)
+        business_day = business_day or self.business_day(business_id)
         if data.final_test_end > business_day:
             raise HTTPException(422, "Forecast evaluation cannot include future dates")
         captured_at = self.conn.execute("SELECT clock_timestamp() AS captured_at").fetchone()[
@@ -788,7 +799,7 @@ class Repository:
         ]
         pending = self.conn.execute(
             "SELECT id FROM forecast_runs WHERE business_id=%s AND status IN ('queued','running')",
-            (principal.business_id,),
+            (business_id,),
         ).fetchone()
         if pending:
             raise HTTPException(409, "A forecast run is already queued or running")
@@ -796,28 +807,28 @@ class Repository:
             """SELECT count(*) AS sales_count,min(sale_date) AS first_sale_date,
                max(sale_date) AS last_sale_date FROM sales WHERE business_id=%s
                AND sale_date<=%s""",
-            (principal.business_id, data.final_test_end),
+            (business_id, data.final_test_end),
         ).fetchone()
         daily_rows = self.conn.execute(
             """SELECT product_id,sale_date,sum(quantity) AS quantity FROM sales
                WHERE business_id=%s AND sale_date BETWEEN %s AND %s
                GROUP BY product_id,sale_date ORDER BY product_id,sale_date""",
-            (principal.business_id, data.training_start, data.final_test_end),
+            (business_id, data.training_start, data.final_test_end),
         ).fetchall()
         settings = self.conn.execute(
-            "SELECT * FROM business_settings WHERE business_id=%s", (principal.business_id,)
+            "SELECT * FROM business_settings WHERE business_id=%s", (business_id,)
         ).fetchone()
         quality_rows = self.conn.execute(
             """SELECT product_id,classification_date,classification,note FROM sales_day_quality
                WHERE business_id=%s AND classification_date BETWEEN %s AND %s
                ORDER BY classification_date,product_id NULLS FIRST""",
-            (principal.business_id, data.training_start, data.final_test_end),
+            (business_id, data.training_start, data.final_test_end),
         ).fetchall()
         product_ids = [
             str(row["id"])
             for row in self.conn.execute(
                 "SELECT id FROM products WHERE business_id=%s AND is_active ORDER BY id",
-                (principal.business_id,),
+                (business_id,),
             ).fetchall()
         ]
         quality_payload = [
@@ -851,7 +862,7 @@ class Repository:
             SELECT %s,data_origin,'queued','xgboost.XGBRegressor',NULL,false,%s,%s,%s,%s,%s,%s,
                    %s,%s,%s,%s FROM businesses WHERE id=%s RETURNING *""",
             (
-                principal.business_id,
+                business_id,
                 data.training_start,
                 data.training_end,
                 data.validation_start,
@@ -892,37 +903,48 @@ class Repository:
                         ],
                     }
                 ),
-                principal.user_id,
-                principal.business_id,
+                requested_by,
+                business_id,
             ),
         ).fetchone()
         return self._forecast_run(row)
 
     def refresh_forecast(self, principal: Principal):
+        return self._refresh_forecast(principal.business_id, principal.user_id)
+
+    def _refresh_forecast(
+        self, business_id: str, requested_by: str | None, *,
+        history_through: date | None = None,
+        configuration: dict[str, Any] | None = None,
+        business_day: date | None = None,
+    ):
         # Bounds and the immutable snapshot share the existing business lock,
         # including reviewed classifications changed by another user.
         self.conn.execute(
-            "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE", (principal.business_id,)
+            "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE", (business_id,)
         )
-        today = self.business_day(principal.business_id)
+        today = business_day or self.business_day(business_id)
+        through = history_through if history_through is not None else today
+        if through > today:
+            raise HTTPException(422, "Forecast evaluation cannot include future dates")
         product_ids = [
             str(row["id"]) for row in self.conn.execute(
                 "SELECT id FROM products WHERE business_id=%s AND is_active ORDER BY id",
-                (principal.business_id,),
+                (business_id,),
             ).fetchall()
         ]
         active_ids = set(product_ids)
         sales = self.conn.execute(
             """SELECT product_id,sale_date,sum(quantity) AS quantity FROM sales
                WHERE business_id=%s GROUP BY product_id,sale_date ORDER BY product_id,sale_date""",
-            (principal.business_id,),
+            (business_id,),
         ).fetchall()
         if any(str(row["product_id"]) in active_ids and row["sale_date"] > today for row in sales):
             raise HTTPException(422, "Forecast history cannot include future-dated sales")
         quality_rows = self.conn.execute(
             """SELECT product_id,classification_date,classification,note FROM sales_day_quality
                WHERE business_id=%s ORDER BY classification_date,product_id NULLS FIRST""",
-            (principal.business_id,),
+            (business_id,),
         ).fetchall()
         quality_payload = [
             {
@@ -933,7 +955,7 @@ class Repository:
             }
             for row in quality_rows
         ]
-        start, end = usable_history_bounds(sales, quality_payload, product_ids, through=today)
+        start, end = usable_history_bounds(sales, quality_payload, product_ids, through=through)
         if start is None or end is None:
             raise HTTPException(
                 422,
@@ -945,14 +967,15 @@ class Repository:
                 422,
                 "At least three calendar days are needed for train/validation/test; the baseline remains available",
             )
-        settings = self.get_settings(principal.business_id)
+        settings = self.get_settings(business_id)
         split = refresh_split_plan(days, settings)
         validation_days = split["validationCalendarDays"]
         final_test_days = split["finalTestCalendarDays"]
         training_end = end - timedelta(days=validation_days + final_test_days)
         validation_end = end - timedelta(days=final_test_days)
-        return self.create_forecast_run(
-            principal,
+        return self._create_forecast_run(
+            business_id,
+            requested_by,
             ForecastRunCreate(
                 training_start=start,
                 training_end=training_end,
@@ -966,9 +989,71 @@ class Repository:
                     "missingDayPolicy": "explicit_classification_required",
                     "historyEndPolicy": "usable_active_observations",
                     "refreshSplit": split,
+                    **(configuration or {}),
                 },
             ),
+            business_day=today,
         )
+
+    def schedule_daily_forecasts(self, now: datetime, local_time: str) -> int:
+        """Queue only the latest due daily slot, serialized with manual forecast writes."""
+        businesses = self.conn.execute(
+            """SELECT s.business_id FROM business_settings s
+               JOIN businesses b ON b.id=s.business_id WHERE b.is_active
+               ORDER BY s.business_id"""
+        ).fetchall()
+        queued = 0
+        for business in businesses:
+            business_id = str(business["business_id"])
+            try:
+                with self.conn.transaction():
+                    locked_business = self.conn.execute(
+                        "SELECT id,is_active FROM businesses WHERE id=%s FOR NO KEY UPDATE",
+                        (business_id,),
+                    ).fetchone()
+                    # A business may be disabled after the initial candidate read.
+                    if not locked_business or not locked_business["is_active"]:
+                        continue
+                    timezone = self.conn.execute(
+                        "SELECT timezone FROM business_settings WHERE business_id=%s FOR SHARE",
+                        (business_id,),
+                    ).fetchone()["timezone"]
+                    slot, cutoff = daily_schedule_slot(now, timezone, local_time)
+                    runs = self.conn.execute(
+                        """SELECT status,configuration,completed_at,started_at,created_at
+                           FROM forecast_runs WHERE business_id=%s AND
+                           (status IN ('queued','running') OR
+                            (configuration->>'requestedFrom'='daily_schedule' AND
+                             configuration->>'scheduledFor'=%s))
+                           ORDER BY created_at,id""",
+                        (business_id, slot.isoformat()),
+                    ).fetchall()
+                    attempt = schedule_attempt(runs, slot, now)
+                    if attempt is None:
+                        continue
+                    self._refresh_forecast(
+                        business_id, None,
+                        history_through=cutoff,
+                        business_day=now.astimezone(ZoneInfo(timezone)).date(),
+                        configuration={
+                            "requestedFrom": "daily_schedule",
+                            "scheduledFor": slot.isoformat(),
+                            "scheduledTime": local_time,
+                            "scheduledTimezone": timezone,
+                            "historyThrough": cutoff.isoformat(),
+                            "scheduleAttempt": attempt,
+                        },
+                    )
+                queued += 1
+            except HTTPException as error:
+                if error.status_code in {409, 422}:
+                    logger.debug("Daily forecast skipped for business %s: %s", business_id, error.detail)
+                else:
+                    logger.exception("Daily forecast scheduling failed for business %s", business_id)
+            except Exception:
+                # A bad business history/configuration cannot stop other tenants.
+                logger.exception("Daily forecast scheduling failed for business %s", business_id)
+        return queued
 
     def list_forecast_runs(self, business_id: str, limit: int, offset: int):
         rows = self.conn.execute(

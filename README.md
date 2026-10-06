@@ -125,7 +125,7 @@ and the repeatable [API](docs/PERFORMANCE_BENCHMARK.md) and [browser](docs/BROWS
 1. Sign in and add products in **Inventory**.
 2. Record sales and deliveries. A sale deducts stock; a delivery increases stock.
 3. Import inventory or historical sales using the documented CSV columns in the interface.
-4. Open **Forecasts → Refresh forecasts**. The Python worker saves the run and its outputs.
+4. Review **Forecasts**. The Python worker refreshes eligible business history daily; owners can also choose **Refresh forecasts**.
 5. Review **Restock**. Suggested quantities apply when stock reaches the reorder point.
 6. Export sales or stock movements from Inventory, and make database backups.
 
@@ -146,7 +146,10 @@ operations. Normal Refresh expands validation for separate interval calibration 
 eligible history remains; shorter histories show unavailable intervals. Frontend settings saves
 preserve backend thresholds, timezone, and fold count. Saved runs retain their input snapshot, model parameters, weights, predictions,
 metrics, and measured processing phases. Missing timings remain unavailable; total processing is
-separate from model training and browser responsiveness. New records or settings prompt a forecast refresh. See
+separate from model training and browser responsiveness. By default, the worker checks for a daily
+run at 00:15 in the business timezone, using history through the preceding completed day. Staff
+see new saved outputs through the five-second dashboard poll; owners retain manual refresh for
+earlier updates. The worker must remain running. See
 [backend/README.md](backend/README.md) for the evaluation contract.
 
 ## Host online

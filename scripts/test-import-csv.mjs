@@ -273,3 +273,67 @@ test("unique folded SKUs and names still resolve without choosing from collision
     /matches multiple products/,
   );
 });
+
+test("the exact lookup counts ID/SKU equality once per product and duplicate catalog entries twice", () => {
+  const sameIdSku = { ...product, id: "SAME", sku: "SAME" };
+  assert.equal(parseSalesCsv("2026-09-01,SAME,2", [sameIdSku])[0].productId, "SAME");
+  assert.throws(
+    () => parseSalesCsv("2026-09-01,SAME,2", [sameIdSku, sameIdSku]),
+    /matches multiple products/,
+  );
+});
+
+test("huge malformed field and header diagnostics stay bounded while retaining record and line details", () => {
+  const hugeValue = `Synthetic-unknown-${"x".repeat(1_000_000)}`;
+  const cases = [
+    [`Date,SKU,Quantity\n2026-09-01,${hugeValue},1`, products, /Unknown product/],
+    [
+      `Date,SKU,Quantity,${hugeValue}\n2026-09-01,SYNTHETIC-001,1,value`,
+      products,
+      /Unsupported column/,
+    ],
+    [
+      `Date,SKU,Quantity,Source Record Key,SourceRecordKey${"_".repeat(1_000_000)}`,
+      products,
+      /Duplicate column/,
+    ],
+    [
+      `Date,SKU,Quantity\n2026-09-01,${hugeValue},1`,
+      [
+        { ...product, name: hugeValue },
+        { ...product, id: "synthetic-second", sku: "SECOND", name: hugeValue },
+      ],
+      /matches multiple products/,
+    ],
+  ];
+  for (const [text, catalog, reason] of cases) {
+    assert.throws(
+      () => parseSalesCsv(text, catalog),
+      (error) => {
+        assert.match(error.message, reason);
+        assert.match(error.message, /CSV record [12] \(line [12]\)/);
+        assert.match(error.message, /\u2026/);
+        assert.ok(
+          error.message.length < 400,
+          "diagnostics must not send huge field values to rendering",
+        );
+        assert.equal(error.message.includes(hugeValue), false);
+        return true;
+      },
+    );
+  }
+});
+
+test("diagnostic shortening counts Unicode characters without splitting surrogate pairs", () => {
+  const key = "\ud83d\ude80".repeat(201);
+  assert.throws(
+    () => parseSalesCsv(`2026-09-01,${key},1`, products),
+    (error) => {
+      assert.equal(
+        error.message,
+        `CSV record 1 (line 1): Unknown product: ${"\ud83d\ude80".repeat(200)}\u2026`,
+      );
+      return true;
+    },
+  );
+});

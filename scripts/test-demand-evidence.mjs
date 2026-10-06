@@ -96,6 +96,9 @@ function renderPage(
     result = true,
     mode = "api",
     role = "owner",
+    schedule,
+    status = expired ? "expired" : "ready",
+    message = "Synthetic fixture",
   } = {},
 ) {
   setTestState({
@@ -116,8 +119,13 @@ function renderPage(
   setForecastState({
     rows,
     expired,
-    status: expired ? "expired" : "ready",
-    progress: { total: catalog.length, completed: catalog.length, message: "Synthetic fixture" },
+    status,
+    schedule,
+    progress: {
+      total: catalog.length,
+      completed: status === "training" ? 0 : catalog.length,
+      message,
+    },
     result: result
       ? {
           winner: "ma",
@@ -152,6 +160,64 @@ test("staff retain delivery entry while forecast refresh controls belong to owne
   assert.match(owner, /<button\b[^>]*>Refresh forecasts<\/button>/);
   assert.doesNotMatch(staff, /<button\b[^>]*>Refresh forecasts<\/button>/);
   assert.match(staff, /The owner can refresh forecasts/);
+});
+
+test("enabled API schedules give staff truthful automatic status while keeping owner-only refresh", () => {
+  const schedule = { enabled: true, localTime: "00:15", timezone: "Asia/Manila" };
+  const forecast = { holdout: [], future: [] };
+  for (const message of [
+    "Forecast refresh is queued. The last completed forecast remains visible.",
+    "Forecast refresh is running. The last completed forecast remains visible.",
+    "Saved Python forecast through 2026-10-15",
+  ]) {
+    const markup = renderPage(forecastsRoute, {
+      role: "staff",
+      forecast,
+      schedule,
+      message,
+      status: message.startsWith("Saved") ? "ready" : "training",
+    });
+    assert.match(markup, /Automatic forecast refresh is scheduled daily at 00:15 \(Asia\/Manila\)/);
+    assert.ok(markup.includes(message));
+    assert.doesNotMatch(
+      markup,
+      /<button\b[^>]*>Refresh forecasts<\/button>|The owner can refresh forecasts/,
+    );
+    assert.doesNotMatch(markup, /0\/1|width:0%/);
+  }
+  assert.match(
+    renderPage(forecastsRoute, { forecast, schedule }),
+    /<button\b[^>]*>Refresh forecasts<\/button>/,
+  );
+});
+
+test("disabled or missing API schedules and browser demonstration never promise daily automation", () => {
+  const forecast = { holdout: [], future: [] };
+  const schedule = { enabled: true, localTime: "00:15", timezone: "Asia/Manila" };
+  for (const options of [
+    { role: "staff", forecast },
+    { role: "staff", forecast, schedule: { ...schedule, enabled: false } },
+    { mode: "browser-demo", forecast, schedule },
+  ]) {
+    const markup = renderPage(forecastsRoute, options);
+    assert.doesNotMatch(markup, /Automatic forecast refresh is scheduled daily/);
+    if (options.mode !== "browser-demo") assert.match(markup, /The owner can refresh forecasts/);
+  }
+});
+
+test("scheduled refresh advice keeps expired staff forecasts unavailable and delivery entry usable", () => {
+  const options = {
+    role: "staff",
+    schedule: { enabled: true, localTime: "00:15", timezone: "Asia/Manila" },
+    expired: true,
+    rows: [{ ...baseRow, forecastExpired: true, demandAvailable: false, reorderQty: 99 }],
+  };
+  for (const route of [overviewRoute, restockRoute]) {
+    const markup = renderPage(route, options);
+    assert.match(markup, /wait for the daily automatic refresh/);
+    assert.doesNotMatch(markup, /ask the owner to refresh|>99<|>Healthy<\/span>/);
+  }
+  assertDeliveryEnabled(renderPage(restockRoute, options));
 });
 
 test("an inactive catalog directs staff to the owner and excludes archived products from forecasts", () => {

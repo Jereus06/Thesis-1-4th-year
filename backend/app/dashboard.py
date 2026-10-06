@@ -14,7 +14,7 @@ from .forecasting import moving_average
 from .inventory import calculate_reorder
 
 
-def dashboard(repository, business_id):
+def dashboard(repository, business_id, *, forecast_schedule=None):
     conn = repository.conn
     settings = repository.get_settings(business_id)
     today = repository.business_day(business_id)
@@ -244,7 +244,7 @@ def dashboard(repository, business_id):
                 **serialized,
             }
         )
-    return {
+    result = {
         "run": run,
         "stale": stale,
         "expired": forecast_through is not None and forecast_through < today,
@@ -263,3 +263,6 @@ def dashboard(repository, business_id):
         "asOf": str(end),
         "message": "Python forecasts use explicit day classifications; unavailable demand is not replaced with zero.",
     }
+    if forecast_schedule is not None:
+        result["forecastSchedule"] = {**forecast_schedule, "timezone": settings["timezone"]}
+    return result

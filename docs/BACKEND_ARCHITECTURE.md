@@ -174,7 +174,10 @@ cookie, and owner/staff authorization. The forecast worker is a separate private
 
 The default frontend restores `/auth/me` from its cookie, then loads only that user's business,
 products, sales, and settings. Signup and Google completion use the same session-user contract.
-Forecast pages read saved Python outputs; refresh queues worker jobs explicitly. Decimal API
+Forecast pages read saved Python outputs; the worker queues daily jobs using each business's
+timezone and completed-day history, and owners can explicitly refresh earlier. The existing
+five-second dashboard poll updates staff outputs without a manual write. Daily deduplication and
+bounded retries use existing run configuration under the business lock; no migration is added. Decimal API
 quantities become frontend numbers at the existing client boundary.
 
 The optional browser demonstration uses separate storage and synthetic data. Existing

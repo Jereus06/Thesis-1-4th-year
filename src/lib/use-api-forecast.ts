@@ -5,6 +5,7 @@ import { currentForecastDashboard } from "@/lib/forecast-validity";
 import { toReorderRows, toResult } from "@/lib/api-forecast";
 import { usePermissions } from "@/lib/permissions";
 import type { ForecastState } from "@/lib/use-forecast";
+import { forecastProgressMessage } from "@/lib/forecast-schedule";
 
 export function useApiForecast(): ForecastState {
   const session = useAppStore((s) => s.session);
@@ -85,9 +86,6 @@ export function useApiForecast(): ForecastState {
   const failure =
     error ??
     (latest?.status === "failed" ? (latest.failureMessage ?? "Forecast failed") : undefined);
-  const refreshAdvice = canRefreshForecast
-    ? "refresh forecasts"
-    : "ask the owner to refresh forecasts";
   return {
     result,
     rows,
@@ -96,20 +94,17 @@ export function useApiForecast(): ForecastState {
     error: failure,
     expired: data?.expired ?? false,
     forecastThrough: data?.forecastThrough,
+    schedule: data?.forecastSchedule,
     progress: {
       status,
       total: products.length,
       completed: busy ? 0 : products.length,
-      message: busy
-        ? "Python worker is evaluating and saving forecasts…"
-        : (failure ??
-          (data?.expired
-            ? `Forecast expired after ${data.forecastThrough}; review recent sales and ${refreshAdvice}.`
-            : dateChanged
-              ? "Business date changed. Waiting for current recommendations."
-              : data?.run
-                ? `Saved Python forecast through ${data.forecastThrough ?? data.run.finalTestEnd}${data.stale ? `. New records or settings detected; ${refreshAdvice}.` : ""}`
-                : `Python Moving Average baseline. Record sales, then ${refreshAdvice} to evaluate models.`)),
+      message: forecastProgressMessage(data, {
+        requesting,
+        dateChanged,
+        canRefreshForecast,
+        error: failure,
+      }),
     },
   };
 }

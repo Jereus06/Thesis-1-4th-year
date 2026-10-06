@@ -9,7 +9,7 @@ export default tseslint.config(
   {
     ignores: [
       "dist/**", "node_modules/**", "src/routeTree.gen.ts",
-      "benchmarks/**", ".venv/**", ".pytest_cache/**", ".kilo/**", ".codex-publish/**",
+      "benchmarks/**", ".venv/**", "**/.pytest_cache/**", ".kilo/**", ".codex-publish/**",
     ],
   },
   js.configs.recommended,

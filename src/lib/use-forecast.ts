@@ -11,6 +11,7 @@ import { localForecastCache } from "@/lib/forecast/persist";
 import { buildReorderRows } from "@/lib/inventory/reorder";
 import { useAppStore } from "@/lib/store";
 import type { PipelineResult, ReorderRow, TrainProgress } from "@/lib/types";
+import type { ForecastSchedule } from "@/lib/forecast-schedule";
 
 export type ForecastState = {
   result: PipelineResult | null;
@@ -21,6 +22,7 @@ export type ForecastState = {
   error?: string;
   expired?: boolean;
   forecastThrough?: string | null;
+  schedule?: ForecastSchedule;
 };
 
 export function useForecastCompute(initialResult: PipelineResult): ForecastState {

@@ -15,6 +15,7 @@ import { requestBackgroundTrain } from "@/lib/forecast/job";
 import { LEVELS, TECHNIQUES } from "@/lib/forecast/strategies";
 import { DEFAULT_XGB } from "@/lib/forecast/xgboost";
 import { metric, num } from "@/lib/format";
+import { forecastRefreshAdvice, forecastScheduleMessage } from "@/lib/forecast-schedule";
 import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
 
@@ -234,9 +235,11 @@ function PythonMethods({
   tab: StrategyTab;
   onTabChange: (value: string) => void;
 }) {
-  const { result, refresh, status } = useForecast();
+  const { result, refresh, status, schedule } = useForecast();
   const settings = useAppStore((state) => state.settings);
   const { canRefreshForecast } = usePermissions();
+  const refreshAdvice = forecastRefreshAdvice("api", canRefreshForecast, schedule);
+  const scheduled = Boolean(forecastScheduleMessage("api", schedule));
   return (
     <div
       className={tab === "guide" ? "mx-auto grid max-w-6xl gap-6" : "mx-auto grid max-w-3xl gap-6"}
@@ -307,7 +310,7 @@ function PythonMethods({
                   origin. Missing test dates remain unscored but still count as elapsed forecast
                   days. Without usable history at the test cutoff, baseline test metrics are
                   unavailable. Expired predictions are not moved forward by another product's newer
-                  history; older saved baselines require Refresh.
+                  history; older saved baselines require a new forecast run.
                 </p>
                 <p>
                   After evaluation, the operating model is refitted on observed history with its
@@ -330,15 +333,17 @@ function PythonMethods({
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
                 <p>
-                  Pages read saved PostgreSQL predictions. Refresh queues a separate Python worker;
-                  inventory and sales remain usable during training. Official XGBoost model files
-                  are saved in the model volume.
+                  Pages read saved PostgreSQL predictions.{" "}
+                  {scheduled
+                    ? "Daily automatic refresh and owner-requested Refresh queue"
+                    : "Owner-requested Refresh queues"}{" "}
+                  a separate Python worker; inventory and sales remain usable during training.
+                  Official XGBoost model files are saved in the model volume.
                 </p>
                 <p>
-                  {canRefreshForecast
-                    ? "Record or import new history, then refresh forecasts."
-                    : "Record new sales history, then ask the owner to refresh forecasts."}{" "}
-                  The last completed run remains visible while the new run is pending.
+                  {canRefreshForecast ? "Record or import new history" : "Record new sales history"}
+                  , then {refreshAdvice}. The last completed run remains visible while the new run
+                  is pending.
                 </p>
                 {canRefreshForecast && (
                   <Button

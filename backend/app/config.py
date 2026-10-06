@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     google_redirect_uri: str = ""
     artifact_dir: Path = Path("data/models")
     forecast_poll_seconds: int = Field(default=5, ge=1, le=3600)
+    forecast_daily_enabled: bool = True
+    forecast_daily_time: str = Field(
+        default="00:15", pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
+    )
+    forecast_schedule_poll_seconds: int = Field(default=60, ge=1, le=60)
     owner_business_id: UUID = UUID("00000000-0000-4000-8000-000000000001")
     owner_business_name: str = "StockCast Store"
     owner_data_origin: str = "demo"
