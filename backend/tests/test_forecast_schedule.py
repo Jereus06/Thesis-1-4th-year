@@ -488,6 +488,7 @@ def test_postgres_concurrent_schedulers_queue_one_business_slot(pg_client):
     from threading import Barrier
 
     import psycopg
+    from psycopg.rows import dict_row
 
     from app.repository import Repository
 
@@ -504,7 +505,7 @@ def test_postgres_concurrent_schedulers_queue_one_business_slot(pg_client):
     with ThreadPoolExecutor(max_workers=2) as executors:
         outcomes = list(executors.map(lambda _index: poll(), range(2)))
     assert sorted(outcomes) == [0, 1]
-    with psycopg.connect(dsn, autocommit=True) as connection:
+    with psycopg.connect(dsn, autocommit=True, row_factory=dict_row) as connection:
         assert connection.execute("SELECT count(*) AS count FROM forecast_runs").fetchone()["count"] == 1
 
 
@@ -523,6 +524,7 @@ def test_postgres_inactive_business_is_not_scheduled(pg_client):
 
 def test_postgres_retry_cap_and_backoff_are_durable_across_repository_instances(pg_client):
     import psycopg
+    from psycopg.rows import dict_row
 
     from app.repository import Repository
 
@@ -541,7 +543,7 @@ def test_postgres_retry_cap_and_backoff_are_durable_across_repository_instances(
             assert repository.schedule_daily_forecasts(NOW + timedelta(minutes=30), "00:15") == (
                 1 if attempt < 3 else 0
             )
-    with psycopg.connect(dsn, autocommit=True) as connection:
+    with psycopg.connect(dsn, autocommit=True, row_factory=dict_row) as connection:
         rows = connection.execute(
             "SELECT status,configuration FROM forecast_runs ORDER BY configuration->>'scheduleAttempt'",
         ).fetchall()

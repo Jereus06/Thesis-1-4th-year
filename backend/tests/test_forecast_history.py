@@ -2,6 +2,7 @@
 
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -14,14 +15,14 @@ FROZEN_INSTANT = datetime(2026, 10, 4, 16, 30, tzinfo=UTC)
 
 
 def freeze_clock(monkeypatch, instant=FROZEN_INSTANT):
-    from app import repository
+    """Fix the business day without changing session or idempotency expiry clocks."""
+    from app.repository import Repository
 
-    class FixedClock(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+    def business_day(self, business_id):
+        timezone = ZoneInfo(self.get_settings(business_id)["timezone"])
+        return instant.astimezone(timezone).date()
 
-    monkeypatch.setattr(repository, "datetime", FixedClock)
+    monkeypatch.setattr(Repository, "business_day", business_day)
 
 
 def configure(client, base, **changes):

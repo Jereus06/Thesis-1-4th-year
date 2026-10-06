@@ -276,6 +276,15 @@ PostgreSQL, full web/API/worker smoke checks, backup restoration, and restart pe
 unit checks and an added workflow are not by themselves evidence of an actual hosted deployment;
 read the workflow outcome and record the target hosting verification separately.
 
+Forecast-history regression fixtures freeze only the business day in the saved timezone;
+session and idempotency expiry clocks stay real so they remain consistent with PostgreSQL's
+creation timestamps. Scheduler assertions that index raw query results by column name explicitly
+request psycopg dictionary rows.
+On 2026-10-06, the repaired full backend suite passed all 363 tests with no skips in Docker
+Python 3.12.14 against an isolated PostgreSQL 16 database (243 warnings). Frontend typecheck,
+lint, and build also passed; lint reported three existing React Refresh warnings. This was
+local verification of the supplied CI failures; the next GitHub workflow run remains separate.
+
 Deployment account/DNS/storage settings and real-partner policies (corrections/voids, units,
 import mapping, retention, collection permission, and independent research cutoffs) use confirmed
 team/business requirements. They are not filled in with fictional research results.
