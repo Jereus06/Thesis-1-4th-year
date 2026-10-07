@@ -1,6 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   BookOpen,
+  CircleHelp,
   ClipboardCheck,
   LayoutDashboard,
   LineChart,
@@ -135,7 +136,7 @@ function ShellLayout({ children }: { children: ReactNode }) {
         </aside>
 
         <div className="flex min-h-dvh flex-col pb-20 lg:pb-0">
-          <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-border bg-bg/90 px-4 py-3 backdrop-blur-sm lg:px-8">
+          <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-bg/90 px-4 py-3 backdrop-blur-sm sm:flex-nowrap lg:px-8">
             <div className="min-w-0 lg:hidden">
               <p className="font-display text-lg italic">StockCast</p>
             </div>
@@ -143,6 +144,17 @@ function ShellLayout({ children }: { children: ReactNode }) {
               {formatLong(mode === "api" ? todayISO() : AS_OF)}
             </p>
             <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" asChild>
+                <Link
+                  to="/methodology"
+                  search={{ tab: "guide" }}
+                  aria-label="Open user guide"
+                  title="User guide"
+                >
+                  <CircleHelp className="size-4" aria-hidden="true" />
+                  <span className="hidden sm:inline">User guide</span>
+                </Link>
+              </Button>
               {mode === "api" && <SignOutButton />}
               <RecordSaleDialog
                 trigger={

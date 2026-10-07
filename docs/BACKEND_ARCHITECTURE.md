@@ -78,7 +78,7 @@ ten Google starts/minute/IP, and a shared 120 throttled auth writes/minute/IP. M
 processes require coordinated gateway limits and configured client-address proxy handling.
 Email verification for password signup, password recovery/change, and staff invitations remain
 unimplemented. See [the backend authentication contract](../backend/README.md#authentication-contract)
-and [the user guide's Google setup](USER_GUIDE.md#18-configuration-and-hosting).
+and [the setup reference's Google configuration](SETUP_AND_OPERATIONS.md#configuration-and-hosting).
 Live Google OAuth still requires verification using the deployment's registered credentials.
 
 ## Transaction rules

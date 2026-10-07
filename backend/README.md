@@ -141,7 +141,7 @@ only for development loopback origins; hosting requires HTTPS.
 
 Use Google Cloud's Web application OAuth client and register the matching callback. Configure
 Branding/Audience and review test users, publishing, and applicable verification before rollout.
-See [the manual](../docs/USER_GUIDE.md#18-configuration-and-hosting) and
+See [the setup reference](../docs/SETUP_AND_OPERATIONS.md#configuration-and-hosting) and
 [Google's web-server OAuth documentation](https://developers.google.com/identity/protocols/oauth2/web-server).
 The implementation requests `openid email profile` and does not provide silent automatic consent.
 Actual live OAuth must be checked using the installation's credentials; provider mocks do not

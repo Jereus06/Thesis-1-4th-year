@@ -67,7 +67,7 @@ the configuration is complete and valid. The default Compose callback is
 `http://localhost:8080/api/v1/auth/google/callback`, with
 `CORS_ORIGIN=http://localhost:8080`. Hosted callbacks use the real HTTPS origin.
 
-Follow [the manual's Google setup and hosting instructions](docs/USER_GUIDE.md#18-configuration-and-hosting),
+Follow [the setup reference's Google and hosting instructions](docs/SETUP_AND_OPERATIONS.md#configuration-and-hosting),
 including Google Cloud's Web application client, consent/Audience configuration, and current
 testing/publishing rules. Google may require account selection or consent. A first Google user
 finishes store setup; a connected user signs in to the existing account.
@@ -106,10 +106,12 @@ imports add history; inventory counts are saved as audited stock adjustments.
 
 ## Use the system
 
-Open **Strategies > User guide** for the searchable guide covering every current page,
-daily workflows, CSV formats, forecasts, restock calculations, setup, backups, hosting, and
-troubleshooting. The manual can also be downloaded there and its source is
-[the complete user guide](docs/USER_GUIDE.md). **Strategies > Evaluation** provides a versioned
+Open **User guide** in the application header, or **Strategies > User guide**, for searchable
+steps covering daily tasks, where to find each screen, recording and reviewing transactions,
+CSV imports, forecasts, restock advice, accounts, and common problems. The task manual can also
+be downloaded there; its source is [How to use StockCast](docs/USER_GUIDE.md). Installation,
+service commands, backups, email/Google setup, and hosting are kept in the separate
+[setup and operations reference](docs/SETUP_AND_OPERATIONS.md). **Strategies > Evaluation** provides a versioned
 client questionnaire covering functional suitability, reliability, interaction capability, and
 perceived performance efficiency. **Save draft** keeps answers in this browser; **Submit** saves
 one final questionnaire per authenticated account/version in PostgreSQL, with server-derived

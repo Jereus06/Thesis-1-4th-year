@@ -1,5 +1,5 @@
 import { BookOpen, ChevronDown, Download, Search } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,17 +8,18 @@ import guideSource from "../../docs/USER_GUIDE.md?raw";
 import guideDownload from "../../docs/USER_GUIDE.md?url";
 
 const guide = parseGuide(guideSource);
-const suggestions = [
-  "Quick start",
-  "Sales",
-  "Inventory",
-  "Forecasts",
-  "Backups",
-  "Troubleshooting",
+const quickTasks = [
+  { id: "getting-started", label: "Start here" },
+  { id: "record-a-sale", label: "Record a sale" },
+  { id: "record-a-delivery", label: "Record a delivery" },
+  { id: "correct-a-stock-count", label: "Correct a stock count" },
+  { id: "import-past-sales", label: "Import past sales" },
+  { id: "read-and-refresh-forecasts", label: "Read forecasts" },
 ];
 
 export function UserGuide() {
   const [query, setQuery] = useState("");
+  const pendingTopic = useRef<string | null>(null);
   const sections = useMemo(() => searchGuide(guide.sections, query), [query]);
   const searching = query.trim().length > 0;
 
@@ -37,6 +38,27 @@ export function UserGuide() {
     return () => window.removeEventListener("hashchange", openHash);
   }, []);
 
+  useEffect(() => {
+    const id = pendingTopic.current;
+    if (!id) return;
+    pendingTopic.current = null;
+    const target = document.getElementById(id);
+    if (target instanceof HTMLDetailsElement) {
+      target.open = true;
+      target.scrollIntoView();
+    }
+  }, [query]);
+
+  function openTask(id: string) {
+    if (query) {
+      pendingTopic.current = id;
+      setQuery("");
+    } else {
+      const target = document.getElementById(id);
+      if (target instanceof HTMLDetailsElement) target.open = true;
+    }
+  }
+
   function expandAll(open: boolean) {
     document.querySelectorAll<HTMLDetailsElement>("#guide-sections details").forEach((item) => {
       item.open = open;
@@ -48,7 +70,7 @@ export function UserGuide() {
       <div className="mb-8 max-w-3xl">
         <p className="mb-3 flex items-center gap-2 text-xs font-medium tracking-wide text-primary uppercase">
           <BookOpen className="size-4" aria-hidden="true" />
-          Help for owners, staff, and administrators
+          Everyday help for owners and staff
         </p>
         <h2 id="user-guide-title" className="font-display text-3xl font-medium tracking-tight">
           {guide.title}
@@ -74,7 +96,7 @@ export function UserGuide() {
                 type="search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Try sales import, safety stock, or backup"
+                placeholder="Try record a sale, delivery, or stock count"
                 className="pl-10"
                 aria-describedby="guide-results"
               />
@@ -87,18 +109,21 @@ export function UserGuide() {
             </a>
           </Button>
         </div>
-        <div className="flex flex-wrap gap-2" aria-label="Suggested searches">
-          {suggestions.map((term) => (
-            <button
-              key={term}
-              type="button"
-              onClick={() => setQuery(term)}
-              className="rounded-full border border-border px-3 py-1.5 text-xs text-muted hover:border-primary hover:text-primary focus-visible:outline-primary"
-            >
-              {term}
-            </button>
-          ))}
-        </div>
+        <nav aria-label="Common tasks">
+          <p className="mb-2 text-xs font-medium text-muted">What would you like to do?</p>
+          <div className="flex flex-wrap gap-2">
+            {quickTasks.map((task) => (
+              <a
+                key={task.id}
+                href={"#" + task.id}
+                onClick={() => openTask(task.id)}
+                className="rounded-full border border-border px-3 py-1.5 text-xs text-muted hover:border-primary hover:text-primary focus-visible:outline-primary"
+              >
+                {task.label}
+              </a>
+            ))}
+          </div>
+        </nav>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p id="guide-results" role="status" className="text-sm text-muted">
             {sections.length} of {guide.sections.length} topics
@@ -162,7 +187,7 @@ export function UserGuide() {
               <div className="rounded-2xl border border-border bg-surface p-6">
                 <h3 className="font-display text-xl">No matching topics</h3>
                 <p className="mt-2 text-sm text-muted">
-                  Try fewer words, such as sales, stock, or backup.
+                  Try fewer words, such as sale, delivery, stock, or staff.
                 </p>
                 <Button className="mt-4" variant="outline" onClick={() => setQuery("")}>
                   Show all topics
