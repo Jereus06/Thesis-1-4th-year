@@ -1,6 +1,6 @@
 # StockCast project context
 
-User-guide organization checked against this workspace: 2026-10-07. Read alongside [AGENTS.md](../AGENTS.md) and source.
+Guided CSV imports checked against this workspace: 2026-10-08. Read alongside [AGENTS.md](../AGENTS.md) and source.
 
 ## Purpose and confirmed research context
 
@@ -80,31 +80,74 @@ or backend permission changes were required.
 
 Inventory and sales CSV parsing supports quoted fields, embedded delimiters, doubled quotes,
 multiline fields, comma/semicolon/tab exports, optional spreadsheet separator directives, and
-UTF-8 or BOM-marked UTF-16 file uploads. Named supported headers can reorder columns;
-headerless inventory keeps its eight-column order and headerless sales uses Date, Product,
-Quantity, with an optional fourth Source Record Key. Dates remain ISO YYYY-MM-DD and numbers
-use a decimal point; locale-specific date/number formats are not guessed.
+UTF-8 or BOM-marked UTF-16 file uploads. The guided importer suggests known header aliases,
+allows explicit source-column mapping and ignored extras, and lets users correct whether the
+first row is a header. Headerless inventory defaults to its eight-column order and headerless
+sales to Date, Product, Quantity, with an optional fourth Source Record Key. Ambiguous alias
+suggestions remain unselected; required fields and duplicate source-column mappings are checked.
+At most 100 source columns are supported by the guided setup.
 
-Inventory and sales use the shared `CsvImporter`, which owns selection, preparation, preview,
-and errors separately from the product cards and sales ledger. Existing sales sorting/history
-summaries and catalog filtering are memoized; CSV state changes do not repeat those calculations.
-A Vite module Web Worker reads, decodes, parses, validates, and retains the complete decoded source
-and validated rows. Import retrieves that cached payload without repeating preparation.
+Users explicitly choose ISO, day/month/year, or month/day/year dates and a supported decimal /
+grouping format. Valid dates become canonical YYYY-MM-DD; calendar-invalid dates, two-digit
+years, timestamps, malformed number grouping, currency signs, excess precision, and lossy large
+numbers are rejected. No per-row locale guesses or automatic rounding are performed. Inventory
+Category, Unit, Lead Time, Safety Stock, and Unit Cost can use user-entered verified shared values
+only when the same value applies to every row. Identifiers, product names, stock counts, sale dates,
+and sold quantities require source columns. File selection resets mapping/format/shared-value choices.
 
-Uploaded files show their filename, byte size, preparation status, and a read-only preview of at
-most the first 50 logical CSV records, including any header. Preview cells are capped at 500
-characters, 12 fields per record, and 24,000 source characters overall; truncation is labelled.
-These display bounds never trim the retained source or imported records. Manual paste remains a
-separate editable input, with worker preparation after a 300 ms typing pause.
+Inventory and sales use the shared `CsvImporter`, which owns selection, preparation, and errors
+separately from product cards and the sales ledger. `CsvImportReview` presents bounded setup,
+product resolution, converted preview, and diagnostics. Existing sales summaries and catalog
+filtering remain memoized; CSV state changes do not repeat those calculations. A Vite module Web
+Worker reads, decodes, parses, converts, validates, and retains complete source, rows, and issues.
+Only a bounded summary reaches React. Submission retrieves cached validated rows without
+repeating preparation. A complete error CSV is generated as a Blob in the worker only on demand;
+spreadsheet formula prefixes in exported diagnostic values are neutralized.
 
-Cancellation, replacement, and unmount terminate the worker and invalidate older results. The
-importer remounts when the signed-in user/business changes; sales catalog changes invalidate
-prepared matches and trigger preparation against the current active catalog. API imports accept
-at most 5,000 inventory rows or 100,000 sales rows per request. Larger files can be prepared
-and previewed, with a clear limit error before submission; imports are never split automatically.
-See [CSV upload verification](CSV_UPLOAD_VERIFICATION.md) for browser measurements and test limits.
-That report records the original 50,000-row sales limit; the subsequent 100,000-row limit and daily
-forecast scheduling are documented in [the follow-up verification](CSV_SCHEDULE_FOLLOWUP_VERIFICATION.md).
+Original uploaded previews show at most 50 logical records, including the header. Preview cells
+remain bounded to 500 characters, 12 fields per record, and 24,000 source characters overall.
+Converted previews show at most the first 50 data records, with 200-character diagnostic/display
+values. On-screen errors and unresolved identifiers are capped at 50 each; the downloadable
+report retains every collected row problem and source record/starting physical line. Catalog
+choices for manual matches are searchable and bounded to 50 matches plus the current selection.
+Selected matches have their own source/SKU/name search and 50-entry pages; every assignment
+can be edited or removed without resetting the source. Changing the product column, separator,
+or header choice clears manual matches from the previous source structure. Identifier names
+inherited from JavaScript's object prototype do not appear as preselected products.
+These display bounds never shorten the retained source or submitted records. Malformed CSV
+quoting must be corrected before row validation can proceed.
+
+Users can resolve unknown/ambiguous sales identifiers to an existing active product, review or
+remove those selections, or create a missing product separately in Products. Overrides apply to
+all rows with the exact trimmed source identifier. Optional source Unit values must match the
+catalog unit; existing inventory SKUs cannot silently change their counting unit. No quantities
+are converted between packs/pieces. Duplicate inventory SKUs and repeated/conflicting source
+keys within a selected file block preparation. Equal-looking unkeyed sales remain distinct.
+
+All parsed rows are checked, including errors beyond the preview; any unresolved configuration
+or row problem blocks submission. Valid rows are never silently selected as a partial history.
+Inventory retains whole-snapshot atomicity. The final review checkbox is required before saving;
+column/format/shared-value/product/catalog changes invalidate readiness and the previous review.
+Cancellation, source replacement, and unmount terminate the worker and ignore older results.
+The importer remounts when the signed-in user/business changes. Paste preparation retains its
+300 ms typing pause. API limits remain 5,000 inventory or 100,000 sales rows per request;
+oversized files can be reviewed but cannot be submitted, and are never split automatically.
+Backend authorization, tenant checks, validation, historical-stock preservation, snapshot audit,
+and cross-batch duplicate detection remain unchanged and authoritative.
+
+Sales reads add paired `beforeDate`/`beforeId` cursor parameters and permit up to 1,000 rows per
+page, while retaining legacy offset pagination. The browser seeks through the existing
+business/date/ID index and keeps a 200-row fallback for older APIs. No SQL migration is needed.
+Committed inventory/sales imports remain successful when a follow-up read fails; an explicit
+notice reloads saved records without repeating the write. Late read results cannot replace
+another signed-in account's cache or warning.
+
+See [guided importer contract and verification](GUIDED_CSV_IMPORTS.md). The older
+[CSV upload verification](CSV_UPLOAD_VERIFICATION.md) and
+[follow-up verification](CSV_SCHEDULE_FOLLOWUP_VERIFICATION.md) describe prior preparation
+behavior and explicitly identify mocked API browser evidence separately from database evidence.
+The system workflow now runs guided inventory and 100,000-row sales imports through a browser
+against the disposable Python API/PostgreSQL installation, with a separate uploaded report.
 
 Product matching prefers exact IDs/SKUs and rejects ambiguous case-insensitive matches.
 The browser forwards the existing API sourceRecordKey field. It is a trimmed, case-sensitive,
@@ -292,9 +335,9 @@ team/business requirements. They are not filled in with fictional research resul
 ## File map
 
 - `compose.yaml`, `Dockerfile`, `backend/Dockerfile`, `deploy/`, `scripts/`: startup/hosting/backup.
-- `src/components/csv-importer.tsx`: shared upload/paste preparation, cancellation, bounded preview, and import controls.
+- `src/components/csv-importer.tsx`, `csv-import-review.tsx`: shared upload/paste preparation, mapping, explicit format selection, product resolution, bounded review, error downloads, and import controls.
 - `src/lib/csv-import.worker.ts`, `csv-preparation.ts`: worker source/row cache, decoding/parsing/validation timings, preview bounds, and existing API row limits.
-- `src/lib/import-csv.ts`, `sales-import.ts`: spreadsheet parsing, indexed product matching, and browser source-identity checks.
+- `src/lib/import-csv.ts`, `guided-csv.ts`, `sales-import.ts`: spreadsheet parsing, guided conversion/complete diagnostics, indexed product matching, and browser source-identity checks.
 - [CSV upload verification](CSV_UPLOAD_VERIFICATION.md), `scripts/test-csv-preparation.mjs`, `test-import-csv.mjs`, `test-sales-import.mjs`: browser measurements and CSV correctness regressions.
 - [User guide](USER_GUIDE.md), `src/components/user-guide.tsx`, `src/lib/user-guide.ts`: the Strategies guide reader; `src/routes/guide.tsx` keeps old links working.
 - [Setup and operations](SETUP_AND_OPERATIONS.md): separate installation, service, backup, hosting, email/Google configuration, and development instructions; this technical manual is not rendered in the in-app task guide.

@@ -174,7 +174,7 @@ Deactivation keeps the saved stock balance and history. Inactive products are ex
 
 **Where:** **Inventory > Products > Import inventory**.
 
-Use an inventory file to add your catalog and establish or correct current counts. Prepare these columns in your spreadsheet and save it as CSV:
+Use an inventory file to add your catalog and establish or correct current counts. Save your spreadsheet as CSV. Its column names and order may differ; match them to these fields in the importer:
 
 | Column | What to enter |
 | --- | --- |
@@ -189,15 +189,20 @@ Use an inventory file to add your catalog and establish or correct current count
 
 1. Choose **Import inventory** to open the importer.
 2. Choose **Uploaded file > Upload CSV file**, or **Paste CSV** to enter prepared CSV text.
-3. Wait for preparation. Review product names, units, quantities, and any row errors.
-4. Choose **Import inventory** inside the importer to save the prepared records.
-5. Wait for confirmation, then check **Products** and **Stock movements**.
+3. Check **First row contains column names**, then match each required field to its source column. Suggested matches can be changed. Unmapped columns, such as supplier notes, are ignored.
+4. Choose the **Number format** used in the file. For example, **1,234.50** uses decimal-point/comma grouping; **1.234,50** uses decimal-comma/dot grouping. Review the converted preview.
+5. If a Category, Unit, Lead Time, Safety Stock, or Unit Cost column is missing, choose **Enter a verified value for every row** only when you know the same value applies to every product in this file. Enter that value using the selected number format for numeric fields; StockCast supplies no invented defaults. Product codes, names, and stock counts must come from source columns.
+6. Correct every reported row problem. **Download complete error report** includes all problems and their source record/starting line; the on-screen table shows at most 50. Edit the source and select it again, or correct pasted text. Match its columns again if necessary.
+7. Check **I checked the column matches, converted values, and counting units**, then choose **Import inventory** inside the importer.
+8. Wait for confirmation, then check **Products** and **Stock movements**.
 
-Selecting a file or viewing its preview does not save it. The preview shows at most the first 50 CSV records; the full prepared file is used for import. Use **Cancel preparation** to stop, or **Prepare again** to retry. To change uploaded data, edit the source file and select it again.
+Selecting a file or viewing its preview does not save it. Original and converted previews are bounded; all data records are checked and the full valid file is used for import. Use **Cancel preparation** to stop, or **Prepare again** to retry. To change uploaded data, edit the source file and select it again. Selecting a new source clears its mappings and format choices. Changing a mapping or format requires reviewing the converted values again.
 
 **What changes:** matching SKUs update product details and replace current counts with audited corrections. New SKUs create products. Matching inactive products are reactivated, and products absent from the file remain saved. A rejected inventory row prevents the whole snapshot from saving.
 
-Use a decimal point for numbers. Stock and safety quantities allow up to three decimal places; unit cost allows four. The maximum is **5,000 inventory data rows per import**. This is a current inventory snapshot, not a delivery list or sales file.
+If a notice says the import **was saved** but the product list could not be refreshed, choose **Reload saved records**. Avoid importing the same source again just to refresh the view.
+
+Stock and safety quantities allow up to three decimal places; unit cost allows four. Extra precision is rejected rather than rounded. Duplicate SKUs in one file must be corrected. For an existing SKU, use its current counting unit; changing a unit label does not convert quantities or historical records. The maximum is **5,000 inventory data rows per import**. This is a current inventory snapshot, not a delivery list or sales file.
 
 ## Import past sales
 
@@ -205,29 +210,38 @@ Use a decimal point for numbers. Stock and safety quantities allow up to three d
 
 **Where:** **Inventory > Sales ledger > Import CSV**.
 
-Create or import the products first. Prepare these columns and save the spreadsheet as CSV:
+Create or import the products first. Save the spreadsheet as CSV and match its columns to these fields:
 
 | Column | What to enter |
 | --- | --- |
-| Date | Sale date in **YYYY-MM-DD** format, such as **2026-09-01** |
+| Date | Sale date; choose its date format to convert it to **YYYY-MM-DD** |
 | Product | An existing SKU; an unambiguous product name or internal product ID also works |
 | Quantity | Positive sold quantity in that product's unit |
 | Source Record Key, optional | A stable unique identifier for one sale line |
+| Unit, optional check | The existing product's counting unit; no pack/piece conversion is performed |
 
 1. Open **Sales ledger** and locate **Import CSV**.
 2. Choose **Uploaded file > Upload CSV file**, or **Paste CSV**.
-3. Wait for preparation and check that the product matches and dates are correct.
-4. Choose **Import rows**.
-5. Read the imported, already-imported, and rejected counts. Check the Sales ledger and use **Export sales CSV** if you need all saved rows.
+3. Match the sale date, product/SKU, and quantity columns. Map a Source Record Key or Unit column when appropriate. Unmapped extra columns are ignored.
+4. Choose **Date format** and **Number format** explicitly. For **05/10/2026**, choose day/month/year if it means October 5, or month/day/year if it means May 10. Check the converted dates and quantities; the system does not guess which meaning you intend.
+5. If an identifier is unknown or ambiguous, use **Find catalog product** and **Match product** to select the correct existing product with the same counting unit. This applies to all rows with that exact source identifier. In **Selected product matches**, search by source identifier, SKU, or product name to find a choice, or use **Previous selected matches** / **Next selected matches** to review 50 at a time. Every choice can be changed or removed without selecting the file again. Changing the product column, column separator, or header choice clears manual matches; check and match the resulting identifiers again. Add missing products in Products first; the sales importer never creates products automatically.
+6. Correct every row error. Download the complete error report for problems beyond the first 50. Missing sale dates or quantities cannot be filled in automatically, and invalid rows are not silently discarded.
+7. Check **I checked the column matches, converted values, and counting units**, then choose **Import rows**.
+8. Read the imported, already-imported, and rejected counts. Check the Sales ledger and use **Export sales CSV** if you need all saved rows.
 
 **What changes:** past sales are added to demand history. They do not reduce current stock or create a delivery. This is appropriate for older transactions already reflected in your current physical count.
 
-Use a decimal point and up to three decimal places for quantities. The maximum is **100,000 sales data rows per import**. The preview is limited to the first 50 CSV records; it does not limit the import to 50 rows.
+If a notice says the import **was saved** but the ledger could not be refreshed, choose **Reload saved records**. The save succeeded; this button reads saved records without importing the file again.
+
+Sold quantities must be positive with up to three decimal places. Extra precision is rejected rather than rounded. The maximum is **100,000 sales data rows per import**. The converted preview shows the first 50 data records; it does not limit the import to 50 rows. The original preview is also bounded. Mapping or format changes invalidate the earlier preparation and require a new review.
 
 ### Fix an import problem
 
-- If a product is unknown or ambiguous, check its SKU in **Products** and correct the source file.
-- If a date is rejected, use **YYYY-MM-DD**. Do not assume an ambiguous day/month format will be converted.
+- If a product is unknown or ambiguous, check its SKU and unit in **Products**, then match it explicitly or correct the source file.
+- If a date is rejected, check the selected date format and the actual calendar date. Two-digit years and timestamps are not converted to sale dates.
+- If numbers are rejected, check the selected decimal/grouping format. Remove currency symbols in the source and verify that stock/quantity precision is supported.
+- If quotation marks or separators are malformed, correct the CSV structure before its rows can be checked.
+- Repeated Source Record Keys inside the same file must be corrected before importing. Separate sale lines need distinct keys.
 - Keep the same **Source Record Key** when the same sale line appears in another file. Separate sale lines need distinct keys, even when they share a receipt number.
 - A matching saved key is skipped. A key reused with different product, date, or quantity is a conflict; check the original record.
 - If some rows were saved and others rejected, inspect the results before retrying. Without source keys, retry only the rows that were not saved to avoid duplicate sales.

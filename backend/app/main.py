@@ -1,5 +1,6 @@
 import csv
 import io
+from datetime import date
 from contextlib import asynccontextmanager
 from uuid import UUID
 
@@ -295,13 +296,17 @@ def put_business_settings(
 @app.get("/api/v1/businesses/{business_id}/sales")
 def sales(
     business_id: str,
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    before_date: date | None = Query(None, alias="beforeDate"),
+    before_id: UUID | None = Query(None, alias="beforeId"),
     repository: Repository = Depends(repo),
     user: Principal = Depends(principal),
 ):
     business_user(business_id, user)
-    return {"data": repository.list_sales(business_id, limit, offset)}
+    if (before_date is None) != (before_id is None) or (before_date is not None and offset):
+        raise HTTPException(422, "Use both sales cursor fields and no offset, or use offset pagination")
+    return {"data": repository.list_sales(business_id, limit, offset, before_date, before_id)}
 
 
 @app.post("/api/v1/businesses/{business_id}/sales", status_code=201)

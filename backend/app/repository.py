@@ -537,11 +537,23 @@ class Repository:
             ).fetchone()
         return self._movement(row)
 
-    def list_sales(self, business_id: str, limit: int, offset: int):
-        rows = self.conn.execute(
-            "SELECT * FROM sales WHERE business_id=%s ORDER BY sale_date DESC,id DESC LIMIT %s OFFSET %s",
-            (business_id, limit, offset),
-        ).fetchall()
+    def list_sales(
+        self, business_id: str, limit: int, offset: int,
+        before_date: date | None = None, before_id: UUID | None = None,
+    ):
+        if before_date is not None and before_id is not None:
+            # Seek through the existing (business_id, sale_date, id) index instead of
+            # repeatedly walking all earlier rows after a large historical import.
+            rows = self.conn.execute(
+                """SELECT * FROM sales WHERE business_id=%s AND (sale_date,id)<(%s,%s)
+                   ORDER BY sale_date DESC,id DESC LIMIT %s""",
+                (business_id, before_date, before_id, limit),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM sales WHERE business_id=%s ORDER BY sale_date DESC,id DESC LIMIT %s OFFSET %s",
+                (business_id, limit, offset),
+            ).fetchall()
         return [
             {
                 "id": str(r["id"]),

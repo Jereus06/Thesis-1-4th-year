@@ -70,8 +70,19 @@ Earlier exact batch fingerprints are still checked, but unkeyed overlaps and reo
 batches cannot be safely distinguished from separate transactions.
 
 The frontend supports quoted/multiline CSV, comma/semicolon/tab delimiters, separator directives,
-named supported headers, and UTF-8 or BOM-marked UTF-16 uploads. It forwards source keys and
-reports accepted, skipped, and conflicted rows. Locale-specific dates/numbers are not guessed.
+guided column mapping, and UTF-8 or BOM-marked UTF-16 uploads. Explicit date/number choices
+convert source values into the existing canonical API fields; counting units are not converted.
+The worker collects all row diagnostics and blocks submission until the file is valid and reviewed.
+Inventory metadata can use explicitly entered, verified shared values; required identifiers,
+names, stock counts, sale dates, and sale quantities still require source columns.
+It forwards source keys and reports accepted, skipped, and conflicted rows. Backend authorization,
+validation, stock effects, transactions, and duplicate detection remain authoritative.
+See [guided importer contract and checks](../docs/GUIDED_CSV_IMPORTS.md).
+
+Sales reads preserve offset pagination and add paired `beforeDate`/`beforeId` cursors, with a
+1,000-row maximum page. Cursor reads use the existing business/date/ID index; incomplete cursors
+or cursor/offset mixing are rejected. The frontend uses these reads after imports and keeps
+successful commits separate from follow-up refresh failures. No SQL migrations were changed.
 
 The migration runner retains the existing SQL history, serializes migrations with an advisory lock,
 stores checksums, and rejects changes to previously applied migration files.

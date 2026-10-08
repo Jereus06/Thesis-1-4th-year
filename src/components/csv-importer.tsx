@@ -1,6 +1,8 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { CsvImportReview } from "@/components/csv-import-review";
+import type { CsvImportOptions } from "@/lib/guided-csv";
 import type {
   CsvPreparationSummary,
   CsvWorkerRequest,
@@ -17,7 +19,11 @@ type ImporterProps = {
   disabled?: boolean;
 } & (
   | { kind: "sales"; products: Product[]; onImport: (rows: Sale[]) => Promise<boolean> }
-  | { kind: "inventory"; products?: never; onImport: (rows: InventoryRow[]) => Promise<boolean> }
+  | {
+      kind: "inventory";
+      products?: Product[];
+      onImport: (rows: InventoryRow[]) => Promise<boolean>;
+    }
 );
 type Phase =
   | "idle"
@@ -53,6 +59,9 @@ export function CsvImporter(props: ImporterProps) {
   const [error, setError] = useState<string | null>(null);
   const [cancelled, setCancelled] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [options, setOptions] = useState<CsvImportOptions | undefined>();
+  const [reviewed, setReviewed] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const workerRef = useRef<Worker | null>(null);
   const preparedCatalog = useRef<Product[] | null>(null);
   const generation = useRef(0);
@@ -83,8 +92,9 @@ export function CsvImporter(props: ImporterProps) {
     let active = true;
     let worker: Worker | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    setSummary(null);
     setError(null);
+    setReviewed(false);
+    setDownloading(false);
     const source =
       method === "file"
         ? file
@@ -100,6 +110,8 @@ export function CsvImporter(props: ImporterProps) {
       const fail = (message: string) => {
         if (!active || generation.current !== requestId) return;
         setError(message);
+        setSummary(null);
+        setDownloading(false);
         setPhase("error");
         pendingRows.current?.reject(new Error(message));
         pendingRows.current = null;
@@ -138,7 +150,15 @@ export function CsvImporter(props: ImporterProps) {
               setError(data.summary.error);
               setPhase(data.summary.error || data.summary.limitExceeded ? "error" : "ready");
             } else if (data.type === "error") fail(data.message);
-            else if (data.type === "rows" && data.kind === kind) {
+            else if (data.type === "issues") {
+              const url = URL.createObjectURL(data.report);
+              const anchor = document.createElement("a");
+              anchor.href = url;
+              anchor.download = `stockcast-${kind}-import-errors.csv`;
+              anchor.click();
+              setTimeout(() => URL.revokeObjectURL(url), 1_000);
+              setDownloading(false);
+            } else if (data.type === "rows" && data.kind === kind) {
               pendingRows.current?.resolve(data.rows);
               pendingRows.current = null;
             }
@@ -158,15 +178,17 @@ export function CsvImporter(props: ImporterProps) {
             source,
             products,
             rowLimit,
+            guided: true,
+            options,
           };
           worker.postMessage(request);
         } catch (failure) {
           fail(failure instanceof Error ? failure.message : "CSV preparation could not start.");
         }
       };
-      if (method === "paste") {
-        setPhase("queued");
-        timer = setTimeout(start, 300);
+      if (method === "paste" || options) {
+        setPhase(method === "paste" ? "queued" : "validating");
+        timer = setTimeout(start, method === "paste" ? 300 : 150);
       } else start();
     }
 
@@ -178,11 +200,13 @@ export function CsvImporter(props: ImporterProps) {
       pendingRows.current?.reject(new Error("CSV preparation was cancelled or replaced."));
       pendingRows.current = null;
     };
-  }, [method, file, text, products, kind, rowLimit, cancelled]);
+  }, [method, file, text, products, kind, rowLimit, cancelled, options]);
 
   const preparing = phase in preparationLabels;
-  const ready = phase === "ready" && !!summary && summary.rowCount > 0;
+  const ready = phase === "ready" && !!summary && summary.rowCount > 0 && reviewed;
   const locked = importing || disabled;
+  const guide = summary?.guided;
+  const selectedOptions = options ?? guide?.options;
 
   function replacePreparation(nextPhase: Phase) {
     workerRef.current?.terminate();
@@ -194,6 +218,30 @@ export function CsvImporter(props: ImporterProps) {
     setSummary(null);
     setError(null);
     setPhase(nextPhase);
+    setReviewed(false);
+    setDownloading(false);
+  }
+
+  function changeOptions(next: CsvImportOptions) {
+    const previous = options ?? summary?.guided?.options;
+    if (
+      kind === "sales" &&
+      previous &&
+      (previous.mapping.product !== next.mapping.product ||
+        previous.header !== next.header ||
+        previous.delimiter !== next.delimiter)
+    ) {
+      // Manual choices belong to identifiers in this source column and structure.
+      next = { ...next, productMatches: {} };
+    }
+    // Invalidate immediately; keep the bounded preview/controls visible during revalidation.
+    workerRef.current?.terminate();
+    workerRef.current = null;
+    ++generation.current;
+    preparedCatalog.current = null;
+    setReviewed(false);
+    setPhase("validating");
+    setOptions(next);
   }
 
   function switchMethod(next: "file" | "paste") {
@@ -201,6 +249,7 @@ export function CsvImporter(props: ImporterProps) {
     replacePreparation("idle");
     setCancelled(false);
     setMethod(next);
+    setOptions(undefined);
   }
 
   function cancelPreparation() {
@@ -235,6 +284,8 @@ export function CsvImporter(props: ImporterProps) {
         setText("");
         setSummary(null);
         setPhase("idle");
+        setOptions(undefined);
+        setReviewed(false);
       }
     } catch (failure) {
       if (mounted.current && requestId === generation.current)
@@ -281,6 +332,7 @@ export function CsvImporter(props: ImporterProps) {
                 if (!selected) return;
                 replacePreparation("reading");
                 setCancelled(false);
+                setOptions(undefined);
                 setFile(selected);
               }}
             />
@@ -301,6 +353,7 @@ export function CsvImporter(props: ImporterProps) {
             onChange={(event) => {
               replacePreparation("queued");
               setCancelled(false);
+              setOptions(undefined);
               setText(event.target.value);
             }}
             rows={8}
@@ -319,7 +372,7 @@ export function CsvImporter(props: ImporterProps) {
               : phase === "error"
                 ? "CSV preparation needs attention."
                 : summary
-                  ? `${summary.rowCount.toLocaleString()} rows ready to import · ${summary.encoding}`
+                  ? `${summary.rowCount.toLocaleString()} rows prepared · ${summary.encoding}. Review the converted values before importing.`
                   : "Choose a file or paste CSV to prepare its records."}
       </p>
       {error && (
@@ -332,6 +385,31 @@ export function CsvImporter(props: ImporterProps) {
           This CSV has {summary.rowCount.toLocaleString()} rows; the maximum for one {kind} import
           is {summary.rowLimit?.toLocaleString()}. No rows have been submitted.
         </p>
+      )}
+      {guide && selectedOptions && (
+        <CsvImportReview
+          kind={kind}
+          guide={guide}
+          options={selectedOptions}
+          products={products}
+          locked={locked}
+          cancelled={cancelled}
+          preparing={preparing}
+          downloading={downloading}
+          canReview={phase === "ready"}
+          reviewed={reviewed}
+          onReview={setReviewed}
+          onOptions={changeOptions}
+          onDownload={() => {
+            if (workerRef.current) {
+              setDownloading(true);
+              workerRef.current.postMessage({
+                type: "issues",
+                requestId: generation.current,
+              } satisfies CsvWorkerRequest);
+            }
+          }}
+        />
       )}
       {summary && method === "file" && summary.preview.length > 0 && (
         <div className="grid gap-2">

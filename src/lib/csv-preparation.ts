@@ -8,6 +8,13 @@ import {
   type CsvRecord,
 } from "./import-csv";
 import type { Product, Sale } from "./types";
+import {
+  CSV_ISSUE_PREVIEW_LIMIT,
+  validateGuidedCsv,
+  type CsvImportIssue,
+  type CsvImportOptions,
+  type CsvProductResolution,
+} from "./guided-csv";
 
 export type CsvImportKind = "inventory" | "sales";
 export type CsvImportSource = { type: "file"; file: File } | { type: "text"; text: string };
@@ -37,6 +44,19 @@ export type CsvPreparationSummary = {
   limitExceeded: boolean;
   rowLimit: number | null;
   timings: CsvPreparationTimings;
+  guided: {
+    options: CsvImportOptions;
+    columns: string[];
+    configurationErrors: string[];
+    issuePreview: CsvImportIssue[];
+    issueCount: number;
+    validRowCount: number;
+    invalidRowCount: number;
+    convertedPreview: CsvRecord[];
+    convertedHeaders: string[];
+    unresolvedProducts: CsvProductResolution[];
+    unresolvedProductCount: number;
+  } | null;
 };
 
 export type CsvPreparedRows =
@@ -49,12 +69,15 @@ export type CsvPrepareRequest = {
   source: CsvImportSource;
   products: Product[];
   rowLimit: number | null;
+  guided?: boolean;
+  options?: CsvImportOptions;
 };
-export type CsvWorkerRequest = CsvPrepareRequest | { type: "rows"; requestId: number };
+export type CsvWorkerRequest = CsvPrepareRequest | { type: "rows" | "issues"; requestId: number };
 export type CsvWorkerResponse =
   | { type: "phase"; requestId: number; phase: CsvPreparationPhase }
   | { type: "prepared"; requestId: number; summary: CsvPreparationSummary }
   | ({ type: "rows"; requestId: number } & CsvPreparedRows)
+  | { type: "issues"; requestId: number; report: Blob }
   | { type: "error"; requestId: number; message: string };
 
 export type PreparedCsv = {
@@ -62,6 +85,7 @@ export type PreparedCsv = {
   data: CsvPreparedRows | null;
   // The exact complete decoded source stays in the worker, independently of preview limits.
   sourceText: string;
+  issues: CsvImportIssue[];
 };
 
 let salesSubmissionSequence = 0;
@@ -133,9 +157,11 @@ export async function prepareCsv(
     limitExceeded: false,
     rowLimit: request.rowLimit,
     timings,
+    guided: null,
   };
   let sourceText = "";
   let data: CsvPreparedRows | null = null;
+  let issues: CsvImportIssue[] = [];
   let limitMessage: string | null = null;
   const measure = <T>(phase: CsvPreparationPhase, operation: () => T): T => {
     onPhase(phase);
@@ -167,18 +193,50 @@ export async function prepareCsv(
       sourceText = request.source.text;
       summary.byteSize = new TextEncoder().encode(sourceText).byteLength;
     }
-    const records = measure("parsing", () => parseCsvRecords(sourceText));
+    const records = measure("parsing", () =>
+      parseCsvRecords(
+        sourceText,
+        request.options?.delimiter === "auto" ? undefined : request.options?.delimiter,
+      ),
+    );
     summary.logicalRecordCount = records.length;
     summary.previewTruncated = records.length > CSV_PREVIEW_RECORD_LIMIT;
     Object.assign(summary, boundedPreview(records));
     data = measure("validating", () => {
-      summary.rowCount = csvDataRecordCount(records, request.kind);
+      const guided = request.guided
+        ? validateGuidedCsv(records, request.kind, request.products, request.options)
+        : null;
+      summary.rowCount = guided?.rowCount ?? csvDataRecordCount(records, request.kind);
+      if (guided) {
+        issues = guided.issues;
+        summary.guided = {
+          options: guided.options,
+          columns: guided.columns,
+          configurationErrors: guided.configurationErrors,
+          issuePreview: guided.issues.slice(0, CSV_ISSUE_PREVIEW_LIMIT),
+          issueCount: guided.issues.length,
+          validRowCount: guided.validRowCount,
+          invalidRowCount: guided.invalidRowCount,
+          convertedPreview: guided.convertedPreview,
+          convertedHeaders: guided.convertedHeaders,
+          unresolvedProducts: guided.unresolvedProducts,
+          unresolvedProductCount: guided.unresolvedProductCount,
+        };
+      }
       if (request.rowLimit !== null && summary.rowCount > request.rowLimit) {
         summary.limitExceeded = true;
         limitMessage =
           `This CSV contains ${summary.rowCount.toLocaleString("en-US")} ${request.kind} rows. ` +
           `The existing import limit is ${request.rowLimit.toLocaleString("en-US")} rows per request. ` +
           "Choose a smaller source file; no rows have been submitted.";
+      }
+      if (guided) {
+        if (guided.configurationErrors.length) throw new Error(guided.configurationErrors[0]);
+        if (guided.issues.length)
+          throw new Error(
+            `${guided.invalidRowCount.toLocaleString("en-US")} rows need correction (${guided.issues.length.toLocaleString("en-US")} problems). Review the error report; no rows have been submitted.`,
+          );
+        return guided.data;
       }
       const preparedData: CsvPreparedRows =
         request.kind === "inventory"
@@ -194,5 +252,5 @@ export async function prepareCsv(
   } finally {
     timings.totalMs = performance.now() - started;
   }
-  return { summary, data, sourceText };
+  return { summary, data, sourceText, issues };
 }

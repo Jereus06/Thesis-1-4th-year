@@ -5,6 +5,7 @@ import { ProductsPanel } from "@/components/products-panel";
 import { StockMovementsPanel } from "@/components/stock-movements-panel";
 import { RecordSaleDialog } from "@/components/record-sale-dialog";
 import { CsvImporter } from "@/components/csv-importer";
+import { ImportRefreshNotice } from "@/components/import-refresh-notice";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -97,6 +98,7 @@ function RecentSalesCard() {
     <Card>
       <CardHeader>
         <CardTitle>Recent sales</CardTitle>
+        <ImportRefreshNotice />
         <CardDescription>
           {num(sales.length)} sales rows ·{" "}
           {session ? "saved in PostgreSQL" : "browser demonstration"}
@@ -199,8 +201,8 @@ function SalesImportCard() {
       <CardHeader>
         <CardTitle>Import CSV</CardTitle>
         <CardDescription>
-          Columns: Date, Product, Quantity, and optional Source Record Key. Product can be name or
-          SKU.
+          Match your spreadsheet's sale date, product, and sold quantity columns. Review format
+          conversions and product matches before saving. A source key can identify each sale line.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
