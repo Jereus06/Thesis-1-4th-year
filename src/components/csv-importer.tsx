@@ -223,6 +223,17 @@ export function CsvImporter(props: ImporterProps) {
   }
 
   function changeOptions(next: CsvImportOptions) {
+    const previous = options ?? summary?.guided?.options;
+    if (
+      kind === "sales" &&
+      previous &&
+      (previous.mapping.product !== next.mapping.product ||
+        previous.header !== next.header ||
+        previous.delimiter !== next.delimiter)
+    ) {
+      // Manual choices belong to identifiers in this source column and structure.
+      next = { ...next, productMatches: {} };
+    }
     // Invalidate immediately; keep the bounded preview/controls visible during revalidation.
     workerRef.current?.terminate();
     workerRef.current = null;

@@ -106,8 +106,7 @@ try {
           ? sales.findIndex((row) => row.id === cursorId) + 1
           : Number(url.searchParams.get("offset") ?? 0);
         data = sales.slice(offset, offset + Number(url.searchParams.get("limit") ?? 200));
-      }
-      else if (path.endsWith("/sales/export.csv")) {
+      } else if (path.endsWith("/sales/export.csv")) {
         await route.fulfill({
           contentType: "text/csv",
           body:
@@ -446,7 +445,10 @@ try {
       await route.fulfill({ status: 503, json: { detail: "Synthetic follow-up read failure" } });
     } else await route.fallback();
   });
-  await upload("Date,SKU,Quantity,Source Record Key\n2026-10-06,SYN-001,1,reload:new", "synthetic-saved-read-failure.csv");
+  await upload(
+    "Date,SKU,Quantity,Source Record Key\n2026-10-06,SYN-001,1,reload:new",
+    "synthetic-saved-read-failure.csv",
+  );
   await waitState("ready");
   await review();
   const savedResponse = writeResponse("/data-imports");
@@ -457,10 +459,120 @@ try {
   await page.screenshot({ path: `${output}/saved-refresh-warning.png`, fullPage: true });
   const writeCount = writes.length;
   await page.getByRole("button", { name: "Reload saved records", exact: true }).click();
-  await page.getByText(/Sales import was saved, but the ledger could not be refreshed/).waitFor({ state: "hidden", timeout: 30_000 });
+  await page
+    .getByText(/Sales import was saved, but the ledger could not be refreshed/)
+    .waitFor({ state: "hidden", timeout: 30_000 });
   assert.equal(writes.length, writeCount);
   assert.equal((await apiData("/sales?limit=1&offset=100003")).length, 1);
-  check("a saved import survives an injected refresh failure and reloads records without another write");
+  check(
+    "a saved import survives an injected refresh failure and reloads records without another write",
+  );
+
+  const reviewWriteCount = writes.length;
+  await upload(
+    "Date,SKU,Quantity,Source Record Key,Alternate SKU\n" +
+      Array.from(
+        { length: 55 },
+        (_, i) => `2026-10-06,Legacy review ${i},1,review:${i},SYN-001`,
+      ).join("\n"),
+    "synthetic-many-product-matches.csv",
+  );
+  await waitState("error");
+  for (let i = 0; i < 55; i++) {
+    await importer()
+      .getByLabel(`Match product for Legacy review ${i}`, { exact: true })
+      .selectOption(rice.id);
+    await waitState(i === 54 ? "ready" : "error");
+  }
+  const selectedMatches = () =>
+    importer().getByRole("region", { name: "Selected product matches" });
+  assert.equal(await selectedMatches().getByRole("combobox").count(), 50);
+  await selectedMatches()
+    .getByRole("button", { name: "Next selected matches", exact: true })
+    .click();
+  assert.equal(await selectedMatches().getByRole("combobox").count(), 5);
+  await page.screenshot({ path: `${output}/selected-match-page2.png`, fullPage: true });
+  await selectedMatches()
+    .getByRole("button", { name: "Previous selected matches", exact: true })
+    .click();
+  await selectedMatches()
+    .getByLabel("Find selected product matches", { exact: true })
+    .fill("Legacy review 54");
+  assert.equal(await selectedMatches().getByRole("combobox").count(), 1);
+  await selectedMatches()
+    .getByLabel("Match product for Legacy review 54", { exact: true })
+    .selectOption("");
+  await waitState("error");
+  await importer()
+    .getByLabel("Match product for Legacy review 54", { exact: true })
+    .selectOption(rice.id);
+  await waitState("ready");
+  await selectedMatches()
+    .getByLabel("Find selected product matches", { exact: true })
+    .fill("Synthetic Rice");
+  assert.equal(await selectedMatches().getByRole("combobox").count(), 50);
+  await selectedMatches()
+    .getByLabel("Find selected product matches", { exact: true })
+    .fill("does-not-match");
+  await selectedMatches().getByText("No selected matches found.", { exact: false }).waitFor();
+  assert.equal(await selectedMatches().getByRole("combobox").count(), 0);
+  assert.equal(writes.length, reviewWriteCount);
+  await page.screenshot({ path: `${output}/selected-match-search.png`, fullPage: true });
+  check(
+    "more than 50 selected product matches stay searchable, paged, editable, and unsaved during review",
+  );
+
+  await review();
+  await importer().getByLabel("Product / SKU *", { exact: true }).selectOption("4");
+  await waitState("ready");
+  assert.equal(await selectedMatches().count(), 0);
+  assert.equal(
+    await importer()
+      .getByRole("checkbox", { name: /I checked the column matches/ })
+      .isChecked(),
+    false,
+  );
+  assert.equal(
+    await importer().getByRole("button", { name: "Import rows", exact: true }).isDisabled(),
+    true,
+  );
+  assert.match(
+    await importer().getByRole("table", { name: "Converted CSV preview" }).innerText(),
+    /SYN-001/,
+  );
+  assert.equal(writes.length, reviewWriteCount);
+  check("changing the product column clears earlier manual matches and requires a new review");
+
+  await upload("Date,SKU,Quantity\n2026-10-06,constructor,1", "synthetic-identifier-name.csv");
+  await waitState("error");
+  assert.equal(
+    await importer().getByLabel("Match product for constructor", { exact: true }).inputValue(),
+    "",
+  );
+  await importer()
+    .getByLabel("Match product for constructor", { exact: true })
+    .selectOption(rice.id);
+  await waitState("ready");
+  await importer()
+    .getByRole("checkbox", { name: "First row contains column names", exact: true })
+    .uncheck();
+  await waitState("error");
+  assert.equal(await selectedMatches().count(), 0);
+  await importer()
+    .getByRole("checkbox", { name: "First row contains column names", exact: true })
+    .check();
+  await waitState("error");
+  await importer()
+    .getByLabel("Match product for constructor", { exact: true })
+    .selectOption(rice.id);
+  await waitState("ready");
+  await importer().getByLabel("Column separator", { exact: true }).selectOption(",");
+  await waitState("error");
+  assert.equal(await selectedMatches().count(), 0);
+  assert.equal(writes.length, reviewWriteCount);
+  check(
+    "header/separator changes clear contextual matches and inherited object names are not preselected",
+  );
 
   assert.deepEqual(browserErrors, []);
   await page.screenshot({ path: `${output}/converted-sales.png`, fullPage: true });

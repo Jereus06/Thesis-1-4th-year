@@ -53,7 +53,13 @@ than decoding/parsing/validating again.
 Sales matching retains exact ID/SKU, unique folded SKU, and unique folded name priority.
 Unknown or ambiguous identifiers can be explicitly assigned to an existing active product;
 the choice applies to every row with that exact trimmed source identifier. Selected matches
-can be reviewed, changed, or removed. New products must be created separately in Products.
+can be searched by source identifier, SKU, or catalog name, then reviewed, changed, or removed
+in pages of 50. All selections remain accessible, including choices after the first page;
+searching or paging does not reset them. Changing the product column, separator, or header
+choice clears manual assignments because they belong to the previous source structure.
+Object-prototype names such as `constructor` are ordinary source identifiers and are never
+treated as a selected match unless the user explicitly chooses a product.
+New products must be created separately in Products.
 An optional sales Unit column checks the catalog unit. An existing inventory SKU must retain
 its counting unit. Pack/piece conversion is never inferred, and leading-zero SKUs remain text.
 
@@ -73,6 +79,7 @@ Original values are retained. Display limits are:
 | On-screen errors | First 50 problems |
 | Unresolved identifiers | First 50 distinct identifiers; additional ones appear as earlier choices are resolved |
 | Product search options | First 50 matches plus the current selection |
+| Selected product matches | Searchable; 50 per page, with all pages editable |
 
 **Download complete error report** requests a worker-generated CSV Blob containing every
 collected problem, its source logical record, starting physical line, field, and bounded original
@@ -126,7 +133,10 @@ node scripts/verify-guided-csv-browser.mjs http://localhost:8080
 That script registers an isolated test business with random generated credentials, imports
 synthetic inventory and 100,000 synthetic sales through the UI, reads the saved API records,
 checks stock preservation and overlap outcomes, downloads all diagnostics, and exercises
-review invalidation, cancellation/retry, and source replacement. It writes its labelled report
+review invalidation, cancellation/retry, source replacement, and 55 editable selected matches.
+The match-review checks also verify clearing contextual choices on product-column/header/separator
+changes and leaving inherited object names unselected. They make no import writes during review.
+It writes its labelled report
 and screenshots under `benchmarks/guided-csv/`, which is ignored by Git. The system workflow
 includes this run against Compose and uploads its evidence as `guided-csv-verification`.
 No existing client account or records are used.

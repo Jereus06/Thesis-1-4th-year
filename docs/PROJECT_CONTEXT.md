@@ -110,6 +110,10 @@ Converted previews show at most the first 50 data records, with 200-character di
 values. On-screen errors and unresolved identifiers are capped at 50 each; the downloadable
 report retains every collected row problem and source record/starting physical line. Catalog
 choices for manual matches are searchable and bounded to 50 matches plus the current selection.
+Selected matches have their own source/SKU/name search and 50-entry pages; every assignment
+can be edited or removed without resetting the source. Changing the product column, separator,
+or header choice clears manual matches from the previous source structure. Identifier names
+inherited from JavaScript's object prototype do not appear as preselected products.
 These display bounds never shorten the retained source or submitted records. Malformed CSV
 quoting must be corrected before row validation can proceed.
 

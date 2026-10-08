@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -108,6 +108,29 @@ export function CsvImportReview({
   onReview,
   onDownload,
 }: Props) {
+  const [matchSearch, setMatchSearch] = useState("");
+  const [matchPage, setMatchPage] = useState(0);
+  const selectedMatches = useMemo(
+    () => Object.entries(options.productMatches),
+    [options.productMatches],
+  );
+  const productLabels = useMemo(
+    () => new Map(products.map((product) => [product.id, `${product.sku} ${product.name}`])),
+    [products],
+  );
+  const filteredMatches = useMemo(() => {
+    const query = matchSearch.trim().toLowerCase();
+    return query
+      ? selectedMatches.filter(([source, id]) =>
+          `${source} ${productLabels.get(id) ?? ""}`.toLowerCase().includes(query),
+        )
+      : selectedMatches;
+  }, [matchSearch, selectedMatches, productLabels]);
+  const pageCount = Math.max(1, Math.ceil(filteredMatches.length / 50));
+  const currentPage = Math.min(matchPage, pageCount - 1);
+  const pageStart = currentPage * 50;
+  const visibleMatches = filteredMatches.slice(pageStart, pageStart + 50);
+
   return (
     <div className="grid gap-4 rounded-xl border border-border p-3" aria-label="CSV import setup">
       <p className="font-medium">1. Match columns and choose formats</p>
@@ -254,7 +277,7 @@ export function CsvImportReview({
         {kind === "inventory" &&
           " For Category, Unit, Lead Time, Safety Stock, or Unit Cost, a verified shared value can replace a missing column only when it applies to every product in this file."}
         {kind === "sales" &&
-          " Map a Source Record Key only when it identifies one sale line; a receipt number alone may repeat."}
+          " Map a Source Record Key only when it identifies one sale line; a receipt number alone may repeat. Changing the product column, separator, or header choice clears manual product matches for a fresh review."}
       </p>
       {guide.configurationErrors.length > 0 && (
         <ul className="list-disc pl-5 text-sm text-danger">
@@ -279,7 +302,11 @@ export function CsvImportReview({
               <ProductMatchControl
                 source={product.source}
                 products={products}
-                productId={options.productMatches[product.source] ?? ""}
+                productId={
+                  Object.hasOwn(options.productMatches, product.source)
+                    ? options.productMatches[product.source]
+                    : ""
+                }
                 disabled={locked || cancelled || preparing}
                 onChange={(id) =>
                   onOptions({
@@ -295,32 +322,64 @@ export function CsvImportReview({
           ))}
         </div>
       )}
-      {kind === "sales" && Object.keys(options.productMatches).length > 0 && (
-        <div className="grid gap-3" aria-label="Selected product matches">
+      {kind === "sales" && selectedMatches.length > 0 && (
+        <div className="grid gap-3" role="region" aria-label="Selected product matches">
           <p className="font-medium">Selected product matches</p>
-          {Object.entries(options.productMatches)
-            .slice(0, 50)
-            .map(([source, productId]) => (
-              <div key={source} className="grid gap-1 text-sm">
-                {source}
-                <ProductMatchControl
-                  source={source}
-                  products={products}
-                  productId={productId}
-                  disabled={locked || cancelled || preparing}
-                  onChange={(id) => {
-                    const matches = { ...options.productMatches };
-                    if (id) matches[source] = id;
-                    else delete matches[source];
-                    onOptions({ ...options, productMatches: matches });
-                  }}
-                />
-              </div>
-            ))}
-          {Object.keys(options.productMatches).length > 50 && (
-            <p className="text-xs text-muted">
-              Showing the first 50 selected matches. Select the source again to clear all matches.
-            </p>
+          <label className="grid gap-1 text-sm">
+            Find selected product matches
+            <Input
+              value={matchSearch}
+              disabled={locked || cancelled}
+              placeholder="Search source identifier, SKU, or product name"
+              onChange={(event) => {
+                setMatchSearch(event.target.value);
+                setMatchPage(0);
+              }}
+            />
+          </label>
+          <p className="text-xs text-muted" role="status">
+            {filteredMatches.length
+              ? `Showing ${pageStart + 1}–${pageStart + visibleMatches.length} of ${filteredMatches.length.toLocaleString()} matches.`
+              : "No selected matches found."}{" "}
+            Every selected match remains available for review, editing, or removal.
+          </p>
+          {visibleMatches.map(([source, productId]) => (
+            <div key={source} className="grid gap-1 text-sm">
+              {source}
+              <ProductMatchControl
+                source={source}
+                products={products}
+                productId={productId}
+                disabled={locked || cancelled || preparing}
+                onChange={(id) => {
+                  const matches = { ...options.productMatches };
+                  if (id) matches[source] = id;
+                  else delete matches[source];
+                  onOptions({ ...options, productMatches: matches });
+                }}
+              />
+            </div>
+          ))}
+          {pageCount > 1 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                disabled={locked || cancelled || currentPage === 0}
+                onClick={() => setMatchPage(currentPage - 1)}
+              >
+                Previous selected matches
+              </Button>
+              <span className="text-xs text-muted">
+                Page {currentPage + 1} of {pageCount}
+              </span>
+              <Button
+                variant="outline"
+                disabled={locked || cancelled || currentPage === pageCount - 1}
+                onClick={() => setMatchPage(currentPage + 1)}
+              >
+                Next selected matches
+              </Button>
+            </div>
           )}
         </div>
       )}
