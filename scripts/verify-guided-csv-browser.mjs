@@ -100,12 +100,13 @@ try {
         });
         data = { acceptedRows: rows.length - errors.length, rejectedRows: errors.length, errors };
       } else if (path.endsWith("/products")) data = products;
-      else if (path.endsWith("/sales"))
-        data = sales.slice(
-          Number(url.searchParams.get("offset") ?? 0),
-          Number(url.searchParams.get("offset") ?? 0) +
-            Number(url.searchParams.get("limit") ?? 200),
-        );
+      else if (path.endsWith("/sales")) {
+        const cursorId = url.searchParams.get("beforeId");
+        const offset = cursorId
+          ? sales.findIndex((row) => row.id === cursorId) + 1
+          : Number(url.searchParams.get("offset") ?? 0);
+        data = sales.slice(offset, offset + Number(url.searchParams.get("limit") ?? 200));
+      }
       else if (path.endsWith("/sales/export.csv")) {
         await route.fulfill({
           contentType: "text/csv",
@@ -436,6 +437,31 @@ try {
   await waitState("ready");
   assert.match(await importer().innerText(), /synthetic-overlap\.csv/);
   check("backend overlap detection remains authoritative and retains a partially rejected source");
+
+  // Inject only a failed follow-up read; the import write still reaches the real database in CI.
+  let failNextRead = true;
+  await context.route("**/sales?limit=1000*", async (route) => {
+    if (failNextRead) {
+      failNextRead = false;
+      await route.fulfill({ status: 503, json: { detail: "Synthetic follow-up read failure" } });
+    } else await route.fallback();
+  });
+  await upload("Date,SKU,Quantity,Source Record Key\n2026-10-06,SYN-001,1,reload:new", "synthetic-saved-read-failure.csv");
+  await waitState("ready");
+  await review();
+  const savedResponse = writeResponse("/data-imports");
+  await importer().getByRole("button", { name: "Import rows", exact: true }).click();
+  assert.equal((await (await savedResponse).json()).data.acceptedRows, 1);
+  await waitState("idle");
+  await page.getByText(/Sales import was saved, but the ledger could not be refreshed/).waitFor();
+  await page.screenshot({ path: `${output}/saved-refresh-warning.png`, fullPage: true });
+  const writeCount = writes.length;
+  await page.getByRole("button", { name: "Reload saved records", exact: true }).click();
+  await page.getByText(/Sales import was saved, but the ledger could not be refreshed/).waitFor({ state: "hidden", timeout: 30_000 });
+  assert.equal(writes.length, writeCount);
+  assert.equal((await apiData("/sales?limit=1&offset=100003")).length, 1);
+  check("a saved import survives an injected refresh failure and reloads records without another write");
+
   assert.deepEqual(browserErrors, []);
   await page.screenshot({ path: `${output}/converted-sales.png`, fullPage: true });
   report.passed = true;

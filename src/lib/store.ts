@@ -30,6 +30,7 @@ type Store = {
   apiError: string | null;
   products: Product[];
   sales: Sale[];
+  importRefreshWarning: string | null;
   inventoryMovements: InventoryMovement[];
   movementsStatus: "idle" | "loading" | "ready" | "error";
   movementsError: string | null;
@@ -59,6 +60,7 @@ export const useAppStore = create<Store>()(
     (set, get) => ({
       products: dataMode === "api" ? [] : createSeedProducts(),
       sales: dataMode === "api" ? [] : createSeedSales(),
+      importRefreshWarning: null,
       inventoryMovements: [],
       movementsStatus: "idle",
       movementsError: null,
@@ -83,6 +85,7 @@ export const useAppStore = create<Store>()(
             session: null,
             products: [],
             sales: [],
+            importRefreshWarning: null,
             inventoryMovements: [],
             movementsStatus: "idle",
             movementsError: null,
@@ -140,6 +143,7 @@ export const useAppStore = create<Store>()(
           session: null,
           products: [],
           sales: [],
+          importRefreshWarning: null,
           inventoryMovements: [],
           movementsStatus: "idle",
           movementsError: null,
@@ -385,7 +389,21 @@ export const useAppStore = create<Store>()(
         if (get().dataMode === "api") {
           const session = requireSession(get());
           await api.importInventory(session.businessId, rows);
-          set({ products: await api.products(session.businessId), movementsStatus: "idle" });
+          if (!sameSession(get().session, session)) return;
+          set({ movementsStatus: "idle" });
+          try {
+            const products = await api.products(session.businessId);
+            if (sameSession(get().session, session)) {
+              set({ products, movementsStatus: "idle", importRefreshWarning: null });
+            }
+          } catch {
+            if (sameSession(get().session, session)) {
+              set({
+                importRefreshWarning:
+                  "Inventory import was saved, but the product list could not be refreshed. Reload saved records; do not repeat the import.",
+              });
+            }
+          }
           return;
         }
         const importedBySku = new Map(rows.map((row) => [row.sku.toLowerCase(), row]));
@@ -462,7 +480,20 @@ export const useAppStore = create<Store>()(
               sourceRecordKey: row.sourceRecordKey,
             })),
           );
-          set({ sales: await api.sales(session.businessId) });
+          if (!sameSession(get().session, session)) return result;
+          try {
+            const sales = await api.sales(session.businessId);
+            if (sameSession(get().session, session)) {
+              set({ sales, importRefreshWarning: null });
+            }
+          } catch {
+            if (sameSession(get().session, session)) {
+              set({
+                importRefreshWarning:
+                  "Sales import was saved, but the ledger could not be refreshed. Reload saved records; do not repeat the import.",
+              });
+            }
+          }
           return result;
         }
         const { accepted, result } = deduplicateSales(get().sales, rows);
@@ -510,6 +541,10 @@ export const useAppStore = create<Store>()(
 function requireSession(store: Store): SessionUser {
   if (!store.session) throw new Error("Your session has expired. Sign in again.");
   return store.session;
+}
+
+function sameSession(current: SessionUser | null, submitted: SessionUser): boolean {
+  return current?.businessId === submitted.businessId && current.userId === submitted.userId;
 }
 
 function requireOwner(store: Store) {
@@ -569,6 +604,7 @@ async function loadApiState(session: SessionUser, set: (patch: Partial<Store>) =
     session,
     products,
     sales,
+    importRefreshWarning: null,
     inventoryMovements: [],
     movementsStatus: "idle",
     movementsError: null,

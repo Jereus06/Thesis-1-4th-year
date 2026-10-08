@@ -80,6 +80,69 @@ def create_product(client, business, stock="20"):
     return response.json()["data"]
 
 
+
+def test_sales_cursor_preserves_ties_legacy_offsets_and_business_scope(pg_client):
+    client, business, _dsn = pg_client
+    product = create_product(client, business)
+    base = f"/api/v1/businesses/{business}"
+    response = client.post(base + "/data-imports", json={"rows": [
+        {"sku": "TEST-1", "saleDate": "2026-09-29" if i < 4 else "2026-09-30",
+         "quantity": "1.125", "sourceRecordKey": f"cursor:{i}"}
+        for i in range(12)
+    ]})
+    assert response.status_code == 201, response.text
+    expected = client.get(base + "/sales?limit=1000").json()["data"]
+    assert len(expected) == 12
+    gathered = []
+    cursor = {}
+    while True:
+        page = client.get(base + "/sales", params={"limit": 3, **cursor})
+        assert page.status_code == 200, page.text
+        rows = page.json()["data"]
+        gathered.extend(rows)
+        if len(rows) < 3:
+            break
+        cursor = {"beforeDate": rows[-1]["saleDate"], "beforeId": rows[-1]["id"]}
+    assert gathered == expected
+    assert len({row["id"] for row in gathered}) == 12
+    assert client.get(base + "/sales?limit=3&offset=3").json()["data"] == expected[3:6]
+    assert float(client.get(base + "/products").json()["data"][0]["currentStock"]) == float(product["currentStock"])
+    other = str(uuid4())
+    assert client.get(f"/api/v1/businesses/{other}/sales", params={"limit": 1000, **cursor}).status_code == 403
+
+
+def test_sales_cursor_rejects_partial_markers_mixed_offsets_and_oversized_pages(pg_client):
+    client, business, _dsn = pg_client
+    path = f"/api/v1/businesses/{business}/sales"
+    for query in [
+        {"beforeDate": "2026-09-30"},
+        {"beforeId": str(uuid4())},
+        {"beforeDate": "2026-09-30", "beforeId": str(uuid4()), "offset": 1},
+        {"beforeDate": "2026-02-30", "beforeId": str(uuid4())},
+        {"beforeDate": "2026-09-30", "beforeId": "invalid"},
+        {"limit": 1001},
+    ]:
+        assert client.get(path, params=query).status_code == 422
+
+
+def test_sales_cursor_does_not_repeat_rows_when_a_newer_sale_arrives(pg_client):
+    client, business, _dsn = pg_client
+    create_product(client, business)
+    base = f"/api/v1/businesses/{business}"
+    response = client.post(base + "/data-imports", json={"rows": [
+        {"sku": "TEST-1", "saleDate": "2026-09-29", "quantity": "1", "sourceRecordKey": f"before:{i}"}
+        for i in range(5)
+    ]})
+    assert response.status_code == 201, response.text
+    original = client.get(base + "/sales?limit=1000").json()["data"]
+    first = original[:2]
+    response = client.post(base + "/data-imports", json={"rows": [
+        {"sku": "TEST-1", "saleDate": "2026-09-30", "quantity": "1", "sourceRecordKey": "newer"}
+    ]})
+    assert response.status_code == 201, response.text
+    following = client.get(base + "/sales", params={"limit": 1000, "beforeDate": first[-1]["saleDate"], "beforeId": first[-1]["id"]}).json()["data"]
+    assert first + following == original
+
 def test_postgres_writes_idempotency_import_export_and_owner_restart(pg_client):
     client, business, dsn = pg_client
     product = create_product(client, business)

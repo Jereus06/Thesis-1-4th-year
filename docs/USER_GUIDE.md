@@ -200,6 +200,8 @@ Selecting a file or viewing its preview does not save it. Original and converted
 
 **What changes:** matching SKUs update product details and replace current counts with audited corrections. New SKUs create products. Matching inactive products are reactivated, and products absent from the file remain saved. A rejected inventory row prevents the whole snapshot from saving.
 
+If a notice says the import **was saved** but the product list could not be refreshed, choose **Reload saved records**. Avoid importing the same source again just to refresh the view.
+
 Stock and safety quantities allow up to three decimal places; unit cost allows four. Extra precision is rejected rather than rounded. Duplicate SKUs in one file must be corrected. For an existing SKU, use its current counting unit; changing a unit label does not convert quantities or historical records. The maximum is **5,000 inventory data rows per import**. This is a current inventory snapshot, not a delivery list or sales file.
 
 ## Import past sales
@@ -228,6 +230,8 @@ Create or import the products first. Save the spreadsheet as CSV and match its c
 8. Read the imported, already-imported, and rejected counts. Check the Sales ledger and use **Export sales CSV** if you need all saved rows.
 
 **What changes:** past sales are added to demand history. They do not reduce current stock or create a delivery. This is appropriate for older transactions already reflected in your current physical count.
+
+If a notice says the import **was saved** but the ledger could not be refreshed, choose **Reload saved records**. The save succeeded; this button reads saved records without importing the file again.
 
 Sold quantities must be positive with up to three decimal places. Extra precision is rejected rather than rounded. The maximum is **100,000 sales data rows per import**. The converted preview shows the first 50 data records; it does not limit the import to 50 rows. The original preview is also bounded. Mapping or format changes invalidate the earlier preparation and require a new review.
 

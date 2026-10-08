@@ -79,6 +79,11 @@ It forwards source keys and reports accepted, skipped, and conflicted rows. Back
 validation, stock effects, transactions, and duplicate detection remain authoritative.
 See [guided importer contract and checks](../docs/GUIDED_CSV_IMPORTS.md).
 
+Sales reads preserve offset pagination and add paired `beforeDate`/`beforeId` cursors, with a
+1,000-row maximum page. Cursor reads use the existing business/date/ID index; incomplete cursors
+or cursor/offset mixing are rejected. The frontend uses these reads after imports and keeps
+successful commits separate from follow-up refresh failures. No SQL migrations were changed.
+
 The migration runner retains the existing SQL history, serializes migrations with an advisory lock,
 stores checksums, and rejects changes to previously applied migration files.
 

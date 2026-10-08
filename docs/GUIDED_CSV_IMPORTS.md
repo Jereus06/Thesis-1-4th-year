@@ -81,11 +81,20 @@ changes imported data.
 
 Existing API limits remain 5,000 inventory rows and 100,000 sales rows per request. Larger sources
 can be reviewed but are blocked from submission; no automatic splitting is performed.
-The canonical Python API and SQL migrations are unchanged. Backend authorization, tenant scope,
+The canonical Python write API and SQL migrations are unchanged. Backend authorization, tenant scope,
 validation, business locks, inventory snapshot atomicity/audit, and cross-batch duplicate checks
 remain authoritative. Historical imports continue to preserve current stock. Server-side
 partial outcomes caused by saved keys or intervening catalog changes remain visible, and the
 source is retained for review before retrying.
+
+The sales read endpoint retains legacy offset pagination and adds paired `beforeDate`/`beforeId`
+cursor parameters with pages up to 1,000 rows. The browser uses the existing business/date/ID
+index to seek through saved history, avoiding hundreds of progressively larger offset scans.
+The older 200-row API remains usable through a fallback on its page-limit validation response.
+Cursor/offset mixing and partial/invalid cursors are rejected; tenant scope remains required.
+An import that has committed stays successful if a follow-up record read fails. An explicit
+notice offers **Reload saved records** without reissuing the import; cache updates also check
+that the signed-in account has not changed.
 
 ## Verification
 
@@ -134,7 +143,12 @@ no database**. `CSV_BROWSER_EXECUTABLE` can select an already installed Chromium
 Do not describe a mocked transport check as PostgreSQL persistence evidence.
 
 Local typecheck/build/lint passed, with only the three existing React Refresh warnings.
-All 158 checks that do not require Docker passed locally; the three existing Compose/email
+All 163 checks that do not require Docker passed locally; the three existing Compose/email
 checks require Docker, which is unavailable in this editing environment. The isolated browser
-run passed using mocked transport. The pull request's system workflow is the source of truth
+run passed using mocked transport, including an injected follow-up read failure after a saved
+import. Five added frontend regressions check committed-write outcomes, cursor/fallback reads,
+and late-account isolation; three added PostgreSQL checks cover ordered pagination ties,
+legacy offsets, concurrent newer records, invalid cursors, and business scope. Python source
+compilation passed locally; the local Python runtime lacks pytest/PostgreSQL dependencies.
+The pull request's system workflow is the source of truth
 for the full frontend, PostgreSQL, browser, backup, and restart-persistence outcome.

@@ -145,7 +145,7 @@ export const api = {
       }),
     ),
   sales: async (businessId: string) =>
-    (await allPages<ApiSale>(`/businesses/${businessId}/sales`)).map(toSale),
+    (await allSalesPages(`/businesses/${businessId}/sales`)).map(toSale),
   inventoryMovements: async (businessId: string) =>
     (await allPages<ApiMovement>(`/businesses/${businessId}/inventory-movements`)).map(toMovement),
   importInventory: (businessId: string, rows: Omit<Product, "id">[]) =>
@@ -310,6 +310,31 @@ async function allPages<T>(path: string): Promise<T[]> {
     const page = await request<T[]>(`${path}?limit=200&offset=${offset}`);
     result.push(...page);
     if (page.length < 200) return result;
+  }
+}
+
+async function allSalesPages(path: string): Promise<ApiSale[]> {
+  const result: ApiSale[] = [];
+  let cursor = "";
+  for (;;) {
+    let page: ApiSale[];
+    try {
+      page = await request<ApiSale[]>(`${path}?limit=1000${cursor}`);
+    } catch (error) {
+      // The optional older SQLite/200-row API remains usable during a staggered update.
+      if (!cursor && error instanceof ApiError && error.status === 422) {
+        return allPages<ApiSale>(path);
+      }
+      throw error;
+    }
+    result.push(...page);
+    if (page.length < 1000) return result;
+    const last = page[page.length - 1];
+    const next = `&beforeDate=${encodeURIComponent(last.saleDate)}&beforeId=${encodeURIComponent(last.id)}`;
+    if (next === cursor) {
+      throw new Error("Sales history did not advance. Refresh again after updating the API.");
+    }
+    cursor = next;
   }
 }
 

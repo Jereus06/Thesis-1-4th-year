@@ -131,6 +131,13 @@ oversized files can be reviewed but cannot be submitted, and are never split aut
 Backend authorization, tenant checks, validation, historical-stock preservation, snapshot audit,
 and cross-batch duplicate detection remain unchanged and authoritative.
 
+Sales reads add paired `beforeDate`/`beforeId` cursor parameters and permit up to 1,000 rows per
+page, while retaining legacy offset pagination. The browser seeks through the existing
+business/date/ID index and keeps a 200-row fallback for older APIs. No SQL migration is needed.
+Committed inventory/sales imports remain successful when a follow-up read fails; an explicit
+notice reloads saved records without repeating the write. Late read results cannot replace
+another signed-in account's cache or warning.
+
 See [guided importer contract and verification](GUIDED_CSV_IMPORTS.md). The older
 [CSV upload verification](CSV_UPLOAD_VERIFICATION.md) and
 [follow-up verification](CSV_SCHEDULE_FOLLOWUP_VERIFICATION.md) describe prior preparation

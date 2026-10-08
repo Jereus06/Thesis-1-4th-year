@@ -5,6 +5,7 @@ import { ProductsPanel } from "@/components/products-panel";
 import { StockMovementsPanel } from "@/components/stock-movements-panel";
 import { RecordSaleDialog } from "@/components/record-sale-dialog";
 import { CsvImporter } from "@/components/csv-importer";
+import { ImportRefreshNotice } from "@/components/import-refresh-notice";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -97,6 +98,7 @@ function RecentSalesCard() {
     <Card>
       <CardHeader>
         <CardTitle>Recent sales</CardTitle>
+        <ImportRefreshNotice />
         <CardDescription>
           {num(sales.length)} sales rows ·{" "}
           {session ? "saved in PostgreSQL" : "browser demonstration"}

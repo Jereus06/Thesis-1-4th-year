@@ -3,6 +3,7 @@ import { Search } from "lucide-react";
 import { toast } from "sonner";
 import { ReceiveStockDialog } from "@/components/receive-stock-dialog";
 import { CsvImporter } from "@/components/csv-importer";
+import { ImportRefreshNotice } from "@/components/import-refresh-notice";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -91,6 +92,7 @@ export function ProductsPanel() {
 
   return (
     <div className="flex flex-col gap-4">
+      <ImportRefreshNotice />
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative min-w-48 flex-1 sm:max-w-sm">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
