@@ -5,6 +5,7 @@ import {
   type CsvWorkerResponse,
   type PreparedCsv,
 } from "./csv-preparation";
+import { csvIssueReport } from "./guided-csv";
 
 // Keep complete source and validated rows here; only a bounded preview reaches React.
 let prepared: PreparedCsv | null = null;
@@ -26,6 +27,15 @@ globalThis.onmessage = async (event: MessageEvent<CsvWorkerRequest>) => {
     return;
   }
   if (request.requestId !== currentRequestId) return;
+  if (request.type === "issues") {
+    if (prepared?.issues.length)
+      send({
+        type: "issues",
+        requestId: request.requestId,
+        report: new Blob([csvIssueReport(prepared.issues)], { type: "text/csv;charset=utf-8" }),
+      });
+    return;
+  }
   if (!prepared?.data || prepared.summary.error) {
     send({
       type: "error",

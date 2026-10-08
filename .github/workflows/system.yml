@@ -46,6 +46,17 @@ jobs:
         run: docker compose exec -T api sh -c 'STOCKCAST_TEST_DATABASE_URL="$DATABASE_URL" python -m pytest backend/tests -q --disable-warnings'
       - name: Check the website, authenticated API, stock, imports, and XGBoost worker
         run: docker compose exec -T api python -m backend.app.smoke
+      - name: Install isolated browser for guided import verification
+        run: npx playwright install --with-deps chromium
+      - name: Verify guided inventory and 100,000-row sales imports through the real browser and PostgreSQL
+        run: node scripts/verify-guided-csv-browser.mjs http://localhost:8080
+      - name: Upload guided import verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guided-csv-verification
+          path: benchmarks/guided-csv/
+          if-no-files-found: ignore
       - name: Back up and verify restoration in a separate test database
         run: |
           npm run backup

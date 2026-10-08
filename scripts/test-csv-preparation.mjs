@@ -7,8 +7,11 @@ import { deduplicateSales } from "../src/lib/sales-import.ts";
 // pure preparation source with a narrowly scoped resolution hook, without a DOM.
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (specifier === "./import-csv" && context.parentURL?.endsWith("/csv-preparation.ts"))
-      return nextResolve("./import-csv.ts", context);
+    if (
+      ["./import-csv", "./guided-csv"].includes(specifier) &&
+      context.parentURL?.endsWith("/csv-preparation.ts")
+    )
+      return nextResolve(`${specifier}.ts`, context);
     return nextResolve(specifier, context);
   },
 });

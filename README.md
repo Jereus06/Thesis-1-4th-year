@@ -126,7 +126,7 @@ and the repeatable [API](docs/PERFORMANCE_BENCHMARK.md) and [browser](docs/BROWS
 
 1. Sign in and add products in **Inventory**.
 2. Record sales and deliveries. A sale deducts stock; a delivery increases stock.
-3. Import inventory or historical sales using the documented CSV columns in the interface.
+3. Import inventory or historical sales by matching spreadsheet columns, choosing formats, and reviewing converted values and complete row diagnostics in the interface.
 4. Review **Forecasts**. The Python worker refreshes eligible business history daily; owners can also choose **Refresh forecasts**.
 5. Review **Restock**. Suggested quantities apply when stock reaches the reorder point.
 6. Export sales or stock movements from Inventory, and make database backups.

@@ -149,11 +149,13 @@ export function ProductsPanel() {
           </CardHeader>
           <CardContent className="grid gap-3">
             <p className="text-xs text-muted">
-              Columns: SKU, Product, Category, Unit, On Hand, Lead Time, Safety Stock, Unit Cost.
+              Match your spreadsheet columns to the product fields below. Review counting units and
+              verified current stock before saving.
             </p>
             <InventoryCsvImporter
               key={session ? `${session.businessId}:${session.userId}` : "browser-demo"}
               kind="inventory"
+              products={products}
               disabled={saving}
               rowLimit={mode === "api" ? CSV_API_ROW_LIMITS.inventory : null}
               importLabel="Import inventory"

@@ -28,7 +28,8 @@ export function decodeCsvFile(buffer: ArrayBuffer): string {
   }
 }
 
-type Delimiter = "," | ";" | "\t";
+export type CsvDelimiter = "," | ";" | "\t";
+type Delimiter = CsvDelimiter;
 export type CsvRecord = { fields: string[]; record: number; line: number };
 
 /** Bound diagnostic text only; the parsed field and retained source stay complete. */
@@ -70,7 +71,7 @@ function detectDelimiter(source: string): Delimiter {
 }
 
 /** Parse complete logical CSV records, retaining their starting physical line for errors. */
-export function parseCsvRecords(text: string): CsvRecord[] {
+export function parseCsvRecords(text: string, selectedDelimiter?: CsvDelimiter): CsvRecord[] {
   let source = text.replace(/^\uFEFF/, "");
   let line = 1;
   let delimiter: Delimiter;
@@ -79,10 +80,10 @@ export function parseCsvRecords(text: string): CsvRecord[] {
     const separator = directive[1].replace(/ +$/g, "");
     if (![",", ";", "\t"].includes(separator))
       throw new Error("CSV separator directive must specify a comma, semicolon, or tab.");
-    delimiter = separator as Delimiter;
+    delimiter = selectedDelimiter ?? (separator as Delimiter);
     line += directive[0].match(/\r\n|\r|\n/g)?.length ?? 0;
     source = source.slice(directive[0].length);
-  } else delimiter = detectDelimiter(source);
+  } else delimiter = selectedDelimiter ?? detectDelimiter(source);
 
   const records: CsvRecord[] = [];
   let recordLine = line;
