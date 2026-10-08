@@ -46,6 +46,160 @@ const request = (text, options = {}) => ({
   ...options,
 });
 
+test("automatic preparation finds catalog identifiers and dates and ignores unrelated columns", async () => {
+  const result = await prepareCsv(
+    request(
+      "Customer;Booked On;Legacy Identifier;Units Sold;Line Key\nIgnored;15/10/2026;000123;1,25;auto:1",
+    ),
+  );
+  assert.equal(result.summary.error, null);
+  assert.equal(result.summary.guided.formatQuestions.length, 0);
+  assert.deepEqual(result.data.rows[0], {
+    id: "prepared-2",
+    productId: product.id,
+    date: "2026-10-15",
+    qty: 1.25,
+    sourceRecordKey: "auto:1",
+  });
+});
+
+test("ambiguous dates and quantities require confirmation before rows can be submitted", async () => {
+  const text = "Date;SKU;Quantity\n05/10/2026;000123;1,234";
+  const result = await prepareCsv(request(text));
+  assert.equal(result.data, null);
+  assert.deepEqual(
+    result.summary.guided.formatQuestions.map((item) => item.field),
+    ["date", "number"],
+  );
+  assert.equal(result.summary.guided.convertedPreview.length, 0);
+  const options = {
+    ...result.summary.guided.options,
+    dateFormat: "dmy",
+    dateConfirmed: true,
+    numberFormat: "decimal-comma",
+    numberConfirmed: true,
+  };
+  const confirmed = await prepareCsv(request(text, { options }));
+  assert.equal(confirmed.summary.error, null);
+  assert.equal(confirmed.data.rows[0].date, "2026-10-05");
+  assert.equal(confirmed.data.rows[0].qty, 1.234);
+  assert.equal(
+    (await prepareCsv(request(text, { options: { ...options, numberFormat: "comma-grouped" } })))
+      .data.rows[0].qty,
+    1234,
+  );
+});
+
+test("format detection uses evidence beyond the preview and retains malformed row errors", async () => {
+  const text =
+    "Date;SKU;Quantity\n" +
+    Array.from({ length: 250 }, () => "05/10/2026;000123;1,234").join("\n") +
+    "\n15/10/2026;000123;1,25\n31/04/2026;000123;bad";
+  const result = await prepareCsv(request(text));
+  assert.equal(result.data, null);
+  assert.equal(result.summary.guided.formatQuestions.length, 0);
+  assert.equal(result.summary.guided.options.dateFormat, "dmy");
+  assert.equal(result.summary.guided.options.numberFormat, "decimal-comma");
+  assert.equal(result.summary.guided.validRowCount, 251);
+  assert.equal(result.summary.guided.invalidRowCount, 1);
+  assert.deepEqual(
+    result.issues.map((item) => item.field),
+    ["date", "quantity"],
+  );
+});
+
+test("equivalent interpretations need no question but revenue is never guessed as units sold", async () => {
+  const equivalent = await prepareCsv(request("Date,SKU,Quantity\n01/01/2026,000123,2"));
+  assert.equal(equivalent.summary.error, null);
+  assert.equal(equivalent.data.rows[0].date, "2026-01-01");
+  const revenue = await prepareCsv(request("When,Identifier,Amount\n2026-10-05,000123,200"));
+  assert.equal(revenue.data, null);
+  assert.equal(revenue.summary.guided.options.mapping.date, 0);
+  assert.equal(revenue.summary.guided.options.mapping.product, 1);
+  assert.equal(revenue.summary.guided.options.mapping.quantity, null);
+});
+
+test("redundant SKU and name columns are accepted only when their product identities agree", async () => {
+  const text = "Date,SKU,Product Name,Quantity\n2026-10-05,000123,Synthetic Rice,2";
+  assert.equal((await prepareCsv(request(text))).summary.error, null);
+  const other = { ...product, id: "other", sku: "other", name: "Other" };
+  const conflict = await prepareCsv(
+    request(text.replace("Synthetic Rice", "Other"), { products: [product, other] }),
+  );
+  assert.equal(conflict.data, null);
+  assert.equal(conflict.summary.guided.options.mapping.product, null);
+});
+
+test("saved inventory metadata is previewed but omitted from count-only update requests", async () => {
+  const result = await prepareCsv(
+    request("SKU;Stock On Hand;Supplier\n000123;1,25;ignored", {
+      kind: "inventory",
+      rowLimit: 5000,
+    }),
+  );
+  assert.equal(result.summary.error, null);
+  assert.equal(result.summary.guided.reusedInventoryRows, 1);
+  assert.deepEqual(result.data.rows, [{ sku: "000123", currentStock: 1.25 }]);
+  assert.deepEqual(result.summary.guided.convertedPreview[0].fields, [
+    "000123",
+    "Synthetic Rice",
+    "Synthetic",
+    "bag",
+    "1.25",
+    "3",
+    "1",
+    "40",
+  ]);
+});
+
+test("count-only inventory rejects incomplete new SKUs and explicit blank or incompatible units", async () => {
+  const mixed = await prepareCsv(
+    request("SKU,On Hand\n000123,2\nNEW,3", { kind: "inventory", rowLimit: 5000 }),
+  );
+  assert.equal(mixed.data, null);
+  assert.equal(mixed.summary.guided.validRowCount, 1);
+  assert.equal(mixed.summary.guided.invalidRowCount, 1);
+  assert.equal(mixed.issues.length, 6);
+  for (const unit of ["", "piece"]) {
+    const result = await prepareCsv(
+      request(`SKU,On Hand,Unit\n000123,2,${unit}`, { kind: "inventory", rowLimit: 5000 }),
+    );
+    assert.equal(result.data, null);
+    assert.equal(result.issues[0].field, "unit");
+  }
+});
+
+test("a headerless sale containing a header-like SKU is not discarded", async () => {
+  const catalog = [{ ...product, sku: "SKU" }];
+  const result = await prepareCsv(request("2026-10-05,SKU,2", { products: catalog }));
+  assert.equal(result.summary.error, null);
+  assert.equal(result.summary.rowCount, 1);
+  assert.equal(result.summary.guided.options.header, false);
+});
+
+test("fractional lead times never become evidence to silently multiply stock quantities", async () => {
+  const text = "SKU;On Hand;Lead Time\n000123;1.001;1.001";
+  const pending = await prepareCsv(request(text, { kind: "inventory", rowLimit: 5000 }));
+  assert.equal(pending.data, null);
+  assert.deepEqual(
+    pending.summary.guided.formatQuestions.map((item) => item.field),
+    ["number"],
+  );
+  assert.equal(pending.summary.guided.formatQuestions[0].choices.length, 2);
+  const options = {
+    ...pending.summary.guided.options,
+    numberFormat: "decimal-point",
+    numberConfirmed: true,
+  };
+  const corrected = await prepareCsv(request(text, { kind: "inventory", rowLimit: 5000, options }));
+  assert.equal(corrected.data, null);
+  assert.deepEqual(
+    corrected.issues.map((item) => item.field),
+    ["lead"],
+  );
+  assert.equal(corrected.summary.guided.convertedPreview[0].fields[4], "1.001");
+});
+
 test("suggested aliases and reordered columns ignore extras without losing leading-zero SKUs", () => {
   const result = validate(
     "Customer;Units Sold;Item Code;Transaction Date;Transaction Line ID\nUnneeded;1.25;000123;2026-10-05;line:1",
@@ -371,7 +525,8 @@ test("guided preparation checks 100,000 rows in full and retains only bounded UI
   const text =
     `${salesHeader}\n` +
     Array.from({ length: 100_000 }, (_, i) => `2026-10-05,000123,1.001,line:${i}`).join("\n");
-  const result = await prepareCsv(request(text));
+  const options = configure(text, { numberConfirmed: true });
+  const result = await prepareCsv(request(text, { options }));
   assert.equal(result.summary.error, null);
   assert.equal(result.summary.guided.validRowCount, 100_000);
   assert.equal(result.summary.guided.convertedPreview.length, 50);
@@ -382,7 +537,9 @@ test("guided preparation checks 100,000 rows in full and retains only bounded UI
   assert.equal(submission.rows.length, 100_000);
   assert.notEqual(submission.rows[0].id, result.data.rows[0].id);
   assert.equal(submission.rows.at(-1).qty, 1.001);
-  const lateError = await prepareCsv(request(text + "\n2026-02-30,000123,1.0001,last"));
+  const lateError = await prepareCsv(
+    request(text + "\n2026-02-30,000123,1.0001,last", { options }),
+  );
   assert.equal(lateError.summary.limitExceeded, true);
   assert.equal(lateError.summary.guided.validRowCount, 100_000);
   assert.equal(lateError.summary.guided.invalidRowCount, 1);

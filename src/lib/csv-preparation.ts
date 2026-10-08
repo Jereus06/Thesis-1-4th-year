@@ -7,13 +7,15 @@ import {
   parseSalesRecords,
   type CsvRecord,
 } from "./import-csv";
-import type { Product, Sale } from "./types";
+import type { InventoryImportRow, Product, Sale } from "./types";
 import {
   CSV_ISSUE_PREVIEW_LIMIT,
+  analyzeCsvOptions,
   validateGuidedCsv,
   type CsvImportIssue,
   type CsvImportOptions,
   type CsvProductResolution,
+  type CsvFormatQuestion,
 } from "./guided-csv";
 
 export type CsvImportKind = "inventory" | "sales";
@@ -56,11 +58,13 @@ export type CsvPreparationSummary = {
     convertedHeaders: string[];
     unresolvedProducts: CsvProductResolution[];
     unresolvedProductCount: number;
+    reusedInventoryRows: number;
+    formatQuestions: CsvFormatQuestion[];
   } | null;
 };
 
 export type CsvPreparedRows =
-  { kind: "inventory"; rows: Omit<Product, "id">[] } | { kind: "sales"; rows: Sale[] };
+  { kind: "inventory"; rows: InventoryImportRow[] } | { kind: "sales"; rows: Sale[] };
 
 export type CsvPrepareRequest = {
   type: "prepare";
@@ -203,8 +207,17 @@ export async function prepareCsv(
     summary.previewTruncated = records.length > CSV_PREVIEW_RECORD_LIMIT;
     Object.assign(summary, boundedPreview(records));
     data = measure("validating", () => {
-      const guided = request.guided
-        ? validateGuidedCsv(records, request.kind, request.products, request.options)
+      const analysis = request.guided
+        ? analyzeCsvOptions(records, request.kind, request.products, request.options)
+        : null;
+      const guided = analysis
+        ? validateGuidedCsv(
+            records,
+            request.kind,
+            request.products,
+            analysis.options,
+            analysis.questions,
+          )
         : null;
       summary.rowCount = guided?.rowCount ?? csvDataRecordCount(records, request.kind);
       if (guided) {
@@ -221,6 +234,8 @@ export async function prepareCsv(
           convertedHeaders: guided.convertedHeaders,
           unresolvedProducts: guided.unresolvedProducts,
           unresolvedProductCount: guided.unresolvedProductCount,
+          reusedInventoryRows: guided.reusedInventoryRows,
+          formatQuestions: analysis!.questions,
         };
       }
       if (request.rowLimit !== null && summary.rowCount > request.rowLimit) {

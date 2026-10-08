@@ -201,8 +201,8 @@ function SalesImportCard() {
       <CardHeader>
         <CardTitle>Import CSV</CardTitle>
         <CardDescription>
-          Match your spreadsheet's sale date, product, and sold quantity columns. Review format
-          conversions and product matches before saving. A source key can identify each sale line.
+          Upload your file and check the detected sale dates, products, and quantities. Answer any
+          questions shown before saving. A source key can identify each sale line.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">

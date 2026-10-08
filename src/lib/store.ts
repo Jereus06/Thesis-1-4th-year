@@ -11,6 +11,7 @@ import {
   type SignUpRequest,
 } from "@/lib/api";
 import type {
+  InventoryImportRow,
   InventoryMovement,
   Product,
   ProductPatch,
@@ -46,7 +47,7 @@ type Store = {
   refreshInventoryMovements: () => Promise<void>;
   updateProduct: (id: string, patch: ProductPatch) => Promise<void>;
   addProduct: (product: Omit<Product, "id" | "sku"> & { sku?: string }) => Promise<void>;
-  importInventory: (rows: Omit<Product, "id">[]) => Promise<void>;
+  importInventory: (rows: InventoryImportRow[]) => Promise<void>;
   updateSettings: (patch: Partial<Settings>) => Promise<void>;
   importSales: (rows: Sale[]) => Promise<SalesImportResult>;
   resetDemo: () => void;
@@ -408,13 +409,31 @@ export const useAppStore = create<Store>()(
         }
         const importedBySku = new Map(rows.map((row) => [row.sku.toLowerCase(), row]));
         const existingSkus = new Set(get().products.map((product) => product.sku.toLowerCase()));
+        const newRows = rows.filter((row) => !existingSkus.has(row.sku.toLowerCase()));
+        // Check every new product before applying any part of the stock count.
+        for (const row of newRows) {
+          const required = [
+            "name",
+            "category",
+            "unit",
+            "leadTimeDays",
+            "safetyStock",
+            "unitCost",
+          ] as const;
+          if (required.some((field) => row[field] === undefined || row[field] === ""))
+            throw new Error(
+              `New SKU ${row.sku} needs its product details. Add it in Products first.`,
+            );
+        }
         const updated = get().products.map((product) => {
           const imported = importedBySku.get(product.sku.toLowerCase());
           return imported ? { ...product, ...imported, id: product.id, isActive: true } : product;
         });
-        const added = rows
-          .filter((row) => !existingSkus.has(row.sku.toLowerCase()))
-          .map((row, index) => ({ ...row, id: `p-import-${Date.now()}-${index}`, isActive: true }));
+        const added = newRows.map((row, index) => ({
+          ...(row as Omit<Product, "id">),
+          id: `p-import-${Date.now()}-${index}`,
+          isActive: true,
+        }));
         const movements: InventoryMovement[] = [];
         updated.forEach((product, index) => {
           const delta = stockBalance(product.currentStock - get().products[index].currentStock);

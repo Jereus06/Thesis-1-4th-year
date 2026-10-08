@@ -11,6 +11,10 @@ export type Product = {
   isActive?: boolean;
 };
 
+/** A stock count may reuse saved details; a new SKU still requires all product details. */
+export type InventoryImportRow = Pick<Product, "sku" | "currentStock"> &
+  Partial<Omit<Product, "id" | "sku" | "currentStock" | "isActive">>;
+
 export type ProductPatch = Partial<
   Pick<
     Product,

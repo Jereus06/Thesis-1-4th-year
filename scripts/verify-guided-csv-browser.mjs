@@ -191,9 +191,15 @@ try {
       .locator('input[type="file"]')
       .setInputFiles({ name, mimeType: "text/csv", buffer: Buffer.from(text) });
   };
+  const adjust = async () => {
+    const details = importer()
+      .locator("details")
+      .filter({ has: page.getByText("Adjust import", { exact: true }) });
+    if ((await details.getAttribute("open")) === null) await details.locator("summary").click();
+  };
   const review = async () => {
     await importer()
-      .getByRole("checkbox", { name: /I checked the column matches/ })
+      .getByRole("checkbox", { name: /I checked these records/ })
       .check();
   };
   const writeResponse = (suffix) =>
@@ -211,6 +217,7 @@ try {
     "Vendor ID;Item Name;Group;UOM;Stock On Hand;Lead Time Days;Buffer Stock;Cost;Supplier\nSYN-001;Synthetic Rice;Staples;bag;1.234,500;3;1,5;40,2500;Ignored\nSYN-002;Synthetic Milk;Dairy;bottle;50;2;10;30;Ignored";
   await upload(inventoryText, "synthetic-inventory-locale.csv");
   await waitState("error");
+  await adjust();
   await importer().getByLabel("SKU *", { exact: true }).selectOption("0");
   await importer().getByLabel("Number format", { exact: true }).selectOption("decimal-comma");
   await waitState("ready");
@@ -253,6 +260,7 @@ try {
     "synthetic-missing-metadata.csv",
   );
   await waitState("error");
+  await adjust();
   for (const [field, value] of [
     ["Category", "Synthetic"],
     ["Unit", "piece"],
@@ -278,6 +286,7 @@ try {
     "Booked On;Old Item;Units Sold;Line Key;UOM;Customer\n05/10/2026;Legacy Rice;1,250;legacy:1;bag;Ignored\n06/10/2026;Legacy Rice;2,5;legacy:2;bag;Ignored";
   await upload(mappedSales, "synthetic-sales-mapping.csv");
   await waitState("error");
+  await adjust();
   await importer().getByLabel("Date *", { exact: true }).selectOption("0");
   await importer().getByLabel("Product / SKU *", { exact: true }).selectOption("1");
   await importer().getByLabel("Source Record Key", { exact: true }).selectOption("3");
@@ -388,10 +397,18 @@ try {
   );
   await importer().getByRole("button", { name: "Prepare again", exact: true }).click();
   await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+  await waitState("error");
+  await importer()
+    .getByLabel("Confirm number meaning", { exact: true })
+    .selectOption("decimal-point");
   await waitState("ready");
   check("cancellation blocks submission, retains the source, and supports preparing again");
 
   await upload(large, "synthetic-100000.csv");
+  await waitState("error");
+  await importer()
+    .getByLabel("Confirm number meaning", { exact: true })
+    .selectOption("decimal-point");
   await waitState("ready");
   assert.match(await importer().innerText(), /100,000 valid rows/);
   assert.equal(
@@ -523,12 +540,13 @@ try {
   );
 
   await review();
+  await adjust();
   await importer().getByLabel("Product / SKU *", { exact: true }).selectOption("4");
   await waitState("ready");
   assert.equal(await selectedMatches().count(), 0);
   assert.equal(
     await importer()
-      .getByRole("checkbox", { name: /I checked the column matches/ })
+      .getByRole("checkbox", { name: /I checked these records/ })
       .isChecked(),
     false,
   );
@@ -553,6 +571,7 @@ try {
     .getByLabel("Match product for constructor", { exact: true })
     .selectOption(rice.id);
   await waitState("ready");
+  await adjust();
   await importer()
     .getByRole("checkbox", { name: "First row contains column names", exact: true })
     .uncheck();
@@ -574,8 +593,95 @@ try {
     "header/separator changes clear contextual matches and inherited object names are not preselected",
   );
 
+  await upload(
+    "Customer,Product Name,Date,SKU,Quantity,Source Record Key,Receipt Total\nIgnored,Synthetic Rice,2026-10-07,SYN-001,2,auto:sale,9999",
+    "synthetic-automatic-sales.csv",
+  );
+  await waitState("ready");
+  assert.equal(await importer().locator("details").first().getAttribute("open"), null);
+  assert.equal(await importer().getByLabel("Confirm date meaning").count(), 0);
+  assert.equal(await importer().getByLabel("Confirm number meaning").count(), 0);
+  await review();
+  const autoSaleResponse = writeResponse("/data-imports");
+  await importer().getByRole("button", { name: "Import rows", exact: true }).click();
+  assert.equal((await autoSaleResponse).status(), 201);
+  await waitState("idle");
+  assert.equal(Number(writes.at(-1).rows[0].quantity), 2);
+  assert.equal(writes.at(-1).rows[0].sourceRecordKey, "auto:sale");
+  check(
+    "ordinary sales import automatically detects useful columns and skips extras without opening settings",
+  );
+
+  await upload(
+    "Date;SKU;Quantity;Source Record Key\n05/10/2026;SYN-001;1,234;auto:clarified",
+    "synthetic-ambiguous-values.csv",
+  );
+  await waitState("error");
+  const beforeClarification = writes.length;
+  assert.equal(
+    await importer().getByRole("button", { name: "Import rows", exact: true }).isDisabled(),
+    true,
+  );
+  await importer().getByLabel("Confirm date meaning", { exact: true }).selectOption("dmy");
+  await waitState("error");
+  await importer()
+    .getByLabel("Confirm number meaning", { exact: true })
+    .selectOption("decimal-comma");
+  await waitState("ready");
+  assert.equal(writes.length, beforeClarification);
+  assert.equal(await importer().locator("details").first().getAttribute("open"), null);
+  await review();
+  const clarifiedResponse = writeResponse("/data-imports");
+  await importer().getByRole("button", { name: "Import rows", exact: true }).click();
+  assert.equal((await clarifiedResponse).status(), 201);
+  await waitState("idle");
+  assert.equal(writes.at(-1).rows[0].saleDate, "2026-10-05");
+  assert.equal(Number(writes.at(-1).rows[0].quantity), 1.234);
+  check(
+    "brief date and number questions block ambiguous writes and save the confirmed interpretations",
+  );
+
+  await page.getByRole("tab", { name: "Products", exact: true }).click();
+  const beforeCount = (await apiData("/products")).find((item) => item.sku === "SYN-001");
+  await page.getByRole("button", { name: "Import inventory", exact: true }).click();
+  await upload("SKU,Stock On Hand,Supplier\nSYN-001,47.5,Ignored", "synthetic-count-only.csv");
+  await waitState("ready");
+  assert.match(await importer().innerText(), /1 existing products will keep saved details/);
+  assert.equal(await importer().locator("details").first().getAttribute("open"), null);
+  await page.screenshot({ path: `${output}/simple-inventory-preview.png`, fullPage: true });
+  await review();
+  const countResponse = writeResponse("/inventory-imports");
+  await importer().getByRole("button", { name: "Import inventory", exact: true }).click();
+  assert.equal((await countResponse).status(), 201);
+  await page.locator("[data-csv-state]").waitFor({ state: "detached" });
+  assert.deepEqual(writes.at(-1).rows, [{ sku: "SYN-001", currentStock: 47.5 }]);
+  const afterCount = (await apiData("/products")).find((item) => item.sku === "SYN-001");
+  assert.equal(Number(afterCount.currentStock), 47.5);
+  for (const field of ["id", "name", "category", "unit", "unitCost", "leadTimeDays", "safetyStock"])
+    assert.equal(afterCount[field], beforeCount[field]);
+  check(
+    "count-only inventory imports preserve saved product details through the authenticated write path",
+  );
+
+  await page.getByRole("button", { name: "Import inventory", exact: true }).click();
+  await upload("SKU,On Hand\nSYN-001,2\nUNKNOWN-NEW,3", "synthetic-incomplete-new-product.csv");
+  await waitState("error");
+  const afterWrites = writes.length;
+  assert.equal(
+    await importer().getByRole("button", { name: "Import inventory", exact: true }).isDisabled(),
+    true,
+  );
+  assert.equal(
+    Number((await apiData("/products")).find((item) => item.sku === "SYN-001").currentStock),
+    47.5,
+  );
+  assert.equal(writes.length, afterWrites);
+  check(
+    "an incomplete new product blocks the entire mixed inventory import before any counts are changed",
+  );
+
   assert.deepEqual(browserErrors, []);
-  await page.screenshot({ path: `${output}/converted-sales.png`, fullPage: true });
+  await page.screenshot({ path: `${output}/incomplete-new-product.png`, fullPage: true });
   report.passed = true;
 } catch (error) {
   await page?.screenshot({ path: `${output}/failure.png`, fullPage: true }).catch(() => {});

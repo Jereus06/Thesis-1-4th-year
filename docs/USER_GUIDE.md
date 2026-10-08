@@ -174,31 +174,32 @@ Deactivation keeps the saved stock balance and history. Inactive products are ex
 
 **Where:** **Inventory > Products > Import inventory**.
 
-Use an inventory file to add your catalog and establish or correct current counts. Save your spreadsheet as CSV. Its column names and order may differ; match them to these fields in the importer:
+Use an inventory file to add products or update verified current stock counts. Save your spreadsheet as CSV; columns can have a different order and extra columns are skipped. For products already in StockCast, **SKU and On Hand are enough**. Missing product details stay as saved. New products need all the details below:
 
-| Column | What to enter |
-| --- | --- |
-| SKU | A unique product code |
-| Product | Product name |
-| Category | Product group |
-| Unit | Counting unit, such as pack or pc |
-| On Hand | Actual current stock, zero or higher |
-| Lead Time | Whole number of supplier lead-time days |
-| Safety Stock | Buffer quantity, zero or higher |
-| Unit Cost | Cost per counting unit in PHP |
+| Column       | What to enter                           |
+| ------------ | --------------------------------------- |
+| SKU          | A unique product code                   |
+| Product      | Product name                            |
+| Category     | Product group                           |
+| Unit         | Counting unit, such as pack or pc       |
+| On Hand      | Actual current stock, zero or higher    |
+| Lead Time    | Whole number of supplier lead-time days |
+| Safety Stock | Buffer quantity, zero or higher         |
+| Unit Cost    | Cost per counting unit in PHP           |
 
-1. Choose **Import inventory** to open the importer.
-2. Choose **Uploaded file > Upload CSV file**, or **Paste CSV** to enter prepared CSV text.
-3. Check **First row contains column names**, then match each required field to its source column. Suggested matches can be changed. Unmapped columns, such as supplier notes, are ignored.
-4. Choose the **Number format** used in the file. For example, **1,234.50** uses decimal-point/comma grouping; **1.234,50** uses decimal-comma/dot grouping. Review the converted preview.
-5. If a Category, Unit, Lead Time, Safety Stock, or Unit Cost column is missing, choose **Enter a verified value for every row** only when you know the same value applies to every product in this file. Enter that value using the selected number format for numeric fields; StockCast supplies no invented defaults. Product codes, names, and stock counts must come from source columns.
-6. Correct every reported row problem. **Download complete error report** includes all problems and their source record/starting line; the on-screen table shows at most 50. Edit the source and select it again, or correct pasted text. Match its columns again if necessary.
-7. Check **I checked the column matches, converted values, and counting units**, then choose **Import inventory** inside the importer.
-8. Wait for confirmation, then check **Products** and **Stock movements**.
+1. Choose **Import inventory**, then **Upload CSV file**. You can also choose **Paste CSV**.
+2. If StockCast asks which column to use or what a number means, choose the correct answer. Clear matches are detected automatically.
+3. Check the **Import preview**: product codes, counting units, and current stock counts. Correct any reported problems before continuing.
+4. Check **I checked these records and their counting units**, then choose **Import inventory**.
+5. Wait for confirmation, then check **Products** and **Stock movements**.
+
+Open **Adjust import** only if a detected match needs changing. For a new product, add its details in **Products** first or include them in the file. Under Adjust import, a verified shared Category, Unit, Lead Time, Safety Stock, or Unit Cost may be entered only when it applies to every row. A supplied blank value is an error; only an absent column keeps an existing product's saved detail. Use **View original file** to compare the source with the import preview.
+
+**Download complete error report** lists every problem and its source record/starting line. The screen shows at most 50 problems. Correct the source and select it again, or edit pasted text.
 
 Selecting a file or viewing its preview does not save it. Original and converted previews are bounded; all data records are checked and the full valid file is used for import. Use **Cancel preparation** to stop, or **Prepare again** to retry. To change uploaded data, edit the source file and select it again. Selecting a new source clears its mappings and format choices. Changing a mapping or format requires reviewing the converted values again.
 
-**What changes:** matching SKUs update product details and replace current counts with audited corrections. New SKUs create products. Matching inactive products are reactivated, and products absent from the file remain saved. A rejected inventory row prevents the whole snapshot from saving.
+**What changes:** matching SKUs update supplied product details and replace current counts with audited corrections. Details absent from the file keep their latest saved values. New SKUs create products. Matching inactive products are reactivated, and products absent from the file remain saved. A rejected inventory row prevents the whole snapshot from saving.
 
 If a notice says the import **was saved** but the product list could not be refreshed, choose **Reload saved records**. Avoid importing the same source again just to refresh the view.
 
@@ -210,24 +211,26 @@ Stock and safety quantities allow up to three decimal places; unit cost allows f
 
 **Where:** **Inventory > Sales ledger > Import CSV**.
 
-Create or import the products first. Save the spreadsheet as CSV and match its columns to these fields:
+Create or import the products first. Save the spreadsheet as CSV. StockCast detects clear column matches and skips unrelated columns:
 
-| Column | What to enter |
-| --- | --- |
-| Date | Sale date; choose its date format to convert it to **YYYY-MM-DD** |
-| Product | An existing SKU; an unambiguous product name or internal product ID also works |
-| Quantity | Positive sold quantity in that product's unit |
-| Source Record Key, optional | A stable unique identifier for one sale line |
-| Unit, optional check | The existing product's counting unit; no pack/piece conversion is performed |
+| Column                      | What to enter                                                                  |
+| --------------------------- | ------------------------------------------------------------------------------ |
+| Date                        | Sale date; clear formats are detected and saved as **YYYY-MM-DD**              |
+| Product                     | An existing SKU; an unambiguous product name or internal product ID also works |
+| Quantity                    | Positive sold quantity in that product's unit                                  |
+| Source Record Key, optional | A stable unique identifier for one sale line                                   |
+| Unit, optional check        | The existing product's counting unit; no pack/piece conversion is performed    |
 
-1. Open **Sales ledger** and locate **Import CSV**.
-2. Choose **Uploaded file > Upload CSV file**, or **Paste CSV**.
-3. Match the sale date, product/SKU, and quantity columns. Map a Source Record Key or Unit column when appropriate. Unmapped extra columns are ignored.
-4. Choose **Date format** and **Number format** explicitly. For **05/10/2026**, choose day/month/year if it means October 5, or month/day/year if it means May 10. Check the converted dates and quantities; the system does not guess which meaning you intend.
-5. If an identifier is unknown or ambiguous, use **Find catalog product** and **Match product** to select the correct existing product with the same counting unit. This applies to all rows with that exact source identifier. In **Selected product matches**, search by source identifier, SKU, or product name to find a choice, or use **Previous selected matches** / **Next selected matches** to review 50 at a time. Every choice can be changed or removed without selecting the file again. Changing the product column, column separator, or header choice clears manual matches; check and match the resulting identifiers again. Add missing products in Products first; the sales importer never creates products automatically.
-6. Correct every row error. Download the complete error report for problems beyond the first 50. Missing sale dates or quantities cannot be filled in automatically, and invalid rows are not silently discarded.
-7. Check **I checked the column matches, converted values, and counting units**, then choose **Import rows**.
-8. Read the imported, already-imported, and rejected counts. Check the Sales ledger and use **Export sales CSV** if you need all saved rows.
+1. Open **Sales ledger > Import CSV**, then choose **Upload CSV file** or **Paste CSV**.
+2. Answer any short questions that appear. For example, **05/10/2026** could mean October 5 or May 10; StockCast asks when both meanings are possible. A number such as **1,234** also needs confirmation when it could mean different quantities.
+3. Check the **Import preview**, especially dates, products, sold quantities, and counting units. Open **Adjust import** only if a detected column or format needs changing.
+4. If a product is unrecognized, use **Find catalog product** and **Match product** to choose the existing product with the same counting unit. Add missing products in **Products** first. Correct every row problem; the complete error report includes problems beyond those shown on screen.
+5. Check **I checked these records and their counting units**, then choose **Import rows**.
+6. Read the imported, already-imported, and rejected counts. Check the **Sales ledger** or choose **Export sales CSV** for all saved rows.
+
+StockCast does not interpret receipt totals or revenue as sold quantities. If a quantity column is unclear, it asks you to choose it. No missing dates, quantities, or product details are invented, and invalid rows are not silently discarded.
+
+In **Selected product matches**, search by source identifier, SKU, or product name, or use **Previous selected matches** / **Next selected matches** to review 50 at a time. Every choice can be changed or removed. Changing the product column, separator, or header choice clears these matches so you can review the new identifiers.
 
 **What changes:** past sales are added to demand history. They do not reduce current stock or create a delivery. This is appropriate for older transactions already reflected in your current physical count.
 

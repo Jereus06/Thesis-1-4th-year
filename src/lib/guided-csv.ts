@@ -1,5 +1,5 @@
 import type { CsvDelimiter, CsvRecord } from "./import-csv";
-import type { Product, Sale } from "./types";
+import type { InventoryImportRow, Product, Sale } from "./types";
 
 export type GuidedCsvKind = "inventory" | "sales";
 export type CsvDateFormat = "iso" | "dmy" | "mdy";
@@ -11,6 +11,8 @@ export type CsvImportOptions = {
   mapping: CsvMapping;
   dateFormat: CsvDateFormat;
   numberFormat: CsvNumberFormat;
+  dateConfirmed?: boolean;
+  numberConfirmed?: boolean;
   // Exact, trimmed source identifiers are mapped to a current product ID by the user.
   productMatches: Record<string, string>;
   constants?: Record<string, string>;
@@ -22,7 +24,7 @@ export const CSV_IMPORT_FIELDS: Record<GuidedCsvKind, CsvField[]> = {
       key: "sku",
       label: "SKU",
       required: true,
-      aliases: ["sku", "itemcode", "productcode", "stockcode"],
+      aliases: ["sku", "itemcode", "productcode", "stockcode", "itemsku", "productsku"],
     },
     {
       key: "name",
@@ -41,7 +43,15 @@ export const CSV_IMPORT_FIELDS: Record<GuidedCsvKind, CsvField[]> = {
       key: "stock",
       label: "On Hand",
       required: true,
-      aliases: ["onhand", "currentstock", "stock", "stockonhand", "quantityonhand"],
+      aliases: [
+        "onhand",
+        "currentstock",
+        "stock",
+        "stockonhand",
+        "quantityonhand",
+        "quantityavailable",
+        "availablequantity",
+      ],
     },
     { key: "lead", label: "Lead Time", required: true, aliases: ["leadtime", "leadtimedays"] },
     {
@@ -62,25 +72,42 @@ export const CSV_IMPORT_FIELDS: Record<GuidedCsvKind, CsvField[]> = {
       key: "date",
       label: "Date",
       required: true,
-      aliases: ["date", "saledate", "salesdate", "transactiondate"],
+      aliases: ["date", "saledate", "salesdate", "transactiondate", "bookedon", "posteddate"],
     },
     {
       key: "product",
       label: "Product / SKU",
       required: true,
-      aliases: ["product", "sku", "itemcode", "productcode", "productname", "itemname"],
+      aliases: [
+        "product",
+        "sku",
+        "itemcode",
+        "productcode",
+        "productname",
+        "itemname",
+        "itemsku",
+        "productsku",
+      ],
     },
     {
       key: "quantity",
       label: "Quantity",
       required: true,
-      aliases: ["quantity", "qty", "unitssold", "quantitysold", "soldqty"],
+      aliases: [
+        "quantity",
+        "qty",
+        "unitssold",
+        "quantitysold",
+        "soldqty",
+        "soldquantity",
+        "salesquantity",
+      ],
     },
     {
       key: "key",
       label: "Source Record Key",
       required: false,
-      aliases: ["sourcerecordkey", "salelineid", "transactionlineid"],
+      aliases: ["sourcerecordkey", "salelineid", "transactionlineid", "linekey"],
     },
     {
       key: "unit",
@@ -116,6 +143,11 @@ export type CsvProductResolution = {
   reason: "unknown" | "ambiguous";
   rows: number;
 };
+export type CsvFormatQuestion = {
+  field: "date" | "number";
+  sample: string;
+  choices: { value: string; label: string }[];
+};
 export type GuidedCsvValidation = {
   options: CsvImportOptions;
   columns: string[];
@@ -128,7 +160,8 @@ export type GuidedCsvValidation = {
   convertedHeaders: string[];
   unresolvedProducts: CsvProductResolution[];
   unresolvedProductCount: number;
-  data: { kind: "inventory"; rows: Omit<Product, "id">[] } | { kind: "sales"; rows: Sale[] } | null;
+  reusedInventoryRows: number;
+  data: { kind: "inventory"; rows: InventoryImportRow[] } | { kind: "sales"; rows: Sale[] } | null;
 };
 
 const normalizedHeader = (value: string) =>
@@ -148,7 +181,7 @@ function short(value: string, limit = 200): string {
   return prefix;
 }
 
-/** Suggestions never guess a locale or a product. Users review every mapping before saving. */
+/** Suggest explicit header aliases or the documented headerless column order. */
 export function suggestCsvOptions(
   records: CsvRecord[],
   kind: GuidedCsvKind,
@@ -157,12 +190,11 @@ export function suggestCsvOptions(
   const fields = CSV_IMPORT_FIELDS[kind];
   const first = records[0]?.fields ?? [];
   const names = first.map(normalizedHeader);
-  const recognized = fields.some((field) => names.some((name) => field.aliases.includes(name)));
   const looksLikeData =
     kind === "sales"
       ? /^\d{4}-\d{2}-\d{2}$|^\d{1,2}[/.-]\d{1,2}[/.-]\d{4}$/.test(first[0]?.trim() ?? "")
       : first.length === 8 && /^\d+(?:[.,]\d+)?$/.test(first[4]?.trim() ?? "");
-  const header = headerOverride ?? (recognized || !looksLikeData);
+  const header = headerOverride ?? !looksLikeData;
   const mapping: CsvMapping = {};
   fields.forEach((field, position) => {
     const candidates = names.flatMap((name, index) =>
@@ -265,11 +297,201 @@ function add(lookup: Lookup, key: string, product: Product) {
   else lookup.set(key, null);
 }
 
+/** Infer only interpretations supported by the whole file, and ask when values differ. */
+export function analyzeCsvOptions(
+  records: CsvRecord[],
+  kind: GuidedCsvKind,
+  products: Product[],
+  supplied?: CsvImportOptions,
+): { options: CsvImportOptions; questions: CsvFormatQuestion[] } {
+  const options = supplied
+    ? { ...supplied, mapping: { ...supplied.mapping } }
+    : suggestCsvOptions(records, kind);
+  const rows = records.slice(options.header ? 1 : 0);
+  const questions: CsvFormatQuestion[] = [];
+  if (!supplied && kind === "sales" && rows.length) {
+    const exact: Lookup = new Map(),
+      sku: Lookup = new Map(),
+      names: Lookup = new Map();
+    for (const product of products) {
+      if (product.isActive === false) continue;
+      add(exact, product.id, product);
+      if (product.sku !== product.id) add(exact, product.sku, product);
+      add(sku, product.sku.toLowerCase(), product);
+      add(names, product.name.toLowerCase(), product);
+    }
+    const resolve = (raw: string) => {
+      const value = raw.trim();
+      const direct = exact.get(value);
+      if (direct !== undefined) return direct;
+      const code = sku.get(value.toLowerCase());
+      return code !== undefined ? code : names.get(value.toLowerCase());
+    };
+    if (options.mapping.product === null && options.header) {
+      const candidates = (records[0]?.fields ?? []).flatMap((_value, column) =>
+        rows.slice(0, 200).every((record) => resolve(record.fields[column] ?? "")) ? [column] : [],
+      );
+      // Prefer a clearly named SKU over a redundant name only if every row agrees.
+      const codeColumns = candidates.filter((column) =>
+        ["sku", "itemcode", "productcode", "itemsku", "productsku"].includes(
+          normalizedHeader(records[0].fields[column]),
+        ),
+      );
+      if (candidates.length === 1) options.mapping.product = candidates[0];
+      else if (
+        codeColumns.length === 1 &&
+        candidates.every((column) =>
+          rows.every(
+            (record) =>
+              resolve(record.fields[column] ?? "")?.id ===
+              resolve(record.fields[codeColumns[0]] ?? "")?.id,
+          ),
+        )
+      )
+        options.mapping.product = codeColumns[0];
+    }
+    if (options.mapping.date === null && options.header) {
+      const candidates = (records[0]?.fields ?? []).flatMap((_value, column) =>
+        rows
+          .slice(0, 200)
+          .every((record) =>
+            /^\d{4}-\d{2}-\d{2}$|^\d{1,2}[/.-]\d{1,2}[/.-]\d{4}$/.test(
+              (record.fields[column] ?? "").trim(),
+            ),
+          )
+          ? [column]
+          : [],
+      );
+      if (candidates.length === 1) options.mapping.date = candidates[0];
+    }
+  }
+  // Cache repeated observations, but bound extra memory for large files.
+  const infer = <T extends string>(
+    formats: T[],
+    observations: Iterable<{ raw: string; decimals: number }>,
+    convert: (raw: string, format: T, decimals: number) => string | number,
+  ) => {
+    let candidates = [...formats];
+    const disagreements: { raw: string; values: Map<T, string | number> }[] = [];
+    const cache = new Map<string, Map<T, string | number>>();
+    for (const { raw, decimals } of observations) {
+      const key = `${decimals}:${raw}`;
+      let values = cache.get(key);
+      if (!values) {
+        values = new Map();
+        for (const format of formats) {
+          try {
+            values.set(format, convert(raw, format, decimals));
+          } catch {
+            /* Invalid rows remain row errors. */
+          }
+        }
+        if (cache.size < 1_000) cache.set(key, values);
+      }
+      if (!values.size) continue;
+      candidates = candidates.filter((format) => values!.has(format));
+      // Three pairs at most; retain a sample for each differing pair without retaining rows.
+      for (let a = 0; a < formats.length; a++)
+        for (let b = a + 1; b < formats.length; b++) {
+          if (
+            values.has(formats[a]) &&
+            values.has(formats[b]) &&
+            values.get(formats[a]) !== values.get(formats[b]) &&
+            !disagreements.some(
+              (item) =>
+                item.values.has(formats[a]) &&
+                item.values.has(formats[b]) &&
+                item.values.get(formats[a]) !== item.values.get(formats[b]),
+            )
+          )
+            disagreements.push({ raw, values });
+        }
+    }
+    const ambiguous = disagreements.find(
+      (item) =>
+        new Set(candidates.map((format) => item.values.get(format))).size > 1 &&
+        candidates.every((format) => item.values.has(format)),
+    );
+    return { candidates, ambiguous };
+  };
+  if (kind === "sales" && !options.dateConfirmed && options.mapping.date != null) {
+    const result = infer(
+      CSV_DATE_FORMATS.map((item) => item.value),
+      rows.map((row) => ({ raw: (row.fields[options.mapping.date!] ?? "").trim(), decimals: 0 })),
+      convertedDate,
+    );
+    if (result.ambiguous)
+      questions.push({
+        field: "date",
+        sample: short(result.ambiguous.raw),
+        choices: result.candidates.map((format) => ({
+          value: format,
+          label: `${new Date(`${result.ambiguous!.values.get(format)}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })} (${format === "dmy" ? "day first" : "month first"})`,
+        })),
+      });
+    else if (result.candidates.length)
+      options.dateFormat = result.candidates.includes(options.dateFormat)
+        ? options.dateFormat
+        : result.candidates[0];
+  }
+  if (!options.numberConfirmed) {
+    const numericFields =
+      kind === "sales"
+        ? [["quantity", 3] as const]
+        : ([
+            ["stock", 3],
+            ["lead", 0],
+            ["safety", 3],
+            ["cost", 4],
+          ] as const);
+    function* observations() {
+      for (const row of rows)
+        for (const [field, decimals] of numericFields) {
+          const column = options.mapping[field];
+          // A fractional lead time is a row error, not proof that dots mean thousands.
+          if (column != null)
+            yield { raw: (row.fields[column] ?? "").trim(), decimals: Math.max(3, decimals) };
+        }
+      for (const [field, decimals] of numericFields)
+        if (options.mapping[field] == null && Object.hasOwn(options.constants ?? {}, field))
+          yield { raw: options.constants![field].trim(), decimals: Math.max(3, decimals) };
+    }
+    const result = infer(
+      CSV_NUMBER_FORMATS.map((item) => item.value),
+      observations(),
+      convertedNumber,
+    );
+    if (result.ambiguous)
+      questions.push({
+        field: "number",
+        sample: short(result.ambiguous.raw),
+        choices: result.candidates
+          .filter(
+            (format, index, formats) =>
+              formats.findIndex(
+                (candidate) =>
+                  result.ambiguous!.values.get(candidate) === result.ambiguous!.values.get(format),
+              ) === index,
+          )
+          .map((format) => ({
+            value: format,
+            label: `${Number(result.ambiguous!.values.get(format)).toLocaleString("en-US", { maximumFractionDigits: 4 })} (${Number.isInteger(result.ambiguous!.values.get(format)) ? "whole number" : "decimal number"})`,
+          })),
+      });
+    else if (result.candidates.length)
+      options.numberFormat = result.candidates.includes(options.numberFormat)
+        ? options.numberFormat
+        : result.candidates[0];
+  }
+  return { options, questions };
+}
+
 export function validateGuidedCsv(
   records: CsvRecord[],
   kind: GuidedCsvKind,
   products: Product[],
   supplied?: CsvImportOptions,
+  questions: CsvFormatQuestion[] = [],
 ): GuidedCsvValidation {
   const options = supplied ?? suggestCsvOptions(records, kind);
   const fields = CSV_IMPORT_FIELDS[kind];
@@ -306,6 +528,7 @@ export function validateGuidedCsv(
         : ["Date", "SKU", "Product", "Quantity", "Unit", "Source Record Key"],
     unresolvedProducts: [],
     unresolvedProductCount: 0,
+    reusedInventoryRows: 0,
     data: null,
   };
   if (columnCount > CSV_COLUMN_LIMIT)
@@ -325,7 +548,7 @@ export function validateGuidedCsv(
           result.configurationErrors.push(
             `Enter a verified value for ${field.label} that applies to every row.`,
           );
-      } else if (field.required)
+      } else if (field.required && (kind !== "inventory" || ["sku", "stock"].includes(field.key)))
         result.configurationErrors.push(`Select a source column for ${field.label}.`);
     } else if (!Number.isInteger(column) || column < 0 || column >= columnCount)
       result.configurationErrors.push(`Select a valid source column for ${field.label}.`);
@@ -336,6 +559,10 @@ export function validateGuidedCsv(
     else occupied.set(column, field.label);
   }
   if (!rows.length) result.configurationErrors.push("CSV contains no data records to import.");
+  if (questions.length)
+    result.configurationErrors.push(
+      "Answer the date or number question below, then check the preview.",
+    );
   if (result.configurationErrors.length) return result;
 
   const exact: Lookup = new Map(),
@@ -351,13 +578,21 @@ export function validateGuidedCsv(
     add(names, product.name.toLowerCase(), product);
   }
   const unknown = new Map<string, CsvProductResolution>();
-  const inventory: Omit<Product, "id">[] = [],
+  const inventory: InventoryImportRow[] = [],
     sales: Sale[] = [];
   const inventorySkus = new Map<string, number>();
   const sourceKeys = new Map<
     string,
     { record: number; productId?: string; date?: string; qty?: number }
   >();
+  const metadataFields = {
+    name: "name",
+    category: "category",
+    unit: "unit",
+    lead: "leadTimeDays",
+    safety: "safetyStock",
+    cost: "unitCost",
+  } as const;
   for (const record of rows) {
     const before = result.issues.length;
     const issue = (field: string, raw: string, message: string) =>
@@ -368,13 +603,21 @@ export function validateGuidedCsv(
         value: short(raw),
         message,
       });
+    const savedProduct =
+      kind === "inventory"
+        ? sku.get((record.fields[options.mapping.sku ?? -1] ?? "").trim().toLowerCase())
+        : undefined;
+    const suppliedField = (key: string) =>
+      (options.mapping[key] !== null && options.mapping[key] !== undefined) ||
+      Object.hasOwn(options.constants ?? {}, key);
     const value = (key: string) => {
       const index = options.mapping[key];
-      return index === null || index === undefined
-        ? kind === "inventory" && CSV_INVENTORY_FIXED_FIELDS.includes(key)
-          ? (options.constants?.[key] ?? "").trim()
-          : ""
-        : (record.fields[index] ?? "").trim();
+      if (index !== null && index !== undefined) return (record.fields[index] ?? "").trim();
+      if (kind !== "inventory") return "";
+      if (Object.hasOwn(options.constants ?? {}, key))
+        return (options.constants?.[key] ?? "").trim();
+      const property = metadataFields[key as keyof typeof metadataFields];
+      return savedProduct && property ? String(savedProduct[property]) : "";
     };
     const check = <T>(field: string, operation: () => T): T | undefined => {
       try {
@@ -404,13 +647,22 @@ export function validateGuidedCsv(
       const currentStock = check("stock", () =>
         convertedNumber(value("stock"), options.numberFormat, 3),
       );
-      const leadTimeDays = check("lead", () =>
-        convertedNumber(value("lead"), options.numberFormat, 0),
-      );
-      const safetyStock = check("safety", () =>
-        convertedNumber(value("safety"), options.numberFormat, 3),
-      );
-      const unitCost = check("cost", () => convertedNumber(value("cost"), options.numberFormat, 4));
+      const detailNumber = (key: "lead" | "safety" | "cost", decimals: number) =>
+        check(key, () => {
+          if (!value(key))
+            throw new Error(
+              "New SKU needs this product detail. Add it in Products first or adjust the import.",
+            );
+          // Saved values are already canonical numbers, independent of the source's locale.
+          return convertedNumber(
+            value(key),
+            suppliedField(key) ? options.numberFormat : "decimal-point",
+            decimals,
+          );
+        });
+      const leadTimeDays = detailNumber("lead", 0);
+      const safetyStock = detailNumber("safety", 3);
+      const unitCost = detailNumber("cost", 4);
       if (code) {
         const folded = code.toLowerCase(),
           previous = inventorySkus.get(folded);
@@ -449,17 +701,25 @@ export function validateGuidedCsv(
             unitCost?.toString() ?? "",
           ].map((item) => short(item)),
         });
-      if (result.issues.length === before)
-        inventory.push({
-          sku: code!,
+      if (result.issues.length === before) {
+        const details = {
           name: name!,
           category: category!,
           unit: unit!,
-          currentStock: currentStock!,
           leadTimeDays: leadTimeDays!,
           safetyStock: safetyStock!,
           unitCost: unitCost!,
-        });
+        };
+        const row: InventoryImportRow = { sku: code!, currentStock: currentStock! };
+        for (const [field, property] of Object.entries(metadataFields)) {
+          if (suppliedField(field))
+            Object.assign(row, { [property]: details[property as keyof typeof details] });
+        }
+        if (savedProduct && Object.keys(metadataFields).some((field) => !suppliedField(field)))
+          result.reusedInventoryRows++;
+        // Omitted details remain omitted in the request: the API preserves its current saved values.
+        inventory.push(row);
+      }
     } else {
       const date = check("date", () => convertedDate(value("date"), options.dateFormat));
       const qty = check("quantity", () =>

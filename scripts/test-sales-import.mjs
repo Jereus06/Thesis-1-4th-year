@@ -284,6 +284,63 @@ test("API owner permission remains required for inventory and historical sales i
   assert.equal(requests, 0);
 });
 
+test("browser demonstration count-only inventory keeps product details and audits the change", async (t) => {
+  const store = await isolatedStore(t);
+  const product = {
+    id: "count-only",
+    sku: "COUNT-1",
+    name: "Synthetic count product",
+    category: "Synthetic",
+    unit: "pc",
+    currentStock: 20,
+    leadTimeDays: 3,
+    safetyStock: 2,
+    unitCost: 4,
+  };
+  store.setState({
+    dataMode: "browser-demo",
+    session: null,
+    products: [product],
+    inventoryMovements: [],
+    sales: [],
+  });
+  await store.getState().importInventory([{ sku: "COUNT-1", currentStock: 7.5 }]);
+  assert.deepEqual(store.getState().products, [{ ...product, currentStock: 7.5, isActive: true }]);
+  assert.equal(store.getState().inventoryMovements[0].quantityDelta, -12.5);
+  assert.deepEqual(store.getState().sales, []);
+});
+
+test("browser demonstration rejects a mixed count-only import atomically when a new SKU lacks details", async (t) => {
+  const store = await isolatedStore(t);
+  const product = {
+    id: "count-only",
+    sku: "COUNT-1",
+    name: "Synthetic count product",
+    category: "Synthetic",
+    unit: "pc",
+    currentStock: 20,
+    leadTimeDays: 3,
+    safetyStock: 2,
+    unitCost: 4,
+  };
+  store.setState({
+    dataMode: "browser-demo",
+    session: null,
+    products: [product],
+    inventoryMovements: [],
+    sales: [],
+  });
+  await assert.rejects(
+    store.getState().importInventory([
+      { sku: "COUNT-1", currentStock: 2 },
+      { sku: "NEW", currentStock: 3 },
+    ]),
+    /New SKU NEW needs/,
+  );
+  assert.deepEqual(store.getState().products, [product]);
+  assert.deepEqual(store.getState().inventoryMovements, []);
+});
+
 for (const kind of ["inventory", "sales"]) {
   test(`a committed ${kind} import remains successful when the follow-up read fails`, async (t) => {
     const store = await isolatedStore(t);

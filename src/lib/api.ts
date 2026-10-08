@@ -1,5 +1,6 @@
 import type {
   ForecastTiming,
+  InventoryImportRow,
   InventoryMovement,
   Product,
   ProductPatch,
@@ -148,7 +149,7 @@ export const api = {
     (await allSalesPages(`/businesses/${businessId}/sales`)).map(toSale),
   inventoryMovements: async (businessId: string) =>
     (await allPages<ApiMovement>(`/businesses/${businessId}/inventory-movements`)).map(toMovement),
-  importInventory: (businessId: string, rows: Omit<Product, "id">[]) =>
+  importInventory: (businessId: string, rows: InventoryImportRow[]) =>
     request<{ created: number; updated: number }>(`/businesses/${businessId}/inventory-imports`, {
       method: "POST",
       body: { rows },

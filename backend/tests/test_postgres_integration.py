@@ -80,6 +80,68 @@ def create_product(client, business, stock="20"):
     return response.json()["data"]
 
 
+def test_inventory_count_only_preserves_latest_details_and_audits_stock(pg_client):
+    client, business, _dsn = pg_client
+    product = create_product(client, business)
+    base = f"/api/v1/businesses/{business}"
+    # Simulate details edited after the browser prepared its preview.
+    edit = client.patch(base + f"/products/{product['id']}", json={
+        "name": "Updated name", "category": "Updated category", "unitCost": "12.1250",
+        "safetyStock": "2.125", "leadTimeDays": 5,
+    })
+    assert edit.status_code == 200, edit.text
+    before = edit.json()["data"]
+    response = client.post(base + "/inventory-imports", json={
+        "rows": [{"sku": "TEST-1", "currentStock": "11.125"}],
+    })
+    assert response.status_code == 201, response.text
+    assert response.json()["data"] == {"created": 0, "updated": 1}
+    saved = client.get(base + "/products").json()["data"][0]
+    for field in ["id", "sku", "name", "category", "unit", "unitCost", "safetyStock", "leadTimeDays"]:
+        assert saved[field] == before[field]
+    assert float(saved["currentStock"]) == 11.125
+    movements = client.get(base + "/inventory-movements").json()["data"]
+    assert any(row["movementType"] == "adjustment" and float(row["quantityDelta"]) == -8.875
+               for row in movements)
+
+
+def test_inventory_incomplete_new_sku_rolls_back_all_counts(pg_client):
+    client, business, _dsn = pg_client
+    create_product(client, business)
+    base = f"/api/v1/businesses/{business}"
+    before_movements = client.get(base + "/inventory-movements").json()["data"]
+    response = client.post(base + "/inventory-imports", json={"rows": [
+        {"sku": "TEST-1", "currentStock": "2"},
+        {"sku": "NEW", "currentStock": "3"},
+    ]})
+    assert response.status_code == 422, response.text
+    assert "New SKU" in response.text
+    saved = client.get(base + "/products").json()["data"]
+    assert len(saved) == 1
+    assert float(saved[0]["currentStock"]) == 20
+    assert client.get(base + "/inventory-movements").json()["data"] == before_movements
+
+
+def test_inventory_partial_metadata_and_full_new_product_are_compatible(pg_client):
+    client, business, _dsn = pg_client
+    create_product(client, business)
+    base = f"/api/v1/businesses/{business}"
+    response = client.post(base + "/inventory-imports", json={"rows": [
+        {"sku": "TEST-1", "currentStock": "12", "name": "Imported name"},
+        {"sku": "NEW", "currentStock": "3", "name": "New product", "category": "Test",
+         "unit": "pc", "leadTimeDays": 1, "safetyStock": "0", "unitCost": "1.25"},
+    ]})
+    assert response.status_code == 201, response.text
+    assert response.json()["data"] == {"created": 1, "updated": 1}
+    saved = {row["sku"]: row for row in client.get(base + "/products").json()["data"]}
+    assert saved["TEST-1"]["name"] == "Imported name"
+    assert float(saved["TEST-1"]["unitCost"]) == 10
+    assert float(saved["NEW"]["currentStock"]) == 3
+    assert client.post(f"/api/v1/businesses/{uuid4()}/inventory-imports", json={
+        "rows": [{"sku": "TEST-1", "currentStock": "0"}],
+    }).status_code == 403
+
+
 
 def test_sales_cursor_preserves_ties_legacy_offsets_and_business_scope(pg_client):
     client, business, _dsn = pg_client
