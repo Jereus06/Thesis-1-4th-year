@@ -22,7 +22,7 @@ import { num, peso } from "@/lib/format";
 import { CSV_API_ROW_LIMITS } from "@/lib/csv-preparation";
 import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
-import type { Product } from "@/lib/types";
+import type { InventoryImportRow, Product } from "@/lib/types";
 
 type ProductAction = { productId: string; kind: "edit" | "count" | "status" };
 const InventoryCsvImporter = memo(CsvImporter);
@@ -70,7 +70,7 @@ export function ProductsPanel() {
   }, [products, query, status]);
 
   const importPreparedInventory = useCallback(
-    async (rows: Omit<Product, "id">[]) => {
+    async (rows: InventoryImportRow[]) => {
       if (!canImportRecords || busy)
         throw new Error("Inventory import is unavailable while another change is being saved.");
       setImporting(true);
@@ -151,8 +151,8 @@ export function ProductsPanel() {
           </CardHeader>
           <CardContent className="grid gap-3">
             <p className="text-xs text-muted">
-              Match your spreadsheet columns to the product fields below. Review counting units and
-              verified current stock before saving.
+              Upload your file and check the detected products and stock counts. Extra columns are
+              skipped; existing products can keep their saved details.
             </p>
             <InventoryCsvImporter
               key={session ? `${session.businessId}:${session.userId}` : "browser-demo"}

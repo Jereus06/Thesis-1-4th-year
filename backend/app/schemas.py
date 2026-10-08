@@ -51,8 +51,13 @@ class ProductUpdate(ApiModel):
     is_active: bool | None = None
 
 
+class InventoryImportRow(ProductUpdate):
+    sku: str = Field(min_length=1, max_length=100)
+    current_stock: Decimal = Field(ge=0, decimal_places=3)
+
+
 class InventoryImportCreate(ApiModel):
-    rows: list[ProductCreate] = Field(min_length=1, max_length=5000)
+    rows: list[InventoryImportRow] = Field(min_length=1, max_length=5000)
 
     @model_validator(mode="after")
     def unique_skus(self):

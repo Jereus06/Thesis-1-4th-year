@@ -437,11 +437,21 @@ class Repository:
                     self.update_product(
                         principal,
                         existing["id"],
-                        ProductUpdate(**item.model_dump(), is_active=True),
+                        ProductUpdate(**{**item.model_dump(exclude_none=True), "is_active": True}),
                     )
                     updated += 1
                 else:
-                    self.create_product(principal, item)
+                    details = item.model_dump(exclude_none=True, exclude={"is_active"})
+                    missing = [
+                        field for field in ProductCreate.model_fields if field not in details
+                    ]
+                    if missing:
+                        raise HTTPException(
+                            422,
+                            f"New SKU {item.sku!r} needs product details: {', '.join(missing)}. "
+                            "Add the product first or include those columns; no stock counts were saved.",
+                        )
+                    self.create_product(principal, ProductCreate(**details))
                     created += 1
         return {"created": created, "updated": updated}
 

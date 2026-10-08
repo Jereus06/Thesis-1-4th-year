@@ -8,9 +8,9 @@ import type {
   CsvWorkerRequest,
   CsvWorkerResponse,
 } from "@/lib/csv-preparation";
-import type { Product, Sale } from "@/lib/types";
+import type { InventoryImportRow, Product, Sale } from "@/lib/types";
 
-type InventoryRow = Omit<Product, "id">;
+type InventoryRow = InventoryImportRow;
 type ImportRows = Sale[] | InventoryRow[];
 type ImporterProps = {
   placeholder: string;
@@ -61,6 +61,7 @@ export function CsvImporter(props: ImporterProps) {
   const [importing, setImporting] = useState(false);
   const [options, setOptions] = useState<CsvImportOptions | undefined>();
   const [reviewed, setReviewed] = useState(false);
+  const [adjustOpen, setAdjustOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const workerRef = useRef<Worker | null>(null);
   const preparedCatalog = useRef<Product[] | null>(null);
@@ -206,7 +207,7 @@ export function CsvImporter(props: ImporterProps) {
   const ready = phase === "ready" && !!summary && summary.rowCount > 0 && reviewed;
   const locked = importing || disabled;
   const guide = summary?.guided;
-  const selectedOptions = options ?? guide?.options;
+  const selectedOptions = preparing ? (options ?? guide?.options) : (guide?.options ?? options);
 
   function replacePreparation(nextPhase: Phase) {
     workerRef.current?.terminate();
@@ -250,6 +251,7 @@ export function CsvImporter(props: ImporterProps) {
     setCancelled(false);
     setMethod(next);
     setOptions(undefined);
+    setAdjustOpen(false);
   }
 
   function cancelPreparation() {
@@ -285,6 +287,7 @@ export function CsvImporter(props: ImporterProps) {
         setSummary(null);
         setPhase("idle");
         setOptions(undefined);
+        setAdjustOpen(false);
         setReviewed(false);
       }
     } catch (failure) {
@@ -333,6 +336,7 @@ export function CsvImporter(props: ImporterProps) {
                 replacePreparation("reading");
                 setCancelled(false);
                 setOptions(undefined);
+                setAdjustOpen(false);
                 setFile(selected);
               }}
             />
@@ -398,6 +402,8 @@ export function CsvImporter(props: ImporterProps) {
           downloading={downloading}
           canReview={phase === "ready"}
           reviewed={reviewed}
+          adjustOpen={adjustOpen}
+          onAdjust={setAdjustOpen}
           onReview={setReviewed}
           onOptions={changeOptions}
           onDownload={() => {
@@ -412,7 +418,8 @@ export function CsvImporter(props: ImporterProps) {
         />
       )}
       {summary && method === "file" && summary.preview.length > 0 && (
-        <div className="grid gap-2">
+        <details className="grid gap-2">
+          <summary className="cursor-pointer text-sm">View original file</summary>
           <p className="text-xs text-muted">
             {summary.previewTruncated
               ? `Truncated preview: first ${summary.preview.length} of ${summary.logicalRecordCount.toLocaleString()} logical CSV records (including any header).`
@@ -445,7 +452,7 @@ export function CsvImporter(props: ImporterProps) {
               </tbody>
             </table>
           </div>
-        </div>
+        </details>
       )}
       {rowLimit !== null && (
         <p className="text-xs text-muted">

@@ -80,20 +80,25 @@ or backend permission changes were required.
 
 Inventory and sales CSV parsing supports quoted fields, embedded delimiters, doubled quotes,
 multiline fields, comma/semicolon/tab exports, optional spreadsheet separator directives, and
-UTF-8 or BOM-marked UTF-16 file uploads. The guided importer suggests known header aliases,
-allows explicit source-column mapping and ignored extras, and lets users correct whether the
-first row is a header. Headerless inventory defaults to its eight-column order and headerless
-sales to Date, Product, Quantity, with an optional fourth Source Record Key. Ambiguous alias
-suggestions remain unselected; required fields and duplicate source-column mappings are checked.
-At most 100 source columns are supported by the guided setup.
+UTF-8 or BOM-marked UTF-16 file uploads. Normal use is upload, preview, and import; detailed
+mapping/settings are under Adjust import. Clear aliases, unique catalog identifier columns, and
+unique date-shaped columns can be detected. Date/number interpretations are checked across the
+whole file. If several interpretations yield different values, brief questions block preparation
+until confirmed. Extra columns are ignored; totals/revenue are not guessed as sold quantity.
+Explicit formats and full row validation remain available. No external AI service is used.
+At most 100 source columns are supported by the guided setup. Existing inventory SKUs may
+import only SKU and stock count: missing details are displayed from the catalog but omitted from
+the request, and the Python transaction preserves the latest saved metadata. New SKUs require
+all real product details; an incomplete new SKU rolls back the entire stock count import.
+Supplied invalid or blank fields never fall back to saved details.
 
-Users explicitly choose ISO, day/month/year, or month/day/year dates and a supported decimal /
-grouping format. Valid dates become canonical YYYY-MM-DD; calendar-invalid dates, two-digit
+The importer detects ISO, day/month/year, or month/day/year dates and supported decimal /
+grouping formats when their meaning is clear; otherwise the user confirms the interpretation. Valid dates become canonical YYYY-MM-DD; calendar-invalid dates, two-digit
 years, timestamps, malformed number grouping, currency signs, excess precision, and lossy large
 numbers are rejected. No per-row locale guesses or automatic rounding are performed. Inventory
 Category, Unit, Lead Time, Safety Stock, and Unit Cost can use user-entered verified shared values
-only when the same value applies to every row. Identifiers, product names, stock counts, sale dates,
-and sold quantities require source columns. File selection resets mapping/format/shared-value choices.
+only when the same value applies to every row. Identifiers, stock counts, sale dates, and sold quantities require source columns; new
+inventory products also need their real names and other details. File selection resets mapping/format/shared-value choices.
 
 Inventory and sales use the shared `CsvImporter`, which owns selection, preparation, and errors
 separately from product cards and the sales ledger. `CsvImportReview` presents bounded setup,
@@ -335,7 +340,7 @@ team/business requirements. They are not filled in with fictional research resul
 ## File map
 
 - `compose.yaml`, `Dockerfile`, `backend/Dockerfile`, `deploy/`, `scripts/`: startup/hosting/backup.
-- `src/components/csv-importer.tsx`, `csv-import-review.tsx`: shared upload/paste preparation, mapping, explicit format selection, product resolution, bounded review, error downloads, and import controls.
+- `src/components/csv-importer.tsx`, `csv-import-review.tsx`: shared upload/paste preparation, automatic previews, brief format/column questions, optional adjustments, product resolution, bounded diagnostics, and import controls.
 - `src/lib/csv-import.worker.ts`, `csv-preparation.ts`: worker source/row cache, decoding/parsing/validation timings, preview bounds, and existing API row limits.
 - `src/lib/import-csv.ts`, `guided-csv.ts`, `sales-import.ts`: spreadsheet parsing, guided conversion/complete diagnostics, indexed product matching, and browser source-identity checks.
 - [CSV upload verification](CSV_UPLOAD_VERIFICATION.md), `scripts/test-csv-preparation.mjs`, `test-import-csv.mjs`, `test-sales-import.mjs`: browser measurements and CSV correctness regressions.
