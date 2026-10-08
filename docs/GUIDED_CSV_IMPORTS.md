@@ -143,13 +143,14 @@ npm run lint
 npm run build
 ```
 
-The 28 guided regressions cover column aliases/manual mapping, headerless inputs, extra
+The 29 guided regressions cover column aliases/manual mapping, headerless inputs, extra
 columns, ambiguous mappings, actual calendar dates, explicit grouping/decimal formats, precision,
 all-row/all-field diagnostics, physical line numbers, product resolution and ambiguity,
 inactive matches, counting units, duplicate identities, required values, Unicode key limits,
 bounded summaries, formula-safe reports, forced delimiters, verified shared metadata, 100,000
 sales rows, the existing inventory limit, automatic detection, brief ambiguity questions,
-whole-file format evidence, redundant catalog columns, and count-only inventory preservation. Earlier parser/import regressions remain intact.
+whole-file format evidence, redundant catalog columns, count-only inventory preservation, and rejection of fractional lead times without guessing
+a thousands interpretation. Earlier parser/import regressions remain intact.
 
 For the real browser/Python API/PostgreSQL path, use a **disposable local installation**:
 

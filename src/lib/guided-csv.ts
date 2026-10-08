@@ -448,11 +448,13 @@ export function analyzeCsvOptions(
       for (const row of rows)
         for (const [field, decimals] of numericFields) {
           const column = options.mapping[field];
-          if (column != null) yield { raw: (row.fields[column] ?? "").trim(), decimals };
+          // A fractional lead time is a row error, not proof that dots mean thousands.
+          if (column != null)
+            yield { raw: (row.fields[column] ?? "").trim(), decimals: Math.max(3, decimals) };
         }
       for (const [field, decimals] of numericFields)
         if (options.mapping[field] == null && Object.hasOwn(options.constants ?? {}, field))
-          yield { raw: options.constants![field].trim(), decimals };
+          yield { raw: options.constants![field].trim(), decimals: Math.max(3, decimals) };
     }
     const result = infer(
       CSV_NUMBER_FORMATS.map((item) => item.value),

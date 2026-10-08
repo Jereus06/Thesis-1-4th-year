@@ -177,6 +177,29 @@ test("a headerless sale containing a header-like SKU is not discarded", async ()
   assert.equal(result.summary.guided.options.header, false);
 });
 
+test("fractional lead times never become evidence to silently multiply stock quantities", async () => {
+  const text = "SKU;On Hand;Lead Time\n000123;1.001;1.001";
+  const pending = await prepareCsv(request(text, { kind: "inventory", rowLimit: 5000 }));
+  assert.equal(pending.data, null);
+  assert.deepEqual(
+    pending.summary.guided.formatQuestions.map((item) => item.field),
+    ["number"],
+  );
+  assert.equal(pending.summary.guided.formatQuestions[0].choices.length, 2);
+  const options = {
+    ...pending.summary.guided.options,
+    numberFormat: "decimal-point",
+    numberConfirmed: true,
+  };
+  const corrected = await prepareCsv(request(text, { kind: "inventory", rowLimit: 5000, options }));
+  assert.equal(corrected.data, null);
+  assert.deepEqual(
+    corrected.issues.map((item) => item.field),
+    ["lead"],
+  );
+  assert.equal(corrected.summary.guided.convertedPreview[0].fields[4], "1.001");
+});
+
 test("suggested aliases and reordered columns ignore extras without losing leading-zero SKUs", () => {
   const result = validate(
     "Customer;Units Sold;Item Code;Transaction Date;Transaction Line ID\nUnneeded;1.25;000123;2026-10-05;line:1",
