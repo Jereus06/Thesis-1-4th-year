@@ -203,6 +203,12 @@ oversized files can be reviewed but cannot be submitted, and are never split aut
 Backend authorization, tenant checks, validation, historical-stock preservation, snapshot audit,
 and cross-batch duplicate detection remain unchanged and authoritative.
 
+Historical file uploads carry the prepared source's original filename through the importer,
+store, and API into the existing `data_imports.original_filename` field. Spaces and Unicode
+are preserved; pasted CSV has no filename. Filenames do not change content fingerprints or
+source-record duplicate checks. This traceability change uses the existing backend contract
+and requires no SQL migration.
+
 Sales reads add paired `beforeDate`/`beforeId` cursor parameters and permit up to 1,000 rows per
 page, while retaining legacy offset pagination. The browser seeks through the existing
 business/date/ID index and keeps a 200-row fallback for older APIs. No SQL migration is needed.

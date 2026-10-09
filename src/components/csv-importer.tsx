@@ -19,7 +19,11 @@ type ImporterProps = {
   rowLimit: number | null;
   disabled?: boolean;
 } & (
-  | { kind: "sales"; products: Product[]; onImport: (rows: Sale[]) => Promise<boolean> }
+  | {
+      kind: "sales";
+      products: Product[];
+      onImport: (rows: Sale[], originalFilename?: string) => Promise<boolean>;
+    }
   | {
       kind: "inventory";
       products?: Product[];
@@ -315,7 +319,8 @@ export function CsvImporter(props: ImporterProps) {
       )
         return;
       let clear: boolean;
-      if (props.kind === "sales") clear = await props.onImport(rows as Sale[]);
+      if (props.kind === "sales")
+        clear = await props.onImport(rows as Sale[], summary?.filename ?? undefined);
       else {
         const signature = JSON.stringify(rows);
         // Retry the original request after an uncertain response, including when catalog refresh
