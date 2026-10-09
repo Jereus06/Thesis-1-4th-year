@@ -1,106 +1,103 @@
 # Two Complementary Strategies for Small-Data Forecasting Systems
 
-> Suggested placement: insert as a new section in Chapter 3 (Methodology) after “Model Training and Testing,” replacing the shorter “Safeguards for Small Datasets” subsection. Also revise the XGBoost feature list so that individual product identifiers are not used as model inputs.
+Sales history in the selected retail setting may be short or uneven across products. The two strategies address forecast reliability and dashboard response time; their benefits will be assessed rather than assumed.
 
-## Two Complementary Strategies for Small-Data Forecasting Systems
+Strategy 1 defines data, feature, model, fallback, and uncertainty rules for sparse history. Strategy 2 defines training and serving practices intended to keep the dashboard responsive. Forecast errors and measured dashboard behavior will be reported separately.
 
-The partner setting of this study is a small to medium retail business whose sales history is short, irregular, and uneven across products. Under those conditions, two failures are equally damaging. The first is a statistically weak forecast that the owner cannot trust. The second is a technically correct model that takes so long to train that the dashboard is unusable during opening hours. These are different failure modes, and they require different remedies.
+The strategies define the system’s reliability and performance controls. Their settings, eligibility outcomes, forecast errors, and computational costs are recorded for the evaluation dataset and device. Implemented controls do not by themselves establish measured improvements.
 
-This study therefore implements two separate strategies rather than a single undifferentiated list of “improvements.” Strategy 1 (the five levels) exists to make forecasts more accurate and more trustworthy when data are small. Strategy 2 (the five techniques) exists to keep training off the interactive path so the dashboard remains fast. Strategy 1 does not claim to reduce waiting time. Strategy 2 does not claim to repair a thin time series. Treating them as one bundle would conceal which design decisions protect validity and which protect usability — a distinction that matters both for implementation and for the ISO/IEC 25010:2023 evaluation of reliability versus performance efficiency.
-
-The two strategies are complementary. A reliable model that cannot be served in time is not a decision-support system. A fast dashboard that presents overfitted or un-flagged numbers is not trustworthy. The system therefore applies both, independently, on every forecast run.
-
-## Strategy 1: Five Levels of Accuracy and Reliability
+### Strategy 1: Five Levels of Accuracy and Reliability
 
 Strategy 1 is organized as five successive levels. Each level addresses a different source of error that appears when sales history is short or sparse. The levels are applied in order: data are made usable before features are built; features are constrained before a model is fit; the model is regularized before it is combined with a baseline; and every product forecast is finally accompanied by an explicit statement of uncertainty.
 
-### Level 1 — Data-Level Fixes
+#### Level 1 - Data-Level Fixes
 
-The first level does not involve machine learning. It specifies the minimum history the system is willing to treat as a modeling problem, and it changes the grain of the series when daily data are too sparse to be informative.
+The first level reviews the meaning and completeness of the daily records before training. It distinguishes an observed sale, a confirmed zero-sale day, an unknown date, a closure, and a stockout, instead of changing or inventing quantities to make a series appear complete.
 
-A product catalog is accepted for forecasting only when the available sales window covers at least eight weeks. Six to twelve months of history is treated as the reliable range for the kinds of short-horizon forecasts this study produces. History shorter than the eight-week floor is not forced through XGBoost. If the partner extract is thinner than that floor, the system substitutes a public-style retail fallback series of comparable length so that model development and interface testing can continue, and it records that substitution in the run diagnostics so the result is not presented as a partner-data finding.
+Only transaction observations and explicitly confirmed zero-sale dates become targets. Reviewed closures, full or partial stockouts, and incomplete records are excluded. Product-specific classifications take precedence over store-wide classifications. Every change retains its responsible user, timestamp, previous value, and supporting note in the audit history.
 
-The approved methodology permits weekly aggregation for sparse series, but the production Python path currently remains daily and reports insufficient calendar evidence rather than silently aggregating. Aggregation reduces the number of structural zeros that would otherwise dominate a daily loss function and produce near-zero forecasts. Product scope is further reduced to the top N products (default eight, configurable toward 20–50) that also have at least 100 non-zero observations. Slow-moving SKUs remain in the catalog and still receive a reorder quantity, but they are served by a simple moving-average or rule-based demand estimate rather than by boosting. This is a data decision as much as a compute decision: a series that rarely sells does not contain enough events for a tree ensemble to generalize.
+Training eligibility checks a complete daily sequence, at least eight calendar weeks, and at least 100 nonzero training days. The development budget permits XGBoost for the top eight eligible products ranked by training-period sales. Validation and final-test dates must also be observed or confirmed zero. These configurable gates are practical screening rules, not a universal scientific minimum.
 
-- Minimum history: 8 weeks; reliable range: 6–12 months.
-- Weekly aggregation is a methodology option that must be implemented and validated before use; the current Python path remains daily.
-- Machine-learning training limited to top-N products with at least 100 non-zero observations.
-- Public retail fallback dataset used when partner history is below the minimum, with the substitution disclosed.
+Preparation records the usable dates, excluded dates, and effective classification policy. The implemented model uses daily observations; weekly aggregation is not part of its normal training path. Forecast inputs and reviewed classifications are frozen in the run snapshot so later corrections do not rewrite earlier results.
 
-### Level 2 — Feature-Level Fixes
+Other products retain a named Moving Average fallback based on a contiguous usable history, or a clear unavailable-forecast notice. Unknown dates and excluded stockout periods are not silently treated as zero demand. Generated task data and empirical retail records remain separately identified.
 
-On a small dataset, a large feature set is a form of overfitting. High-cardinality identifiers are particularly harmful: an individual product ID lets the model memorize SKU-specific noise that will not repeat. The system therefore uses a short, domain-motivated feature set and does not include product identifiers as inputs.
+#### Level 2 - Feature-Level Fixes
 
-For daily series the features are lag 1, lag 7, lag 14, a 7-day rolling mean, a 30-day rolling mean, day of week, month, and a numeric product-category index. Holiday and promotion flags are added when the calendar supports them (Philippine regular holidays and a simple payday/weekend promotion proxy). Weekly series use the analogous lags and rolling means in week units. Category is encoded as a shared index so that related products can pool a coarse seasonal effect without granting each SKU its own dummy variable.
+The research model is fitted separately for each eligible product. Features use information available at the forecast origin, and the same input preparation is applied consistently across chronological splits.
 
-This specification revises the earlier methodology note that listed “product identifier” among potential inputs. Product identity is retained in the database and on the dashboard; it is not a regressor.
+The Python daily model uses one-, seven-, and fourteen-day lags; seven- and thirty-day rolling means; day of week; and month. The report will identify the feature grain and any justified change made after the data audit.
 
-- lags: 1, 7, 14 (or 1w, 2w, 4w when the grain is weekly)
-- rolling means: 7 and 30 days (or 4w and 8w)
-- calendar: day of week or week of year, month
-- product category index (not product ID)
-- holiday flag and promotion flag when available
+Lag and rolling features will be computed exclusively from earlier periods. The research report will document the warm-up rows and exclude observations without sufficient prior data when required.
 
-### Level 3 — Model-Level Fixes
+Calendar completeness is checked before building these daily lags. Quantity units remain consistent with the product catalog. Feature choices and warm-up exclusions are recorded with the run, and additional explanatory variables are not claimed unless they are implemented and available at the forecast origin.
 
-XGBoost is used as a regression model with conservative hyperparameters chosen for small, noisy retail series rather than for large-scale competitions. Maximum tree depth is limited to 3 (within the 3–4 range). The learning rate is 0.05 (within 0.05–0.1). The number of trees is capped at 120 (within 100–300), and training stops early when validation root-mean-squared error fails to improve for ten consecutive rounds. L2 regularization (lambda = 1.5) and a positive gamma further discourage splits that only fit residual noise.
+#### Level 3 - Model-Level Fixes
 
-Validation is chronological. The training window is evaluated with TimeSeriesSplit using three rotating folds — not a random shuffle, and not a five-fold split that would starve each fold of events on a short series. After cross-validation, a final holdout consisting of the most recent period is reserved for the published MAE and RMSE comparison. The same holdout is used for Moving Average, XGBoost, and the ensemble so that the comparison is fair.
+**Table 3.1. XGBoost Candidate Configurations**
 
-- max_depth 3–4; learning_rate 0.05–0.1; n_estimators 100–300 with early stopping.
-- TimeSeriesSplit with three chronological folds, then a final holdout.
-- No random shuffling of time-ordered rows.
+| **Maximum depth** | **Learning rate** | **Maximum trees** |
+| --- | --- | --- |
+| 3 | 0.05 | 300 |
+| 4 | 0.05 | 300 |
+| 3 | 0.10 | 240 |
 
-### Level 4 — Ensemble-Level Fixes
+The Python worker evaluates three conservative candidates: depth 3 and rate 0.05 with up to 300 trees; depth 4 and rate 0.05 with up to 300 trees; and depth 3 and rate 0.10 with up to 240 trees. Shared settings include L2 regularization of 1.5, row and column subsampling of 0.9, a default seed of 42, and one training thread.
 
-The study does not assume that XGBoost will outperform a simple baseline on every SKU. On sparse products, a seven-day moving average is often the more stable predictor. The operational forecast is therefore a weighted average of the XGBoost prediction and the Moving Average prediction, with weights inversely proportional to each model’s validation MAE. A product on which XGBoost is unstable — validation error substantially worse than the baseline, explosive predictions, or too few training rows — falls back entirely to Moving Average.
+The candidate with the lowest mean MAE across training-only expanding folds is selected. The default uses three fourteen-day check windows with at least forty-five initial fitting observations. If those folds cannot be formed, the saved run records the conservative configuration and fallback reason. A later validation fit uses official-library early stopping with fifteen rounds; its best tree count is fixed for refitting.
 
-The dashboard reports whichever of Moving Average, XGBoost, or the ensemble records the lower holdout error for that run. If the machine-learning model does not win, that result is treated as a finding, not as a defect to be hidden. This preserves the original objective of the study: a fair comparison, not a demonstration that boosting is universally superior.
+Later validation selects between XGBoost, Moving Average, and their ensemble without using final-test outcomes. When the calibration segment is available, it is separate from the observations used to select the method and weights. Saved configuration identifies the package version, candidates, seed, effective fold count, early-stopping outcome, and cutoffs. Rows are never randomly shuffled.
 
-`ŵ_XGB = (1 / MAE_XGB) / (1 / MAE_XGB + 1 / MAE_MA),  ŵ_MA = 1 − ŵ_XGB`
+#### Level 4 - Ensemble-Level Fixes
 
-### Level 5 — Uncertainty-Level Fixes
+Inverse validation-MAE weighting combines XGBoost and Moving Average using the method-selection observations. A small positive constant prevents division by zero. The weights and operating method are fixed before calibration and final testing; an ensemble is not assumed to be better than either constituent method.
 
-A point forecast without evidence information is easy to over-read. The production path reports usable, unknown, and excluded days rather than a probability-like confidence score. Prediction intervals are calibrated only from separate validation residuals when at least ten are available, and coverage is assessed on untouched final-test observations; otherwise intervals are unavailable.
+The evaluation report will identify each forecasting method and show validation and final-test metrics separately. The model comparison will include the common scored observations, excluded products, and reasons for fallback.
 
-The interface also states, in owner language, that forecasts are decision-support only and not guarantees. Final purchasing decisions remain the owner’s. This disclaimer is part of the methodology, not an afterthought on the user interface: the system is designed to support judgment, which is already listed among the limitations of the study.
+w_XGB = [1/max(0.000000001, validation MAE_XGB)] / {[1/max(0.000000001, validation MAE_XGB)] + [1/max(0.000000001, validation MAE_MA)]}; w_MA = 1 − w_XGB.
 
-- Confidence score from observation count; < 30 non-zero observations → low confidence.
-- Prediction intervals at the 10th, 50th, and 90th percentiles.
-- On-screen disclaimer: forecasts are decision-support only, not guarantees.
+#### Level 5 - Uncertainty-Level Fixes
 
-## Strategy 2: Five Techniques of Speed and Architecture
+Usable-history and data-quality labels describe the evidence available for a forecast. Where sufficient validation history exists, the worker reserves a separate calibration segment and estimates the selected method’s residual quantiles. At least twenty validation observations and ten calibration observations are required; otherwise the interval is reported as unavailable.
 
-Strategy 2 is the architectural counterpart of Strategy 1. It answers a different question: how can the owner open the dashboard during business hours without waiting for trees to be fit? The five techniques separate training from serving, persist the last successful run, restrict boosting to high-volume products, keep cross-validation cheap, and run remaining training in the background.
+Forecasts support the owner’s purchasing judgment. The interface and evaluation report will explain the forecast method, data conditions, and recommended inventory action in terms the business users can understand.
 
-### Technique 1 — Separate Training from Serving
+The nominal 80% band uses the tenth and ninetieth percentiles of calibration residuals. Coverage is measured separately on the untouched final test and reported with its observation count. The band is an empirical uncertainty estimate; a short calibration period and later operational refitting do not guarantee 80% coverage on future sales. Observation counts are not probabilities of correctness.
 
-Training and serving are two processes with two triggers and two timeframes. Training is an offline or on-demand job. Serving is the dashboard request: it reads cached forecasts and reorder quantities and never fits an XGBoost model as a side effect of rendering a page. This split is the primary performance decision. It is also a reliability decision, because a failed training job leaves the last good cache in place rather than blanking the briefing.
+### Strategy 2: Five Techniques of Speed and Architecture
 
-### Technique 2 — Pre-Train and Cache
+The performance strategy separates model work from routine requests, serves saved results, limits expensive training, bounds validation cost, and measures responsiveness while the worker is active. Data-quality warnings and unavailable results remain visible instead of being concealed by a quick invented forecast.
 
-The model is trained once per data version. The resulting forecasts, per-product errors, ensemble weights, and diagnostics are written to an in-memory cache and to local persistent storage (the browser analogue of joblib/pickle serialization used in a Python training script). Subsequent dashboard loads hydrate from that cache in milliseconds. Retraining is never a side effect of opening Overview, Restock, or Forecasts.
+#### Technique 1 - Separate Training from Serving
 
-### Technique 3 — Train Only on Top N Products
+FastAPI handles routine business requests while a separate Python worker claims queued PostgreSQL forecast runs. It reads a frozen input snapshot, trains the models, and saves predictions and metrics. The worker also checks the daily schedule, which defaults to 00:15 in each business’s time zone using records through the previous completed day. Local refresh requires the services to be running.
 
-Boosting is reserved for the top 20–50 products by sales volume, with a default of eight in the prototype so that training remains interactive on a modest device. Slow-moving products are excluded from the machine-learning job and receive a simple reorder rule based on recent average demand. This reduces wall-clock training time and concentrates statistical effort where most of the cash sits. The exclusion is disclosed per SKU so that the owner can see which recommendations come from the ensemble and which come from the rule.
+#### Technique 2 - Reuse Valid Forecasts
 
-### Technique 4 — Reduce Cross-Validation Folds
+The dashboard reads saved PostgreSQL forecasts and retains the previous successful result while a new run is queued or active. Sales, classifications, products, or settings that change forecast inputs mark earlier results stale. Run dates, policy, configuration, and input snapshots make the displayed results traceable; an expired or unavailable result is identified clearly.
 
-TimeSeriesSplit is run with three folds rather than five. On a short SME series, five folds produce validation windows that are too small to estimate error stably and multiply the cost of fitting trees. Three chronological windows remain sufficient to detect an unstable configuration before the final holdout is scored. The choice is justified by dataset size, not by a desire to skip validation.
+#### Technique 3 - Train Only on Top N Products
 
-### Technique 5 — Train Asynchronously
+A configurable computing budget prioritizes high-volume eligible products for XGBoost training. The development default is eight products. Other products retain a named Moving Average fallback when usable history exists, or a clear unavailable-forecast notice. The eligible set and fallback reasons are saved and disclosed.
 
-When a cache is missing or stale, the dashboard still paints immediately with the serving-path forecast (Moving Average). XGBoost trains in the background, yielding to the user interface between products. When the job finishes, the cache is replaced and the next view — or the same view, if it is still open — picks up the updated ensemble. The owner never waits on a blocking spinner in order to see restock quantities.
+#### Technique 4 - Control Validation Cost
 
-## How the Two Strategies Interact
+A compact three-candidate grid, configurable expanding fold count, and single-threaded XGBoost limit the modeling workload. The default is three training-only folds; insufficient fold history produces a recorded selection fallback. Early stopping uses later method-validation observations, while calibration and final-test outcomes remain outside parameter selection.
 
-The strategies share a few surfaces without collapsing into each other. Top-N selection appears in both Level 1 (as a data-quality rule) and Technique 3 (as a compute budget). Three-fold TimeSeriesSplit appears in both Level 3 (as a validity rule) and Technique 4 (as a cost rule). In each case the same number is kept for two reasons, and both reasons are documented.
+#### Technique 5 - Maintain Dashboard Responsiveness
 
-What they do not share is purpose. Adding more features, deeper trees, or a larger catalog would be a Strategy 1 change and would be evaluated with MAE, RMSE, and confidence flags. Moving training into the request that renders the dashboard would be a Strategy 2 regression and would be evaluated with serving latency and with the ISO/IEC 25010:2023 performance-efficiency rating. The methodology therefore reports them as two strategies, and the prototype exposes them as two tabs, so that examiners, the partner owner, and future researchers can see which decisions belong to accuracy and which belong to architecture.
+Ordinary navigation reads saved results and does not launch training inside a dashboard request. The browser polls run status and can show the latest completed result while the worker operates. Performance evaluation records authenticated API latency and browser task response separately under idle and active-training conditions.
 
-## Implications for Evaluation
+### How the Two Strategies Interact
 
-Forecasting accuracy continues to be reported with Mean Absolute Error and Root Mean Squared Error on the chronological holdout, for Moving Average, XGBoost, and the ensemble. The better model on that holdout is the one with the lower error; XGBoost is not declared the winner in advance.
+The two strategies meet at product eligibility and chronological validation. The same top-N budget limits both which products can use the expensive model and the amount of computation; the number of validation folds affects both model selection and training time. Both choices will be reported with their measured effects.
 
-Strategy 1 additionally requires the system to show confidence flags, prediction intervals, and the decision-support disclaimer. A run that omits those outputs has not implemented Level 5, regardless of MAE. Strategy 2 is evaluated by whether the dashboard serves from cache without invoking training, whether only the top-N SKUs enter the boosting job, and whether a data change retrains in the background rather than blocking the first paint. Those observations map onto the ISO/IEC 25010:2023 characteristics of reliability, performance efficiency, and maintainability used in the system evaluation form.
+Strategy 1 is assessed through reviewed classifications, eligibility and fallback behavior, common-date MAE and RMSE, and interval coverage when available. Strategy 2 is assessed through saved-result validity, measured processing phases, and API and browser responsiveness. Queue wait, total processing time, model-fit time, and browser response are reported as distinct measures.
+
+### Implications for Evaluation
+
+The final study will compare Moving Average, XGBoost, and any ensemble on the same eligible product-period observations. Product-level errors, common scored dates, and observation counts will be reported before any aggregate comparison is interpreted.
+
+Data-sufficiency labels follow the audited records. Prediction bands are interpreted with calibration size and observed test coverage. Performance claims use recorded measurements from the stated device and workload; synthetic workloads are identified as software benchmarks.
+
+This section mirrors the 9 October 2026 formal manuscript. See [Chapter III](../../docs/thesis/Chapter_3.md) for the complete methodology and [References](../../docs/thesis/References.md) for source attribution.

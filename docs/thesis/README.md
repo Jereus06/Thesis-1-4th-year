@@ -1,24 +1,43 @@
 # Current thesis chapters
 
-These files are text companions to Chapters 1–3, originally supplied on **2026-09-24**
-and aligned with the implemented system and the owner's newer requirements on **2026-10-05**.
+These text companions match the supplied formal manuscript polished on **9 October 2026**.
+The Word manuscript remains the source for submission formatting, embedded figures, green page
+borders, and pagination. These Markdown files preserve its chapter, table, questionnaire, and
+reference text for review and searching.
 
-- [Chapter 1](./Chapter_1.md)
-- [Chapter 2](./Chapter_2.md)
-- [Chapter 3](./Chapter_3.md)
+1. [Chapter I Introduction](./Chapter_1.md)
+2. [Chapter II Review of Related Literature](./Chapter_2.md)
+3. [Chapter III Methodology](./Chapter_3.md)
+4. [Appendix A System Evaluation Questionnaire](./Appendix_A.md)
+5. [References](./References.md)
 
-## Which copy should Codex use?
+## Research scope
 
-For thesis claims, requirements, methodology, research status, and system constraints, treat the files in this folder as the current chapter text unless the project owner supplies a newer revision.
+The manuscript concerns retail businesses with identifiable products and usable dated digital
+records. It follows the panel's restriction against a sari-sari-store research setting. The
+research literature consists of studies from 2023–2026; the final reference section also cites
+the software documentation and the dated project verification record.
 
-The aligned text retains seven objectives without a separate confidential partner-record
-collection requirement. Authorized partner or documented permitted public retail data can support
-forecast evaluation. The client-only survey covers four characteristics; maintainability and
-measured performance use separate engineering evidence. Source-specific forecast findings,
-synthetic software checks, and collected client responses are not interchangeable.
+Seven objectives cover integrated workflows, forecast methods and comparison, data quality,
+processing and response times, reorder advice, and software evaluation. Authorized client records
+or a documented permitted public retail dataset may support the forecasting comparison. Client
+feedback remains limited to the participating owner or manager and staff. Its twelve statements
+match `stockcast-client-survey-v1` and cover four characteristics. Maintainability uses a separate
+engineering review.
 
-The Strategies thesis-text Copy and Markdown actions use the current Python methodology from
-`src/lib/thesis/two-strategies.ts`. The earlier Word insert is no longer offered from that current
-panel because it describes the older browser prototype. Archived files are preserved.
+Table 3.14 attributes the project's recorded **5 October 2026** software checks and synthetic
+measurements. Those records are dated engineering evidence, not a fresh execution of the current
+version, collected client feedback, or public-data forecast accuracy. Tables 3.12 and 3.13 retain
+unreported values until actual survey responses and the documented forecast experiment are
+available. [Remaining group work](./Remaining_work.md) identifies tasks the team can complete.
 
-The files under `public/thesis/` are older downloadable thesis artifacts used by the existing web project. They should not override these current chapter mirrors when there is a conflict. The formal DOCX files remain the submission-format source because Markdown does not preserve all Word layout, figures, or pagination.
+## Copies used by the application
+
+The [downloadable strategy text](../../public/thesis/Chapter_3_Two_Strategies.md) mirrors the
+strategy section of this manuscript. The Strategies page's Copy and Markdown actions use the
+implementation-aligned text in `src/lib/thesis/two-strategies.ts`. The older Word insert under
+`public/thesis/` remains an archive and is not offered by the current panel.
+
+Use these companions for the current thesis wording until the owner supplies a newer revision.
+Use application source for implemented behavior. A text edit does not establish a passed
+software check, measured forecast improvement, or approved research instrument.
