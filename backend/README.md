@@ -69,10 +69,28 @@ Business row locking serializes duplicate checks and writes; no database migrati
 Earlier exact batch fingerprints are still checked, but unkeyed overlaps and reordered legacy
 batches cannot be safely distinguished from separate transactions.
 
+Owners can delete imported history using `DELETE /businesses/{businessId}/sales/{saleId}`
+for one imported row or `DELETE /businesses/{businessId}/sales/imported` for all imported rows.
+Both require the session's CSRF token and business membership and return `{data:{deletedRows}}`.
+Manual sales and imported records linked to inventory movements are protected. Deletion leaves
+stock, stock movements, and import audit metadata intact. Exact-file retries become eligible after
+all accepted rows in that batch have been deleted; partial removals keep the duplicate safeguard.
+Existing queued/running/completed forecasts retain their frozen evidence and get a durable
+`salesHistoryChanged` configuration marker; the worker preserves concurrent markers and the
+dashboard reports these results as stale until a fresh run completes.
+Sales CSV exports include the actual saved `source_record_key`; unkeyed/manual records remain
+blank. Normal API CSV exports quote every field and prefix formula-like text with a tab, leaving
+numeric values unchanged. Existing SKU/key trimming restores guarded identities on reimport.
+Inventory snapshots prefer exact SKUs before unique case-insensitive matches; ambiguous folded
+matches reject and roll back the complete transaction. Source SKU whitespace is trimmed.
+
 The frontend supports quoted/multiline CSV, comma/semicolon/tab delimiters, separator directives,
 guided column mapping, and UTF-8 or BOM-marked UTF-16 uploads. Explicit date/number choices
 convert source values into the existing canonical API fields; counting units are not converted.
-The worker collects all row diagnostics and blocks submission until the file is valid and reviewed.
+The worker collects all row diagnostics and blocks submission until required data is valid.
+Valid files enable the explicit Upload CSV action without mandatory setup questions or a review
+checkbox. Wide unused columns are ignored; files and pasted sources are limited to 25 MiB before
+reading/parsing, with the existing API row limits unchanged.
 Inventory metadata can use explicitly entered, verified shared values; required identifiers,
 names, stock counts, sale dates, and sale quantities still require source columns.
 It forwards source keys and reports accepted, skipped, and conflicted rows. Backend authorization,
@@ -338,7 +356,12 @@ details. Invitation creation reports HTTP 503 when mail is unavailable. Reset an
 links open their token password form even if the browser already has an authenticated session.
 
 An owner may invite staff; staff cannot administer membership. Password changes and recovery
-invalidate existing sessions. The test suite uses a mock SMTP transport and is not evidence of
+invalidate existing sessions and all outstanding password reset links for that account. Reset
+issuance, consumption, and password changes lock the existing user row to serialize concurrent
+requests; disabled accounts or businesses cannot complete recovery. No schema or migration
+change is required. The frontend treats a sign-out HTTP 401 as an already-ended session while
+other failures remain retryable; server CSRF/Origin checks are unchanged.
+The test suite uses a mock SMTP transport and is not evidence of
 real email delivery.
 
 ## Client survey

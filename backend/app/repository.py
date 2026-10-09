@@ -429,15 +429,24 @@ class Repository:
                 "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE", (principal.business_id,)
             )
             for item in data.rows:
-                existing = self.conn.execute(
-                    "SELECT id FROM products WHERE business_id=%s AND lower(sku)=lower(%s)",
+                matches = self.conn.execute(
+                    "SELECT id,sku FROM products WHERE business_id=%s AND lower(sku)=lower(%s)",
                     (principal.business_id, item.sku.strip()),
-                ).fetchone()
+                ).fetchall()
+                existing = next((row for row in matches if row["sku"] == item.sku.strip()), None)
+                if existing is None and len(matches) > 1:
+                    raise HTTPException(422, f"SKU {item.sku!r} matches multiple products; use its exact SKU")
+                if existing is None and matches:
+                    existing = matches[0]
                 if existing:
                     self.update_product(
                         principal,
                         existing["id"],
-                        ProductUpdate(**{**item.model_dump(exclude_none=True), "is_active": True}),
+                        ProductUpdate(**{
+                            **item.model_dump(exclude_none=True),
+                            "sku": item.sku.strip(),
+                            "is_active": True,
+                        }),
                     )
                     updated += 1
                 else:
@@ -572,13 +581,66 @@ class Repository:
                 "quantity": decimal_text(r["quantity"]),
                 "source": r["source"],
                 "dataOrigin": r["data_origin"],
+                "importId": str(r["import_id"]) if r["import_id"] else None,
             }
             for r in rows
         ]
 
+    def delete_imported_sales(self, principal: Principal, sale_id: UUID | None = None):
+        """Remove imported history without reversing stock or rewriting import evidence."""
+        if principal.role != "owner":
+            raise HTTPException(403, "Owner role required")
+        with self.conn.transaction():
+            # Serialize removals with imports and immutable forecast snapshots.
+            self.conn.execute(
+                "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE",
+                (principal.business_id,),
+            )
+            parameters = (principal.business_id,)
+            selection = "s.business_id=%s"
+            if sale_id is not None:
+                parameters += (sale_id,)
+                selection += " AND s.id=%s"
+                sale = self.conn.execute(
+                    f"SELECT s.source,s.import_id FROM sales s WHERE {selection} FOR UPDATE",
+                    parameters,
+                ).fetchone()
+                if not sale:
+                    return {"deletedRows": 0}
+                if sale["source"] not in {"csv_import", "pos_import", "migration"} or not sale["import_id"]:
+                    raise HTTPException(409, "Only imported sales history can be deleted")
+            else:
+                selection += " AND s.source IN ('csv_import','pos_import','migration') AND s.import_id IS NOT NULL"
+                # Row locks also prevent a concurrent stock audit acquiring a new
+                # foreign-key reference after the movement check below.
+                self.conn.execute(
+                    f"SELECT s.id FROM sales s WHERE {selection} FOR UPDATE", parameters,
+                )
+            linked = self.conn.execute(
+                f"""SELECT 1 FROM inventory_movements m
+                    JOIN sales s ON s.business_id=m.business_id AND s.id=m.sale_id
+                    WHERE {selection} LIMIT 1""",
+                parameters,
+            ).fetchone()
+            if linked:
+                raise HTTPException(409, "Sales linked to stock movements cannot be deleted")
+            deleted = self.conn.execute(
+                f"DELETE FROM sales s WHERE {selection}", parameters,
+            ).rowcount
+            if deleted:
+                # Frozen inputs and archived predictions stay intact. Mark even
+                # running jobs so their eventual result cannot appear current.
+                self.conn.execute(
+                    """UPDATE forecast_runs
+                       SET configuration=configuration || '{"salesHistoryChanged":true}'::jsonb
+                       WHERE business_id=%s AND status IN ('queued','running','completed')""",
+                    (principal.business_id,),
+                )
+        return {"deletedRows": deleted}
+
     def export_sales(self, business_id: str):
         return self.conn.execute(
-            """SELECT s.id,p.sku,s.sale_date,s.quantity,s.source,s.data_origin
+            """SELECT s.id,p.sku,s.sale_date,s.quantity,s.source,s.data_origin,s.source_record_key
                FROM sales s JOIN products p ON p.business_id=s.business_id AND p.id=s.product_id
                WHERE s.business_id=%s ORDER BY s.sale_date,s.id""",
             (business_id,),
@@ -654,7 +716,9 @@ class Repository:
                 (principal.business_id,),
             )
             sku_rows = self.conn.execute(
-                "SELECT id,sku FROM products WHERE business_id=%s AND is_active",
+                # Historical records can belong to products no longer sold. Resolving
+                # them must not reactivate the product or change its current stock.
+                "SELECT id,sku FROM products WHERE business_id=%s",
                 (principal.business_id,),
             ).fetchall()
             product_by_sku = {row["sku"]: row["id"] for row in sku_rows}
@@ -689,9 +753,12 @@ class Repository:
                 separators=(",", ":"),
             ).encode()).hexdigest()
             existing = self.conn.execute(
-                """SELECT id,rejected_rows FROM data_imports
-                   WHERE business_id=%s AND content_sha256=ANY(%s)
-                   ORDER BY rejected_rows,id""",
+                """SELECT d.id,d.rejected_rows FROM data_imports d
+                   WHERE d.business_id=%s AND d.content_sha256=ANY(%s)
+                     AND (d.accepted_rows=0 OR EXISTS(
+                         SELECT 1 FROM sales s WHERE s.business_id=d.business_id AND s.import_id=d.id
+                     ))
+                   ORDER BY d.rejected_rows,d.id""",
                 (principal.business_id, [digest, legacy_digest]),
             ).fetchone()
             if existing and not (

@@ -1,6 +1,6 @@
 # StockCast project context
 
-Guided CSV imports checked against this workspace: 2026-10-08. Read alongside [AGENTS.md](../AGENTS.md) and source.
+CSV importer, account access, and sales deletion source reviewed against this workspace: 2026-10-09. Read alongside [AGENTS.md](../AGENTS.md) and source.
 
 ## Purpose and confirmed research context
 
@@ -22,25 +22,25 @@ claim a new runtime execution or completed client findings.
 
 ## Application in this branch
 
-| Area               | Source and behavior                                                                                                                                                         |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Startup            | `npm start` builds/starts Compose: PostgreSQL, one-time initialization, Python API, Python worker, and Caddy/frontend                                                       |
-| Local and hosting  | Same Python API/PostgreSQL application; private environment values choose local HTTP or domain HTTPS                                                                        |
-| Frontend           | React/TypeScript; API mode is the default; Vite development proxies API requests                                                                                            |
-| Storage            | PostgreSQL persistent volume stores business records and forecasts; separate volume stores XGBoost JSON models                                                              |
-| Sessions           | scrypt passwords, 12-hour default hashed cookie sessions, CSRF/Origin checks, business membership and owner/staff permissions                                               |
-| Registration       | Email/password signup creates a separate empty owner store with explicit data provenance; email login retains optional legacy Business ID selection                         |
-| Google access      | Optional server-configured authorization-code/PKCE flow, verified Google identity, first-store setup, and intentional connection from Inventory account controls            |
-| Inventory          | Product opening stock, sales, deliveries, returns, write-offs, and stock-count adjustments use the existing transactional audit records                                     |
-| Imports            | Inventory snapshots are atomic; historical SKU-mapped sales imports preserve current stock                                                                                  |
-| Exports            | Sales/stock-movement downloads use authenticated Python CSV endpoints                                                                                                       |
-| Forecasts          | Official Python XGBoost, immutable queued inputs, chronological selection/testing, saved predictions/metrics/models                                                         |
-| Restock            | Python reads the operating forecast or baseline and current stock; zero suggestions or unavailable demand still allow recording actual deliveries from Restock or Inventory |
-| Data quality       | Missing/incomplete dates, explicit zeros, closures, and stockouts have reviewed classifications, audit history, and CSV export                                              |
-| Backups            | `npm run backup` creates a PostgreSQL dump; CI checks a separate restore and container recreation                                                                           |
+| Area               | Source and behavior                                                                                                                                                                                                                                                        |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Startup            | `npm start` builds/starts Compose: PostgreSQL, one-time initialization, Python API, Python worker, and Caddy/frontend                                                                                                                                                      |
+| Local and hosting  | Same Python API/PostgreSQL application; private environment values choose local HTTP or domain HTTPS                                                                                                                                                                       |
+| Frontend           | React/TypeScript; API mode is the default; Vite development proxies API requests                                                                                                                                                                                           |
+| Storage            | PostgreSQL persistent volume stores business records and forecasts; separate volume stores XGBoost JSON models                                                                                                                                                             |
+| Sessions           | scrypt passwords, 12-hour default hashed cookie sessions, CSRF/Origin checks, business membership and owner/staff permissions                                                                                                                                              |
+| Registration       | Email/password signup creates a separate empty owner store with explicit data provenance; email login retains optional legacy Business ID selection                                                                                                                        |
+| Google access      | Optional server-configured authorization-code/PKCE flow, verified Google identity, first-store setup, and intentional connection from Inventory account controls                                                                                                           |
+| Inventory          | Product opening stock, sales, deliveries, returns, write-offs, and stock-count adjustments use the existing transactional audit records                                                                                                                                    |
+| Imports            | Inventory snapshots are atomic; historical SKU-mapped sales imports preserve current stock                                                                                                                                                                                 |
+| Exports            | Sales/stock-movement downloads use authenticated Python CSV endpoints                                                                                                                                                                                                      |
+| Forecasts          | Official Python XGBoost, immutable queued inputs, chronological selection/testing, saved predictions/metrics/models                                                                                                                                                        |
+| Restock            | Python reads the operating forecast or baseline and current stock; zero suggestions or unavailable demand still allow recording actual deliveries from Restock or Inventory                                                                                                |
+| Data quality       | Missing/incomplete dates, explicit zeros, closures, and stockouts have reviewed classifications, audit history, and CSV export                                                                                                                                             |
+| Backups            | `npm run backup` creates a PostgreSQL dump; CI checks a separate restore and container recreation                                                                                                                                                                          |
 | User guide         | Header User guide link and Strategies User guide tab provide searchable, expandable everyday task instructions and a download from docs/USER_GUIDE.md; technical commands live in docs/SETUP_AND_OPERATIONS.md; legacy /guide still redirects inside the authenticated app |
-| System evaluation  | Strategies Evaluation collects four client-rated characteristics; local drafts remain separate from authenticated, durable submissions and authorized summaries/CSV          |
-| Optional prototype | Explicit `VITE_DATA_MODE=browser-demo` retains synthetic browser data and the custom TypeScript prototype                                                                   |
+| System evaluation  | Strategies Evaluation collects four client-rated characteristics; local drafts remain separate from authenticated, durable submissions and authorized summaries/CSV                                                                                                        |
+| Optional prototype | Explicit `VITE_DATA_MODE=browser-demo` retains synthetic browser data and the custom TypeScript prototype                                                                                                                                                                  |
 
 `OWNER_DATA_ORIGIN=demo` describes test-record provenance, not a separate application runtime.
 Choose `partner` only for authorized real business data. Fresh normal startup seeds an owner and
@@ -60,6 +60,28 @@ records. Active/Inactive/All filters keep the complete catalog accessible. New s
 returns, write-offs, and operational forecast/restock displays use active products. Changing a unit
 label does not convert existing quantities. Inventory snapshots retain the backend's existing
 reactivation behavior, including in the browser demonstration.
+Historical sales imports match the complete saved catalog, including inactive products, and
+preserve both current stock and activation status. Importing earlier history does not reactivate
+a discontinued product or make it available for new operational transactions.
+
+Sales ledger pages through the complete history in 40-row pages. Owners can delete an individual
+imported sale or all imported sales after reviewing a confirmation dialog; recorded sales remain
+protected. Owner-only, CSRF-protected, business-scoped DELETE routes at `sales/{sale_id}` and
+`sales/imported` remove imported records without changing stock or movement audits. Import audit
+metadata remains saved. Exact-file duplicate detection permits reimport only after all accepted
+rows in that batch have been removed; partially deleted batches retain their safeguard.
+Deletion marks existing queued/running/completed forecast configurations `salesHistoryChanged`;
+worker persistence preserves concurrent invalidation and dashboard reports those runs as stale.
+Frozen forecast inputs and archived outputs remain intact. Browser-demo preserves synthetic and
+recorded rows, recognizes earlier importer IDs, and gives repeated imported IDs separate identities
+without resetting their quantities/history. New demo imports save explicit source and unique IDs.
+Committed deletions stay successful if the follow-up ledger read fails, with a reload notice.
+Sales import/deletion refreshes retry a read when a sales write changes the cache during loading.
+Verification on 2026-10-09 passed typecheck, lint (three existing React Refresh warnings), build,
+12 frontend deletion regressions, six isolated Edge flows with intercepted API transport, and
+412 Python tests with no skips using Python 3.12.14 and an independent disposable PostgreSQL 16.
+The existing 20 sales-import and 22 auth-session frontend regressions also passed. Browser mocks
+are separate from the real database checks; no live business records were deleted during testing.
 
 Stock movements offers returns for owners/staff and owner-only write-offs. Returns increase usable
 stock; write-offs decrease it and the form requires a reason. Both use the existing movement POST,
@@ -79,27 +101,52 @@ and password controls remain available to staff. Backend authorization remains a
 
 Browser-demo keeps the existing storage key and records new movement audits separately from its
 synthetic sales; previous history is not assigned invented audits. Explicit Reset demo clears these
-new audits along with the existing demonstration reset. No database schema, migration, endpoint,
-or backend permission changes were required.
+new audits along with the existing demonstration reset. Stock-movement and product maintenance
+required no database schema, migration, endpoint, or backend permission changes.
 
 ## CSV and historical-import contract
 
 Inventory and sales CSV parsing supports quoted fields, embedded delimiters, doubled quotes,
 multiline fields, comma/semicolon/tab exports, optional spreadsheet separator directives, and
 UTF-8 or BOM-marked UTF-16 file uploads. Normal use is upload, preview, and import; detailed
-mapping/settings are under Adjust import. Clear aliases, unique catalog identifier columns, and
+mapping/settings are under Adjust import.
+Automatic delimiter detection samples up to 50 meaningful logical records and uses consistent
+column widths plus recognized headers, so comma-rich notes do not override semicolon/tab tables.
+Clear aliases, unique catalog identifier columns, and
 unique date-shaped columns can be detected. Date/number interpretations are checked across the
-whole file. If several interpretations yield different values, brief questions block preparation
-until confirmed. Extra columns are ignored; totals/revenue are not guessed as sold quantity.
+whole file. Column and format choices are made automatically, without mandatory questions or
+a review checkbox. A read-only summary and converted preview show the selected interpretation;
+Adjust import contains optional overrides and manual product matching. Extra columns are ignored;
+totals/revenue are not guessed as sold quantity. Automatic sales matching checks recognized
+identity columns for known product conflicts across the whole file before excluding incomplete
+columns; an unknown identifier elsewhere cannot hide a contradictory SKU/name match. Explicit
+column mappings and manual product matches remain available under Adjust import.
+When recognized product-identity headers exist, automatic matching considers only those columns;
+an unrelated receipt or note cannot replace an unknown SKU/name just because it matches a product.
+Table extraction ignores safe title/preamble
+rows, delimiter-only padding, identical repeated headers, and narrowly identified trailing report
+totals without a product identifier or source key. A neutral ignored-row count describes this
+cleanup. Inferred headerless files bypass header/report cleanup after blank-row removal, preserving
+real repeated records even when their values include header aliases. Explicit header choices take
+precedence. Real transaction rows with invalid required values still block the whole import.
 Explicit formats and full row validation remain available. No external AI service is used.
-At most 100 source columns are supported by the guided setup. Existing inventory SKUs may
-import only SKU and stock count: missing details are displayed from the catalog but omitted from
-the request, and the Python transaction preserves the latest saved metadata. New SKUs require
+Wide files retain needed columns beyond column 100 and ignore unused columns. Optional mapping
+choices show the first 100 columns plus detected or selected columns, using their actual indices.
+Files and pasted sources are limited to 25 MiB before reading or parsing; existing inventory/sales
+row limits remain unchanged. Existing inventory SKUs may
+import only SKU and stock count by default: unrelated supplied details are ignored, saved details
+are displayed from the catalog, and the Python transaction preserves the latest saved metadata.
+Optional Update existing product details from CSV under Adjust import enables strict metadata updates.
+New SKUs require
 all real product details; an incomplete new SKU rolls back the entire stock count import.
-Supplied invalid or blank fields never fall back to saved details.
+Invalid or blank required fields remain errors. Explicit metadata updates validate supplied
+values; a nonblank incompatible counting unit remains a blocking safeguard in either mode.
 
 The importer detects ISO, day/month/year, or month/day/year dates and supported decimal /
-grouping formats when their meaning is clear; otherwise the user confirms the interpretation. Valid dates become canonical YYYY-MM-DD; calendar-invalid dates, two-digit
+grouping formats using whole-file evidence. If multiple valid interpretations remain, date
+preference is ISO, then day/month/year, then month/day/year; number preference is decimal point,
+then comma grouping, then decimal comma. The preview exposes these choices for optional correction.
+Valid dates become canonical YYYY-MM-DD; calendar-invalid dates, two-digit
 years, timestamps, malformed number grouping, currency signs, excess precision, and lossy large
 numbers are rejected. No per-row locale guesses or automatic rounding are performed. Inventory
 Category, Unit, Lead Time, Safety Stock, and Unit Cost can use user-entered verified shared values
@@ -111,8 +158,17 @@ separately from product cards and the sales ledger. `CsvImportReview` presents b
 product resolution, converted preview, and diagnostics. Existing sales summaries and catalog
 filtering remain memoized; CSV state changes do not repeat those calculations. A Vite module Web
 Worker reads, decodes, parses, converts, validates, and retains complete source, rows, and issues.
-Only a bounded summary reaches React. Submission retrieves cached validated rows without
-repeating preparation. A complete error CSV is generated as a Blob in the worker only on demand;
+Only a bounded summary reaches React. One accessible Choose CSV file button opens a persistent
+native file input. Selection prepares records; a persistent Upload CSV button sits beside the
+selected filename in its own action row before status text and the preview. Both sales and
+inventory use this label. The button remains visible while preparation or invalid required data
+disables saving; inline status explains the reason. Ready text tells the user to choose Upload CSV
+to save, and the active request shows Uploading….
+Unused content produces no warnings. The first required-data blocker appears in neutral inline
+text; the complete diagnostics and error report remain under collapsed Import details.
+Optional performance measurements are best effort and cannot interrupt CSV preparation.
+A failed import request after clicking Upload CSV remains an alert. Submission retrieves cached
+validated rows without repeating preparation. A complete error CSV is generated as a Blob in the worker only on demand;
 spreadsheet formula prefixes in exported diagnostic values are neutralized.
 
 Original uploaded previews show at most 50 logical records, including the header. Preview cells
@@ -128,17 +184,18 @@ inherited from JavaScript's object prototype do not appear as preselected produc
 These display bounds never shorten the retained source or submitted records. Malformed CSV
 quoting must be corrected before row validation can proceed.
 
-Users can resolve unknown/ambiguous sales identifiers to an existing active product, review or
-remove those selections, or create a missing product separately in Products. Overrides apply to
-all rows with the exact trimmed source identifier. Optional source Unit values must match the
+Under optional Adjust import, users can resolve unknown/ambiguous sales identifiers to an existing
+product, including an inactive one, review or remove those selections, or create a missing product separately in
+Products. Overrides apply to
+all rows with the exact trimmed source identifier. Nonblank optional source Unit values must match the
 catalog unit; existing inventory SKUs cannot silently change their counting unit. No quantities
 are converted between packs/pieces. Duplicate inventory SKUs and repeated/conflicting source
 keys within a selected file block preparation. Equal-looking unkeyed sales remain distinct.
 
-All parsed rows are checked, including errors beyond the preview; any unresolved configuration
+All retained data rows are checked, including errors beyond the preview; any unresolved configuration
 or row problem blocks submission. Valid rows are never silently selected as a partial history.
-Inventory retains whole-snapshot atomicity. The final review checkbox is required before saving;
-column/format/shared-value/product/catalog changes invalidate readiness and the previous review.
+Inventory retains whole-snapshot atomicity. A valid preparation enables the explicit Upload CSV button;
+column/format/shared-value/product/catalog changes trigger fresh preparation before saving.
 Cancellation, source replacement, and unmount terminate the worker and ignore older results.
 The importer remounts when the signed-in user/business changes. Paste preparation retains its
 300 ms typing pause. API limits remain 5,000 inventory or 100,000 sales rows per request;
@@ -152,6 +209,13 @@ business/date/ID index and keeps a 200-row fallback for older APIs. No SQL migra
 Committed inventory/sales imports remain successful when a follow-up read fails; an explicit
 notice reloads saved records without repeating the write. Late read results cannot replace
 another signed-in account's cache or warning.
+Inventory CSV submissions retain their original submitted rows and idempotency key across failed
+attempts and catalog revalidation. This also covers a newly created SKU becoming an existing
+product during a refresh. A lost write response can be retried without reapplying the stock count
+over later sales or stock movements. A new selected source, an adjustment that changes submitted
+rows, or a completed import starts a fresh submission; this retry state is local to the open
+importer and does not survive closing it or reloading the page. The existing backend idempotency
+contract and database schema are unchanged.
 
 See [guided importer contract and verification](GUIDED_CSV_IMPORTS.md). The older
 [CSV upload verification](CSV_UPLOAD_VERIFICATION.md) and
@@ -161,6 +225,8 @@ The system workflow now runs guided inventory and 100,000-row sales imports thro
 against the disposable Python API/PostgreSQL installation, with a separate uploaded report.
 
 Product matching prefers exact IDs/SKUs and rejects ambiguous case-insensitive matches.
+Inventory transactions prefer exact saved SKUs before unique case-insensitive matches; ambiguous
+matches reject and roll back the entire snapshot, and surrounding source whitespace is trimmed.
 The browser forwards the existing API sourceRecordKey field. It is a trimmed, case-sensitive,
 business-wide identifier of one source sale line (up to 200 characters), not just a receipt
 number. Reused keys are checked across batches and source formats; matching transactions are
@@ -174,6 +240,11 @@ and equivalent quantity formatting while preserving exact trimmed SKU case and r
 fingerprints are still checked. Fully keyed partially rejected batches can be retried without
 reimporting accepted keys. Unkeyed overlapping records and reordered legacy unkeyed batches
 cannot be identified reliably; earlier records are not assigned invented transaction IDs.
+Sales exports include each saved `source_record_key`, leaving unkeyed records blank. Reimport
+recognizes the exported columns automatically and preserves those keys for duplicate checks.
+Normal API CSV exports quote every field and prefix formula-like text with a tab for spreadsheet
+safety; numeric values remain numeric. Existing identity trimming restores guarded SKUs and keys
+on reimport. See [the export contract](GUIDED_CSV_IMPORTS.md#csv-exports).
 The web form reports accepted/skipped/conflicting outcomes and retains the selected file or
 pasted text when records are partially rejected.
 
@@ -197,6 +268,22 @@ Both choices retain the same application features and empty-store behavior; neit
 records or establishes a partner or research result. Signup passwords are 12 to 128 characters.
 New emails are reserved across businesses; existing tenant users remain intact and can use
 optional Business ID login when credentials are ambiguous.
+
+Sign-in, account creation, recovery, and token password forms use synchronous submission guards
+and disable their controls while a request is pending. Password fields have visible labels and
+accessible show/hide controls while preserving browser autocomplete. Switching access screens
+clears passwords, confirmation, prior feedback, and the explicit browser-save choice. Successful
+authentication returns the access screen to Sign in for a later logout. If an authentication POST
+succeeds but reading store records fails, the page states that sign-in/account creation/setup
+succeeded and offers reload guidance; the existing cookie can reload the store without another
+registration request. Old tenant records are not displayed in that failure state.
+
+Sign out shows a pending state and an inline retryable failure. Confirmed logout, including an
+already-expired/revoked session reported as HTTP 401, clears the browser's session, records,
+settings, provenance, and diagnostics. Network/CSRF failures preserve the current state for retry.
+Auth request generations and same-session write/read guards prevent late responses from
+restoring a signed-out account or replacing a newer account's state, including same-account
+relogin. Server session/CSRF/Origin checks remain authoritative.
 
 Password sign-in/registration offer an unchecked **Ask this browser to save my email and
 password** option. After successful authentication, StockCast requests the native password
@@ -222,6 +309,25 @@ generic mail-unavailable error; recovery logs a warning without the recipient, t
 transport details. Owner-issued invitations report HTTP 503 when mail delivery is unavailable.
 In API mode, reset and invitation links show their token password form even when the browser
 already has an authenticated session.
+Forgot password opens its own native-validated email form, with optional Business ID selection
+for legacy multi-store accounts, a pending state, and neutral accepted feedback under role=status.
+Token password forms label both fields, check confirmation, prevent duplicate submission, and
+offer Back to sign in for anonymous browsers or Back to StockCast when a session was restored.
+Successful recovery displays Password updated without automatic sign-in; returning preserves
+another account's valid session if present. Staff invitation acceptance still opens the invited store.
+Password changes and successful recovery revoke all outstanding reset links and sessions for
+that account. Issuance/consumption/password changes serialize on the existing user row so
+concurrent requests cannot leave older links usable. Disabled accounts/stores cannot complete
+recovery. These changes preserve the schema, migration history, endpoints, and JSON fields.
+Neutral recovery feedback and ordinary sign-in after reset follow
+[OWASP recovery guidance](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html).
+Verification on 2026-10-09 passed 35 frontend auth/account regressions, 17 actual Edge browser
+scenarios with every API request intercepted, and 400 Python tests against independent disposable
+PostgreSQL 16 using Python 3.12.14. Typecheck, lint, and production build passed; lint retained three
+existing React Refresh warnings. A parallel test attempt exhausted host memory; the affected
+account tests passed sequentially. Browser/SMTP mocks are separate from database evidence and do
+not establish live email or Google-provider delivery. Temporary test resources and credentials
+were removed; durable regression scripts and synthetic evidence were retained.
 See [backend authentication details](../backend/README.md#authentication-contract).
 
 ## Forecast contract
@@ -346,8 +452,9 @@ team/business requirements. They are not filled in with fictional research resul
 ## File map
 
 - `compose.yaml`, `Dockerfile`, `backend/Dockerfile`, `deploy/`, `scripts/`: startup/hosting/backup.
-- `src/components/csv-importer.tsx`, `csv-import-review.tsx`: shared upload/paste preparation, automatic previews, brief format/column questions, optional adjustments, product resolution, bounded diagnostics, and import controls.
+- `src/components/csv-importer.tsx`, `csv-import-review.tsx`: shared upload/paste preparation, automatic column/format choices and previews, optional adjustments/product matching, bounded diagnostics, and explicit import controls.
 - `src/lib/csv-import.worker.ts`, `csv-preparation.ts`: worker source/row cache, decoding/parsing/validation timings, preview bounds, and existing API row limits.
+- `src/lib/csv-extraction.ts`: conservative removal of report titles, padding, repeated headers, and trailing totals while retaining original record/line references.
 - `src/lib/import-csv.ts`, `guided-csv.ts`, `sales-import.ts`: spreadsheet parsing, guided conversion/complete diagnostics, indexed product matching, and browser source-identity checks.
 - [CSV upload verification](CSV_UPLOAD_VERIFICATION.md), `scripts/test-csv-preparation.mjs`, `test-import-csv.mjs`, `test-sales-import.mjs`: browser measurements and CSV correctness regressions.
 - [User guide](USER_GUIDE.md), `src/components/user-guide.tsx`, `src/lib/user-guide.ts`: the Strategies guide reader; `src/routes/guide.tsx` keeps old links working.
@@ -357,6 +464,7 @@ team/business requirements. They are not filled in with fictional research resul
 - `backend/app/`: FastAPI, PostgreSQL repositories, worker, official model training, dashboard.
 - `backend/app/auth_routes.py`, `auth_repository.py`, `google_auth.py`: public signup, optional Google access, and existing cookie sessions.
 - `src/components/api-gate.tsx`, `account-access-card.tsx`, `account-maintenance.tsx`: sign-in/store onboarding, intentional Google connection, password and owner staff management.
+- `scripts/test-api-gate.mjs`, `test-auth-session.mjs`, `verify-auth-browser.mjs`: token-form precedence, session/recovery adapter regressions, and isolated browser auth flows with intercepted API transport.
 - `backend/db/`: existing SQL migration history and package data.
 - `src/lib/api.ts`, `store.ts`, `use-api-forecast.ts`: normal frontend integration.
 - `src/lib/forecast/`: optional browser demonstration prototype.

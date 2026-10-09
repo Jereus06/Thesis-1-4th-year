@@ -59,6 +59,7 @@ export type Sale = {
   date: string;
   qty: number;
   sourceRecordKey?: string;
+  source?: "demo" | "manual" | "csv_import" | "pos_import" | "migration";
 };
 
 export type SalesImportError = {

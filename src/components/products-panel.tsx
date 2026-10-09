@@ -70,12 +70,12 @@ export function ProductsPanel() {
   }, [products, query, status]);
 
   const importPreparedInventory = useCallback(
-    async (rows: InventoryImportRow[]) => {
+    async (rows: InventoryImportRow[], idempotencyKey: string) => {
       if (!canImportRecords || busy)
         throw new Error("Inventory import is unavailable while another change is being saved.");
       setImporting(true);
       try {
-        await importInventory(rows);
+        await importInventory(rows, idempotencyKey);
         toast.success(`Imported ${rows.length} inventory rows.`);
         setImportOpen(false);
         return true;
@@ -151,8 +151,8 @@ export function ProductsPanel() {
           </CardHeader>
           <CardContent className="grid gap-3">
             <p className="text-xs text-muted">
-              Upload your file and check the detected products and stock counts. Extra columns are
-              skipped; existing products can keep their saved details.
+              Upload your file to automatically find products and stock counts. Unused columns and
+              report rows are ignored; existing products keep their saved details by default.
             </p>
             <InventoryCsvImporter
               key={session ? `${session.businessId}:${session.userId}` : "browser-demo"}
@@ -160,7 +160,7 @@ export function ProductsPanel() {
               products={products}
               disabled={saving}
               rowLimit={mode === "api" ? CSV_API_ROW_LIMITS.inventory : null}
-              importLabel="Import inventory"
+              importLabel="Upload CSV"
               placeholder={
                 "SKU,Product,Category,Unit,On Hand,Lead Time,Safety Stock,Unit Cost\nNS-500,Nature Spring Water 500ml,Beverages,bottle,80,2,24,12"
               }

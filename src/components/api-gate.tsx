@@ -1,4 +1,12 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type FormEvent,
+  type ReactNode,
+} from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { AuthCallbackNotice } from "@/components/auth-callback-notice";
 import { GoogleAuthButton } from "@/components/google-auth-button";
 import { Button } from "@/components/ui/button";
@@ -8,6 +16,27 @@ import { Select } from "@/components/ui/select";
 import { api, type AuthOptions, type BusinessRegistration, type GooglePending } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 import { saveBrowserLogin } from "@/lib/browser-login";
+
+function PasswordInput({ label, ...props }: ComponentProps<typeof Input> & { label: string }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="relative">
+      <Input {...props} type={visible ? "text" : "password"} className="pr-12" />
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="absolute right-0 top-0"
+        aria-label={`${visible ? "Hide" : "Show"} ${label.toLowerCase()}`}
+        aria-pressed={visible}
+        disabled={props.disabled}
+        onClick={() => setVisible((value) => !value)}
+      >
+        {visible ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+      </Button>
+    </div>
+  );
+}
 
 export function ApiGate({ children }: { children: ReactNode }) {
   const mode = useAppStore((state) => state.dataMode);
@@ -21,9 +50,11 @@ export function ApiGate({ children }: { children: ReactNode }) {
   const [options, setOptions] = useState<AuthOptions | null>(null);
   const [optionsError, setOptionsError] = useState("");
   const [pending, setPending] = useState<GooglePending | null>(null);
-  const [screen, setScreen] = useState<"sign-in" | "sign-up">("sign-in");
+  const [screen, setScreen] = useState<"sign-in" | "sign-up" | "recovery">("sign-in");
   const [busy, setBusy] = useState<"password" | "google" | null>(null);
+  const submitting = useRef(false);
   const [formError, setFormError] = useState("");
+  const [notice, setNotice] = useState("");
   const [businessId, setBusinessId] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -67,18 +98,36 @@ export function ApiGate({ children }: { children: ReactNode }) {
     };
   }, [connect, mode]);
 
-  function changeScreen(value: "sign-in" | "sign-up") {
-    setScreen(value);
+  function clearFeedback() {
     setFormError("");
+    setNotice("");
     useAppStore.setState({ apiError: null });
+  }
+
+  function changeScreen(value: "sign-in" | "sign-up" | "recovery") {
+    if (submitting.current) return;
+    setScreen(value);
+    setPassword("");
+    setConfirmation("");
+    setSaveLogin(false);
+    setAuthorized(false);
+    clearFeedback();
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setFormError("");
+    if (submitting.current) return;
+    clearFeedback();
     const creating = !!pending || screen === "sign-up";
-    if (creating && (!businessName.trim() || (!pending && !displayName.trim()))) {
-      setFormError("Enter your name and store name.");
+    const recovering = !pending && screen === "recovery";
+    if (creating && !pending && !displayName.trim()) {
+      setFormError("Enter your name.");
+      event.currentTarget.querySelector<HTMLInputElement>("#display-name")?.focus();
+      return;
+    }
+    if (creating && !businessName.trim()) {
+      setFormError("Enter your store name.");
+      event.currentTarget.querySelector<HTMLInputElement>("#business-name")?.focus();
       return;
     }
     if (creating && dataOrigin === "partner" && !authorized) {
@@ -87,11 +136,13 @@ export function ApiGate({ children }: { children: ReactNode }) {
     }
     if (!pending && screen === "sign-up" && password !== confirmation) {
       setFormError("Passwords do not match.");
+      event.currentTarget.querySelector<HTMLInputElement>("#confirm-password")?.focus();
       return;
     }
     const submittedEmail = email.trim();
     const submittedPassword = password;
-    const requestBrowserSave = !pending && saveLogin;
+    const requestBrowserSave = !pending && !recovering && saveLogin;
+    submitting.current = true;
     setBusy("password");
     const business: BusinessRegistration = {
       businessName: businessName.trim(),
@@ -99,7 +150,13 @@ export function ApiGate({ children }: { children: ReactNode }) {
       dataOrigin,
     };
     try {
-      if (pending) {
+      if (recovering) {
+        await api.requestRecovery(submittedEmail, businessId.trim() || undefined);
+        setNotice(
+          "If this account can receive recovery email, you'll get a reset link. Check your inbox and spam folder.",
+        );
+        return;
+      } else if (pending) {
         await completeGoogle(business);
         setPending(null);
       } else if (screen === "sign-up") {
@@ -114,20 +171,30 @@ export function ApiGate({ children }: { children: ReactNode }) {
       }
       setPassword("");
       setConfirmation("");
+      setSaveLogin(false);
+      setScreen("sign-in");
       if (requestBrowserSave) {
         void saveBrowserLogin(submittedEmail, submittedPassword);
       }
-    } catch {
-      // The store exposes the server's authentication error for the form.
+    } catch (failure) {
+      if (recovering)
+        setFormError(
+          failure instanceof Error
+            ? failure.message
+            : "The reset link could not be requested. Try again.",
+        );
+      // Other authentication errors are exposed by the store.
     } finally {
+      submitting.current = false;
       setBusy(null);
     }
   }
 
   async function continueWithGoogle() {
+    if (submitting.current) return;
+    submitting.current = true;
     setBusy("google");
-    setFormError("");
-    useAppStore.setState({ apiError: null });
+    clearFeedback();
     try {
       const result = await api.startGoogle("sign-in");
       window.location.assign(result.url);
@@ -135,6 +202,7 @@ export function ApiGate({ children }: { children: ReactNode }) {
       setFormError(
         failure instanceof Error ? failure.message : "Google sign-in could not be opened.",
       );
+      submitting.current = false;
       setBusy(null);
     }
   }
@@ -143,7 +211,13 @@ export function ApiGate({ children }: { children: ReactNode }) {
   const resetToken = new URLSearchParams(window.location.search).get("reset");
   const invitationToken = new URLSearchParams(window.location.search).get("invitation");
   if (resetToken || invitationToken)
-    return <TokenPasswordForm resetToken={resetToken} invitationToken={invitationToken} />;
+    return (
+      <TokenPasswordForm
+        resetToken={resetToken}
+        invitationToken={invitationToken}
+        signedIn={!!session}
+      />
+    );
   if (session)
     return (
       <>
@@ -162,7 +236,8 @@ export function ApiGate({ children }: { children: ReactNode }) {
     );
 
   const creating = !!pending || screen === "sign-up";
-  const message = formError || error || optionsError;
+  const recovering = screen === "recovery" && !pending;
+  const message = formError || error;
   return (
     <main className="grid min-h-dvh place-items-center bg-surface-2 px-4 py-8 text-fg sm:p-8">
       <div className="w-full max-w-md">
@@ -174,7 +249,7 @@ export function ApiGate({ children }: { children: ReactNode }) {
               Sales forecasts and inventory decisions for your store.
             </p>
           </div>
-          {!pending && (
+          {!pending && !recovering && (
             <div
               role="group"
               aria-label="Account access"
@@ -200,21 +275,30 @@ export function ApiGate({ children }: { children: ReactNode }) {
               </Button>
             </div>
           )}
-          <h1 className="text-xl font-semibold">
+          <h1 id="auth-title" className="text-xl font-semibold">
             {pending
               ? "Finish setting up your store"
-              : creating
-                ? "Create your StockCast account"
-                : "Welcome back"}
+              : recovering
+                ? "Reset your password"
+                : creating
+                  ? "Create your StockCast account"
+                  : "Welcome back"}
           </h1>
           <p className="mt-2 text-sm text-muted">
             {pending
               ? `Google verified ${pending.email}. Choose your store details to finish.`
-              : creating
-                ? "Create your own store with an empty catalog, ready for your records."
-                : "Sign in to open your store's products, sales, and forecasts."}
+              : recovering
+                ? "Enter your account email to request a single-use password reset link."
+                : creating
+                  ? "Create your own store with an empty catalog, ready for your records."
+                  : "Sign in to open your store's products, sales, and forecasts."}
           </p>
-          {options?.googleEnabled && !pending && (
+          {optionsError && (
+            <p role="alert" className="mt-4 rounded-lg bg-danger/10 p-3 text-sm text-danger">
+              {optionsError}
+            </p>
+          )}
+          {options?.googleEnabled && !pending && !recovering && (
             <div className="mt-5">
               <GoogleAuthButton
                 onClick={() => void continueWithGoogle()}
@@ -229,17 +313,35 @@ export function ApiGate({ children }: { children: ReactNode }) {
             </div>
           )}
           <form
-            id={pending ? "store-setup-form" : creating ? "sign-up-form" : "sign-in-form"}
-            name={pending ? "store-setup" : creating ? "sign-up" : "sign-in"}
+            key={pending ? "store-setup" : screen}
+            id={
+              pending
+                ? "store-setup-form"
+                : creating
+                  ? "sign-up-form"
+                  : recovering
+                    ? "recovery-form"
+                    : "sign-in-form"
+            }
+            name={
+              pending ? "store-setup" : creating ? "sign-up" : recovering ? "recovery" : "sign-in"
+            }
             method="post"
             autoComplete="on"
             className="mt-5 grid gap-4"
             onSubmit={submit}
+            onChange={clearFeedback}
+            aria-labelledby="auth-title"
             aria-busy={busy === "password"}
           >
             {message && (
               <p role="alert" className="rounded-lg bg-danger/10 p-3 text-sm text-danger">
                 {message}
+              </p>
+            )}
+            {notice && (
+              <p role="status" className="rounded-lg border border-border bg-surface-2 p-3 text-sm">
+                {notice}
               </p>
             )}
             <fieldset disabled={!!busy} className="grid min-w-0 gap-4">
@@ -267,44 +369,47 @@ export function ApiGate({ children }: { children: ReactNode }) {
                       autoCapitalize="none"
                       spellCheck={false}
                       type="email"
-                      autoComplete="username"
+                      autoComplete={recovering ? "email" : "username"}
                       required
                       maxLength={254}
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
                     />
                   </div>
-                  <div className="grid gap-1.5">
-                    <Label htmlFor="auth-password">Password</Label>
-                    <Input
-                      id="auth-password"
-                      name="password"
-                      type="password"
-                      autoComplete={creating ? "new-password" : "current-password"}
-                      required
-                      minLength={creating ? 12 : undefined}
-                      maxLength={creating ? 128 : 1024}
-                      aria-describedby={creating ? "password-help" : undefined}
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                    />
-                    {creating && (
-                      <p id="password-help" className="text-xs text-muted">
-                        Use at least 12 characters. A long, unique passphrase works well.
-                      </p>
-                    )}
-                  </div>
+                  {!recovering && (
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="auth-password">Password</Label>
+                      <PasswordInput
+                        label="Password"
+                        id="auth-password"
+                        name="password"
+                        autoComplete={creating ? "new-password" : "current-password"}
+                        required
+                        minLength={creating ? 12 : undefined}
+                        maxLength={creating ? 128 : 1024}
+                        aria-describedby={creating ? "password-help" : undefined}
+                        value={password}
+                        onChange={(event) => setPassword(event.target.value)}
+                      />
+                      {creating && (
+                        <p id="password-help" className="text-xs text-muted">
+                          Use at least 12 characters. A long, unique passphrase works well.
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {creating && (
                     <div className="grid gap-1.5">
                       <Label htmlFor="confirm-password">Confirm password</Label>
-                      <Input
+                      <PasswordInput
+                        label="Confirm password"
                         id="confirm-password"
                         name="confirm-password"
-                        type="password"
                         autoComplete="new-password"
                         required
                         minLength={12}
                         maxLength={128}
+                        aria-invalid={formError === "Passwords do not match." || undefined}
                         value={confirmation}
                         onChange={(event) => setConfirmation(event.target.value)}
                       />
@@ -394,12 +499,12 @@ export function ApiGate({ children }: { children: ReactNode }) {
                     />
                     <p id="business-id-help" className="text-xs text-muted">
                       Use this when your email has access to more than one business. Your Business
-                      ID is shown in Inventory &gt; Settings.
+                      ID is shown in Your account in Inventory.
                     </p>
                   </div>
                 </details>
               )}
-              {!pending && (
+              {!pending && !recovering && (
                 <div className="grid gap-1.5">
                   <label htmlFor="save-browser-login" className="flex items-start gap-2 text-sm">
                     <input
@@ -420,12 +525,16 @@ export function ApiGate({ children }: { children: ReactNode }) {
               )}
               <Button type="submit">
                 {busy === "password"
-                  ? creating
-                    ? "Creating your store..."
-                    : "Signing in..."
-                  : creating
-                    ? "Create my store"
-                    : "Sign in"}
+                  ? recovering
+                    ? "Sending reset link…"
+                    : creating
+                      ? "Creating your store..."
+                      : "Signing in..."
+                  : recovering
+                    ? "Send reset link"
+                    : creating
+                      ? "Create my store"
+                      : "Sign in"}
               </Button>
             </fieldset>
           </form>
@@ -434,28 +543,20 @@ export function ApiGate({ children }: { children: ReactNode }) {
               type="button"
               variant="ghost"
               className="mt-3 w-full"
-              disabled={!!busy || !email.trim()}
-              onClick={() =>
-                void api
-                  .requestRecovery(email.trim())
-                  .then(() =>
-                    setFormError(
-                      "If that account exists and email is configured, a single-use reset link has been sent.",
-                    ),
-                  )
-                  .catch((e: Error) => setFormError(e.message))
-              }
+              disabled={!!busy}
+              onClick={() => changeScreen("recovery")}
             >
               Forgot password
             </Button>
           )}
-          {pending && (
+          {(pending || recovering) && (
             <Button
               type="button"
               variant="ghost"
               className="mt-3 w-full"
               disabled={!!busy}
               onClick={() => {
+                if (submitting.current) return;
                 setPending(null);
                 changeScreen("sign-in");
               }}
@@ -464,9 +565,11 @@ export function ApiGate({ children }: { children: ReactNode }) {
             </Button>
           )}
           <p className="mt-5 text-xs text-muted">
-            {creating
-              ? "Your account will own this new store. Its Business ID is generated automatically."
-              : "An active session is restored automatically when you reopen this browser."}
+            {recovering
+              ? "Reset links expire after 30 minutes and can be used only once."
+              : creating
+                ? "Your account will own this new store. Its Business ID is generated automatically."
+                : "An active session is restored automatically when you reopen this browser."}
           </p>
         </div>
       </div>
@@ -477,69 +580,135 @@ export function ApiGate({ children }: { children: ReactNode }) {
 function TokenPasswordForm({
   resetToken,
   invitationToken,
+  signedIn,
 }: {
   resetToken: string | null;
   invitationToken: string | null;
+  signedIn: boolean;
 }) {
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  async function submit(event: FormEvent) {
+  const [completed, setCompleted] = useState(false);
+  const submitting = useRef(false);
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitting.current || completed) return;
+    setMessage("");
     if (password !== confirmation) {
       setMessage("Passwords do not match.");
+      event.currentTarget.querySelector<HTMLInputElement>("#token-confirm-password")?.focus();
       return;
     }
+    submitting.current = true;
     setBusy(true);
     try {
       if (resetToken) await api.completeRecovery(resetToken, password);
-      else {
-        await api.acceptInvitation(invitationToken!, password);
-      }
-      window.location.assign("/");
+      else await api.acceptInvitation(invitationToken!, password);
+      setPassword("");
+      setConfirmation("");
+      setCompleted(true);
+      if (!resetToken) window.location.replace("/");
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Request failed");
+      setMessage(e instanceof Error ? e.message : "Your password could not be saved. Try again.");
+    } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
   return (
     <main className="grid min-h-dvh place-items-center bg-surface-2 p-6 text-fg">
       <form
+        id={resetToken ? "reset-password-form" : "invitation-password-form"}
+        name={resetToken ? "reset-password" : "invitation-password"}
+        method="post"
+        autoComplete="on"
         onSubmit={submit}
+        onChange={() => setMessage("")}
+        aria-labelledby="token-password-title"
+        aria-busy={busy}
         className="grid w-full max-w-md gap-4 rounded-2xl border border-border bg-surface p-6"
       >
-        <h1 className="text-xl font-semibold">
-          {resetToken ? "Choose a new password" : "Accept staff invitation"}
+        <p className="font-display text-3xl italic tracking-tight">StockCast</p>
+        <h1 id="token-password-title" className="text-xl font-semibold">
+          {completed
+            ? resetToken
+              ? "Password updated"
+              : "Staff account created"
+            : resetToken
+              ? "Choose a new password"
+              : "Accept staff invitation"}
         </h1>
-        <p className="text-sm text-muted">This protected link expires and can be used only once.</p>
+        {completed ? (
+          <p role="status" className="text-sm">
+            {resetToken
+              ? "Your new password is saved. Use it the next time you sign in."
+              : "Your staff account is ready. Opening your store…"}
+          </p>
+        ) : (
+          <p className="text-sm text-muted">
+            This protected link expires and can be used only once.
+          </p>
+        )}
         {message && (
           <p role="alert" className="text-sm text-danger">
             {message}
           </p>
         )}
-        <Input
-          type="password"
-          autoComplete="new-password"
-          minLength={12}
-          maxLength={128}
-          required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="New password (12+ characters)"
-        />
-        <Input
-          type="password"
-          autoComplete="new-password"
-          minLength={12}
-          maxLength={128}
-          required
-          value={confirmation}
-          onChange={(e) => setConfirmation(e.target.value)}
-          placeholder="Confirm password"
-        />
-        <Button disabled={busy} type="submit">
-          {busy ? "Saving…" : resetToken ? "Reset password" : "Create staff account"}
+        {!completed && (
+          <fieldset disabled={busy} className="grid min-w-0 gap-4">
+            <div className="grid gap-1.5">
+              <Label htmlFor="token-password">New password</Label>
+              <PasswordInput
+                id="token-password"
+                name="new-password"
+                label="New password"
+                autoComplete="new-password"
+                aria-describedby="token-password-help"
+                minLength={12}
+                maxLength={128}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <p id="token-password-help" className="text-xs text-muted">
+                Use at least 12 characters. A long, unique passphrase works well.
+              </p>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="token-confirm-password">Confirm password</Label>
+              <PasswordInput
+                id="token-confirm-password"
+                name="confirm-password"
+                label="Confirm password"
+                autoComplete="new-password"
+                aria-invalid={message === "Passwords do not match." || undefined}
+                minLength={12}
+                maxLength={128}
+                required
+                value={confirmation}
+                onChange={(e) => setConfirmation(e.target.value)}
+              />
+            </div>
+            <Button type="submit">
+              {busy ? "Saving…" : resetToken ? "Reset password" : "Create staff account"}
+            </Button>
+          </fieldset>
+        )}
+        <Button
+          type="button"
+          variant={completed ? "default" : "ghost"}
+          disabled={busy}
+          onClick={() => {
+            if (!submitting.current) window.location.replace("/");
+          }}
+        >
+          {completed && !resetToken
+            ? "Open StockCast"
+            : signedIn
+              ? "Back to StockCast"
+              : "Back to sign in"}
         </Button>
       </form>
     </main>

@@ -13,6 +13,29 @@ Use this guide to find a screen, record a transaction, and check your saved reco
 
 **Create account** is for someone creating a separate store as its owner. It does not join an existing owner's store. Staff should use the owner's invitation.
 
+### Create an owner account
+
+1. Choose **Create account**, then enter **Your name**, **Email**, **Password**, and **Confirm password**. Use a password with 12 to 128 characters.
+2. Enter the **Store name** and optional location.
+3. Choose **Test records** for practice or **Authorized business records** for records you have permission to store. Confirm that permission when requested.
+4. Choose **Create my store** and wait for the store to open.
+
+Use the eye button to show or hide a password while checking it. Switching between account-access screens clears entered passwords. If the page says your account was created but store records could not be loaded, reload the page to load the existing account.
+
+### Recover your password
+
+1. Choose **Forgot password** on the sign-in screen. You can open it before entering an email.
+2. Enter your account **Email**. If you use the same email in multiple stores, open **Choose a specific business** and enter the appropriate **Business ID**.
+3. Choose **Send reset link**, wait for the confirmation, and check your inbox and spam folder.
+4. Open the email link within 30 minutes. Enter **New password** and **Confirm password**, then choose **Reset password**.
+5. After **Password updated**, return to StockCast and sign in with your new password when prompted.
+
+Recovery confirmation does not reveal whether an account exists. Links work once; if a link is expired or already used, request a new one. The installation's email service must be enabled to deliver recovery mail. If mail does not arrive, ask the person managing the installation to check delivery. If this browser is signed into another account, returning to StockCast preserves that account's session.
+
+### Sign out
+
+Choose **Sign out** in the header and wait until the sign-in screen appears. The button shows **Signing out…** while the request is pending. If a connection or request error appears, retry after the connection is restored.
+
 ### Set up a new store
 
 1. As the owner, open **Inventory > Products** and add your products or import your current inventory.
@@ -37,20 +60,20 @@ Open **User guide** in the header whenever you need help. The same guide is avai
 
 Use the sidebar on a laptop or the bottom navigation on a smaller screen.
 
-| If you want to... | Open this screen |
-| --- | --- |
-| See a summary of the store | **Overview** |
-| Find products that may need more stock | **Restock** |
-| View a product's demand chart and forecast information | **Forecasts** |
-| Add, find, or edit a product | **Inventory > Products** |
-| Record an incoming delivery or check current stock | **Inventory > Products** |
-| View sales, import past sales, or download sales records | **Inventory > Sales ledger** |
-| Record returns or write-offs and inspect stock changes | **Inventory > Stock movements** |
-| Check your account or change your password | **Inventory > Account & settings**; staff use **Account** |
-| Invite staff or change store settings | **Inventory > Account & settings**, as the owner |
-| Review zero-sale days, closures, missing records, or stockouts | **Quality** |
-| Read help, methodology, or supporting thesis text | **Strategies** |
-| Give feedback after using the system | **Strategies > Evaluation** |
+| If you want to...                                              | Open this screen                                          |
+| -------------------------------------------------------------- | --------------------------------------------------------- |
+| See a summary of the store                                     | **Overview**                                              |
+| Find products that may need more stock                         | **Restock**                                               |
+| View a product's demand chart and forecast information         | **Forecasts**                                             |
+| Add, find, or edit a product                                   | **Inventory > Products**                                  |
+| Record an incoming delivery or check current stock             | **Inventory > Products**                                  |
+| View sales, import past sales, or download sales records       | **Inventory > Sales ledger**                              |
+| Record returns or write-offs and inspect stock changes         | **Inventory > Stock movements**                           |
+| Check your account or change your password                     | **Inventory > Account & settings**; staff use **Account** |
+| Invite staff or change store settings                          | **Inventory > Account & settings**, as the owner          |
+| Review zero-sale days, closures, missing records, or stockouts | **Quality**                                               |
+| Read help, methodology, or supporting thesis text              | **Strategies**                                            |
+| Give feedback after using the system                           | **Strategies > Evaluation**                               |
 
 ### Owner and staff access
 
@@ -74,7 +97,22 @@ Only owners can manage products, correct stock counts, write off stock, import f
 
 Use **Import CSV** in the Sales ledger for earlier sales already reflected in your current physical count. Recording an earlier date through **Record sale** still deducts stock now. Recording the same transaction twice deducts it twice.
 
-If there are no active products, ask the owner to add or activate one. If the quantity exceeds the available stock, check the physical count and any unrecorded delivery before saving. The current sales table does not offer an edit, delete, or void button; ask the owner how to handle a mistaken sale.
+If there are no active products, ask the owner to add or activate one. If the quantity exceeds the available stock, check the physical count and any unrecorded delivery before saving. Recorded sales cannot be edited, deleted, or voided here; ask the owner how to handle a mistaken recorded sale.
+
+## Delete imported sales
+
+**Who can do this:** owner only.
+
+**Where:** **Inventory > Sales ledger**.
+
+1. Find the row marked **Imported**, using **Previous** or **Next** for older records.
+2. Choose its **Delete** button, review the product, date, and quantity, then choose **Delete sale**. Choose **Cancel** to keep the row.
+3. To remove the entire imported history, choose **Delete imported sales** above the table and confirm. This includes imported rows on every page.
+4. Wait for confirmation, then refresh forecasts from **Overview** or **Forecasts**.
+
+Deletion permanently removes imported sales history and preserves current stock, stock movements, and recorded sales. Saved forecasts become stale; existing forecast-run snapshots remain available for review. The system keeps import audit metadata. The original file can be imported again after every accepted row in its batch has been deleted. A partially deleted batch keeps its duplicate-file safeguard; correct or remove the remaining imported rows before reimporting that exact file.
+
+If deletion fails, the dialog keeps the error visible so you can retry. If deletion succeeds but the ledger refresh fails, choose **Reload saved records** in the notice; the deletion has already been saved.
 
 ## Record a delivery
 
@@ -167,6 +205,8 @@ Changing the unit label does not convert existing quantities. Use **Correct stoc
 3. Choose **Activate**, then **Activate product** to restore it.
 
 Deactivation keeps the saved stock balance and history. Inactive products are excluded from new sales, operational stock movements, forecasts, and restock advice.
+You can still import their past sales using the existing SKU. A historical sales import keeps
+the product inactive and leaves its current stock unchanged.
 
 ## Import current inventory
 
@@ -174,7 +214,7 @@ Deactivation keeps the saved stock balance and history. Inactive products are ex
 
 **Where:** **Inventory > Products > Import inventory**.
 
-Use an inventory file to add products or update verified current stock counts. Save your spreadsheet as CSV; columns can have a different order and extra columns are skipped. For products already in StockCast, **SKU and On Hand are enough**. Missing product details stay as saved. New products need all the details below:
+Use an inventory file to add products or update verified current stock counts. Save your spreadsheet as CSV; columns can have a different order and extra columns are skipped. For products already in StockCast, **SKU and On Hand are enough**. The default import keeps saved product details and ignores unrelated source details, including blank or invalid optional costs or lead times. New products need all the details below:
 
 | Column       | What to enter                           |
 | ------------ | --------------------------------------- |
@@ -187,23 +227,23 @@ Use an inventory file to add products or update verified current stock counts. S
 | Safety Stock | Buffer quantity, zero or higher         |
 | Unit Cost    | Cost per counting unit in PHP           |
 
-1. Choose **Import inventory**, then **Upload CSV file**. You can also choose **Paste CSV**.
-2. If StockCast asks which column to use or what a number means, choose the correct answer. Clear matches are detected automatically.
-3. Check the **Import preview**: product codes, counting units, and current stock counts. Correct any reported problems before continuing.
-4. Check **I checked these records and their counting units**, then choose **Import inventory**.
+1. Choose **Import inventory**, then **Choose CSV file** and select your file. You can also choose **Paste CSV**.
+2. StockCast automatically selects the useful columns and number format, then checks all records.
+3. Check the **Import preview**: product codes, counting units, and current stock counts. Safe report titles, repeated headers, padding, and trailing totals are ignored automatically; the summary shows how many report rows were ignored.
+4. When the status says the file is ready, choose **Upload CSV** beside the filename, before the status and preview, to save it. The button stays visible after selecting a file and shows **Uploading…** while saving.
 5. Wait for confirmation, then check **Products** and **Stock movements**.
 
-Open **Adjust import** only if a detected match needs changing. For a new product, add its details in **Products** first or include them in the file. Under Adjust import, a verified shared Category, Unit, Lead Time, Safety Stock, or Unit Cost may be entered only when it applies to every row. A supplied blank value is an error; only an absent column keeps an existing product's saved detail. Use **View original file** to compare the source with the import preview.
+Open **Adjust import** only if a detected column or number format needs changing. There are no required setup questions or review checkbox. To update saved metadata too, enable **Update existing product details from CSV**; supplied fields then need valid values, while absent fields keep their latest saved details. A nonblank incompatible unit always blocks import. For a new product, add its details in **Products** first or include them in the file. Under Adjust import, a verified shared Category, Unit, Lead Time, Safety Stock, or Unit Cost may be entered only when it applies to every row. Use **View original file** to compare the source with the import preview.
 
-**Download complete error report** lists every problem and its source record/starting line. The screen shows at most 50 problems. Correct the source and select it again, or edit pasted text.
+Choosing a file starts preparation and shows its status; **Upload CSV** stays visible beside the filename and becomes enabled when the file is ready. Unused columns and recognized report rows are skipped without warnings. If required data cannot be imported, a short explanation appears near the disabled **Upload CSV** button. Open **Import details** to inspect all affected fields or choose **Download complete error report** for every problem and its source record/starting line. CSV structure or file-decoding problems appear under **File details**. The screen shows at most 50 problems. Correct required source values and select the file again, or edit pasted text.
 
-Selecting a file or viewing its preview does not save it. Original and converted previews are bounded; all data records are checked and the full valid file is used for import. Use **Cancel preparation** to stop, or **Prepare again** to retry. To change uploaded data, edit the source file and select it again. Selecting a new source clears its mappings and format choices. Changing a mapping or format requires reviewing the converted values again.
+Selecting a file or viewing its preview does not save it. Original and converted previews are bounded; all data records are checked and the full valid file is used for import. Use **Cancel preparation** to stop, or **Prepare again** to retry. To change uploaded data, edit the source file and select it again. Selecting a new source clears its mappings and format choices. Changing a mapping or format triggers fresh preparation; check the converted values before saving.
 
-**What changes:** matching SKUs update supplied product details and replace current counts with audited corrections. Details absent from the file keep their latest saved values. New SKUs create products. Matching inactive products are reactivated, and products absent from the file remain saved. A rejected inventory row prevents the whole snapshot from saving.
+**What changes:** matching SKUs replace current counts with audited corrections and keep saved product details by default. **Update existing product details from CSV** also updates valid supplied metadata. New SKUs create products. Matching inactive products are reactivated, and products absent from the file remain saved. A rejected inventory row prevents the whole snapshot from saving.
 
 If a notice says the import **was saved** but the product list could not be refreshed, choose **Reload saved records**. Avoid importing the same source again just to refresh the view.
 
-Stock and safety quantities allow up to three decimal places; unit cost allows four. Extra precision is rejected rather than rounded. Duplicate SKUs in one file must be corrected. For an existing SKU, use its current counting unit; changing a unit label does not convert quantities or historical records. The maximum is **5,000 inventory data rows per import**. This is a current inventory snapshot, not a delivery list or sales file.
+Stock and safety quantities allow up to three decimal places; unit cost allows four. Extra precision is rejected rather than rounded. Duplicate SKUs in one file must be corrected. For an existing SKU, use its current counting unit; changing a unit label does not convert quantities or historical records. The maximum is **5,000 inventory data rows per import**, with a **25 MiB file or pasted-source limit**. Extra unused columns are ignored even in wide files. This is a current inventory snapshot, not a delivery list or sales file.
 
 ## Import past sales
 
@@ -213,30 +253,34 @@ Stock and safety quantities allow up to three decimal places; unit cost allows f
 
 Create or import the products first. Save the spreadsheet as CSV. StockCast detects clear column matches and skips unrelated columns:
 
-| Column                      | What to enter                                                                  |
-| --------------------------- | ------------------------------------------------------------------------------ |
-| Date                        | Sale date; clear formats are detected and saved as **YYYY-MM-DD**              |
-| Product                     | An existing SKU; an unambiguous product name or internal product ID also works |
-| Quantity                    | Positive sold quantity in that product's unit                                  |
-| Source Record Key, optional | A stable unique identifier for one sale line                                   |
-| Unit, optional check        | The existing product's counting unit; no pack/piece conversion is performed    |
+| Column                      | What to enter                                                                    |
+| --------------------------- | -------------------------------------------------------------------------------- |
+| Date                        | Sale date; clear formats are detected and saved as **YYYY-MM-DD**                |
+| Product                     | An existing SKU; an unambiguous product name or internal product ID also works   |
+| Quantity                    | Positive sold quantity in that product's unit                                    |
+| Source Record Key, optional | A stable unique identifier for one sale line                                     |
+| Unit, optional check        | Nonblank values must match the product's counting unit; blank values are ignored |
 
-1. Open **Sales ledger > Import CSV**, then choose **Upload CSV file** or **Paste CSV**.
-2. Answer any short questions that appear. For example, **05/10/2026** could mean October 5 or May 10; StockCast asks when both meanings are possible. A number such as **1,234** also needs confirmation when it could mean different quantities.
-3. Check the **Import preview**, especially dates, products, sold quantities, and counting units. Open **Adjust import** only if a detected column or format needs changing.
-4. If a product is unrecognized, use **Find catalog product** and **Match product** to choose the existing product with the same counting unit. Add missing products in **Products** first. Correct every row problem; the complete error report includes problems beyond those shown on screen.
-5. Check **I checked these records and their counting units**, then choose **Import rows**.
+1. Open **Sales ledger > Import CSV**, then choose **Choose CSV file** and select your file, or choose **Paste CSV**.
+2. StockCast automatically selects the useful columns and formats, then checks all records. The displayed format summary shows its choices.
+3. Check the **Import preview**, especially dates, products, sold quantities, and counting units. Unused columns and safe report rows are ignored automatically. Open **Adjust import** only if a detected column or format needs changing.
+4. If required data is unavailable, a short explanation appears near the disabled **Upload CSV** button; **Import details** lists the affected records. If a product is unrecognized, correct its source SKU or open **Adjust import** and use **Find catalog product** and **Match product** to choose the existing product with the same counting unit. Add missing products in **Products** first. The complete error report includes problems beyond those shown on screen.
+5. When the status says the file is ready, choose **Upload CSV** beside the filename, before the status and preview, to save it; no additional confirmation checkbox is required. The button stays visible after selection and shows **Uploading…** while saving.
 6. Read the imported, already-imported, and rejected counts. Check the **Sales ledger** or choose **Export sales CSV** for all saved rows.
 
-StockCast does not interpret receipt totals or revenue as sold quantities. If a quantity column is unclear, it asks you to choose it. No missing dates, quantities, or product details are invented, and invalid rows are not silently discarded.
+StockCast uses the file and catalog to identify required information and ignores unrelated columns. It does not interpret receipt totals or revenue as sold quantities. No missing dates, quantities, or product details are invented, and invalid rows are not silently discarded. Missing required columns are reported so you can correct the source or choose a column under **Adjust import**.
 
-In **Selected product matches**, search by source identifier, SKU, or product name, or use **Previous selected matches** / **Next selected matches** to review 50 at a time. Every choice can be changed or removed. Changing the product column, separator, or header choice clears these matches so you can review the new identifiers.
+When a file supports more than one interpretation, StockCast prefers ISO dates, then day/month/year, then month/day/year. For numbers it prefers a decimal point, then comma grouping, then a decimal comma. For example, otherwise ambiguous **05/10/2026** becomes **2026-10-05**, and **1,234** becomes **1234**. Check the converted preview and use **Adjust import** if your source uses the other meaning. Evidence elsewhere in the same file can select another supported format automatically.
 
-**What changes:** past sales are added to demand history. They do not reduce current stock or create a delivery. This is appropriate for older transactions already reflected in your current physical count.
+Under **Adjust import > Selected product matches**, search by source identifier, SKU, or product name, or use **Previous selected matches** / **Next selected matches** to review 50 at a time. Every choice can be changed or removed. Changing the product column, separator, or header choice clears these matches so you can review the new identifiers.
+
+**What changes:** past sales are added to demand history for existing products, including inactive
+ones. They do not reduce current stock, reactivate products, or create a delivery. This is
+appropriate for older transactions already reflected in your current physical count.
 
 If a notice says the import **was saved** but the ledger could not be refreshed, choose **Reload saved records**. The save succeeded; this button reads saved records without importing the file again.
 
-Sold quantities must be positive with up to three decimal places. Extra precision is rejected rather than rounded. The maximum is **100,000 sales data rows per import**. The converted preview shows the first 50 data records; it does not limit the import to 50 rows. The original preview is also bounded. Mapping or format changes invalidate the earlier preparation and require a new review.
+Sold quantities must be positive with up to three decimal places. Extra precision is rejected rather than rounded. The maximum is **100,000 sales data rows per import**, with a **25 MiB file or pasted-source limit**. Extra unused columns are ignored even in wide files. The converted preview shows the first 50 data records; it does not limit the import to 50 rows. The original preview is also bounded. Mapping or format changes invalidate the earlier preparation and trigger fresh preparation.
 
 ### Fix an import problem
 
@@ -261,7 +305,7 @@ Added history is used by a later forecast refresh. The owner can refresh earlier
 2. Check the most recent records and the total sales-record count.
 3. Choose **Export sales CSV** to download all saved sales for this store.
 
-The table displays the latest **40 records**, so its visible row count can be smaller than the total. It has no search or date filter. The export contains all saved sales, including rows beyond the displayed 40. Its extra export columns need mapping before reuse as an import file.
+The table displays **40 records per page**, with **Previous** and **Next** controls to reach the complete history. It has no search or date filter. The export contains all saved sales, including rows on other pages. StockCast automatically recognizes its import fields and ignores the extra columns. Saved Source Record Keys are included for duplicate checking on reimport. Records originally saved without keys remain unkeyed; overlapping unkeyed records cannot be reliably identified.
 
 ### Stock movement ledger
 
@@ -300,14 +344,14 @@ The automatic refresh schedule is displayed on Overview, Restock, and Forecasts 
 
 ### Understand the notices
 
-| Notice | What to do |
-| --- | --- |
-| Queued or processing | Wait for the result; avoid repeated refresh requests |
-| Stale | Records or settings changed; review the next completed refresh |
-| Expired | Update recent sales or verified zero-sale dates, then ask the owner to refresh |
-| Unavailable or an em dash | Read the reason; a value was not available, rather than measured as zero |
-| Moving Average fallback | Check the product's history and quality notes; it may not qualify for XGBoost |
-| Low confidence | Treat the estimate as decision support and check the underlying records |
+| Notice                    | What to do                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------ |
+| Queued or processing      | Wait for the result; avoid repeated refresh requests                           |
+| Stale                     | Records or settings changed; review the next completed refresh                 |
+| Expired                   | Update recent sales or verified zero-sale dates, then ask the owner to refresh |
+| Unavailable or an em dash | Read the reason; a value was not available, rather than measured as zero       |
+| Moving Average fallback   | Check the product's history and quality notes; it may not qualify for XGBoost  |
+| Low confidence            | Treat the estimate as decision support and check the underlying records        |
 
 Check forecast dates before using them for today's purchasing. Unknown or excluded dates do not move old predictions forward. MAE and RMSE describe error on evaluated records, not a guaranteed accuracy percentage. Available prediction intervals show an estimated range, not a guarantee of future demand.
 
@@ -337,13 +381,13 @@ The reorder point combines expected demand during supplier lead time with safety
 4. Add the supporting **Evidence / note**, such as a checked ledger, closure date, or correction reason.
 5. Choose **Save classification** and check **Reviewed dates**.
 
-| Classification | When to use it |
-| --- | --- |
-| Confirmed zero sales | You verified that records are complete and the product had no sales that day |
-| Business closed | The store did not operate that day |
-| Full stockout | The product was unavailable for the entire selling period |
-| Partial stockout | The product was unavailable for part of the selling period |
-| Missing / incomplete records | You cannot verify a complete sales record for that day |
+| Classification               | When to use it                                                               |
+| ---------------------------- | ---------------------------------------------------------------------------- |
+| Confirmed zero sales         | You verified that records are complete and the product had no sales that day |
+| Business closed              | The store did not operate that day                                           |
+| Full stockout                | The product was unavailable for the entire selling period                    |
+| Partial stockout             | The product was unavailable for part of the selling period                   |
+| Missing / incomplete records | You cannot verify a complete sales record for that day                       |
 
 An absent sale is not automatically a confirmed zero. Confirmed zero days can contribute to forecasting history; closures, stockouts, and incomplete dates are excluded from demand targets. A product-specific review takes precedence over an All products review for that product and date.
 
@@ -357,7 +401,7 @@ To correct a classification, select the same date and product in the form, enter
 
 1. Read **Your account** to check your email, role, and Business ID.
 2. Under **Account maintenance**, enter **Current password** and **New password**. The new password must contain 12 to 128 characters.
-3. Choose **Change password**, then sign in again. Changing a password ends that account's active sessions.
+3. Choose **Change password**, then sign in again. Changing a password ends that account's active sessions and invalidates its earlier recovery links.
 
 Use **Forgot password** on the sign-in screen if you cannot sign in. Recovery emails require the installation's email service. **Connect Google account** is available in Your account when Google sign-in has been enabled; connecting preserves your current store and role.
 
@@ -407,38 +451,38 @@ Save draft stores answers only in this browser; it does not submit feedback. Sta
 
 ## Get help with a problem
 
-| What you see | What to check or do next |
-| --- | --- |
-| Failed to fetch, or the website cannot load | Check your connection and reload once. If it continues, contact the person managing the installation. Previously displayed values may remain visible while a read fails |
-| A session or sign-in error | Sign in again using the same website address |
-| A product is missing | Search Products and ask the owner to check the Inactive or All products filter |
-| No products are available in a recording form | Ask the owner to add or activate the product |
-| A management button is missing | Check Your account; the action may require the owner role |
-| Sale or write-off exceeds stock | Verify the physical count and check whether a delivery is still unrecorded |
-| CSV rows are rejected | Read the row messages; check dates, SKUs, quantities, and source-key conflicts before retrying |
-| Sales table shows fewer rows than the total | It displays the latest 40; use Export sales CSV to get all saved records |
-| Past sales imported, but stock did not change | This is expected: importing history preserves current stock |
-| New sales or classifications are absent from the forecast | Review the next completed refresh or ask the owner to refresh earlier |
-| No XGBoost result or 0 ML SKUs | Read the product's history and eligibility explanation in Forecasts |
-| Forecast remains queued or fails | Tell the owner the status and time; the person managing the installation can check processing |
-| Invitation or recovery email is unavailable | Ask the person managing the installation to check email delivery; verify the recipient address |
-| Copy MAE / RMSE table is blocked | Check the browser's clipboard permission or copy the displayed values manually |
+| What you see                                              | What to check or do next                                                                                                                                                |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Failed to fetch, or the website cannot load               | Check your connection and reload once. If it continues, contact the person managing the installation. Previously displayed values may remain visible while a read fails |
+| A session or sign-in error                                | Sign in again using the same website address                                                                                                                            |
+| A product is missing                                      | Search Products and ask the owner to check the Inactive or All products filter                                                                                          |
+| No products are available in a recording form             | Ask the owner to add or activate the product                                                                                                                            |
+| A management button is missing                            | Check Your account; the action may require the owner role                                                                                                               |
+| Sale or write-off exceeds stock                           | Verify the physical count and check whether a delivery is still unrecorded                                                                                              |
+| CSV rows are rejected                                     | Read the row messages; check dates, SKUs, quantities, and source-key conflicts before retrying                                                                          |
+| Sales table shows fewer rows than the total               | It displays 40 rows per page; use Previous/Next or Export sales CSV to get all saved records                                                                              |
+| Past sales imported, but stock did not change             | This is expected: importing history preserves current stock                                                                                                             |
+| New sales or classifications are absent from the forecast | Review the next completed refresh or ask the owner to refresh earlier                                                                                                   |
+| No XGBoost result or 0 ML SKUs                            | Read the product's history and eligibility explanation in Forecasts                                                                                                     |
+| Forecast remains queued or fails                          | Tell the owner the status and time; the person managing the installation can check processing                                                                           |
+| Invitation or recovery email is unavailable               | Ask the person managing the installation to check email delivery; verify the recipient address                                                                          |
+| Copy MAE / RMSE table is blocked                          | Check the browser's clipboard permission or copy the displayed values manually                                                                                          |
 
 If a save reports an error, do not assume it succeeded. Check the relevant ledger or saved record before repeating a transaction. Report the screen, action, exact message, and approximate time to the owner. Avoid including passwords or private customer records in a support screenshot.
 
 ## Understand common terms
 
-| Term | Meaning |
-| --- | --- |
-| SKU | A product's catalog code |
-| On hand | The current recorded stock quantity |
-| Lead time | Days between ordering and receiving goods |
-| Safety stock | Extra stock kept as a buffer |
-| Reorder point | Stock level used to trigger a replenishment suggestion |
-| Days of cover | Estimated time that stock can meet the current demand estimate |
-| Forecast horizon | Number of future days predicted after usable history |
-| Moving Average | A demand estimate based on recent usable daily sales |
-| XGBoost | The machine-learning method used for eligible products |
-| Ensemble | A weighted combination of Moving Average and XGBoost |
-| Audit trail | Saved evidence of a record or stock change |
-| MAE / RMSE | Error measures on evaluated sales; lower values mean smaller measured errors |
+| Term             | Meaning                                                                      |
+| ---------------- | ---------------------------------------------------------------------------- |
+| SKU              | A product's catalog code                                                     |
+| On hand          | The current recorded stock quantity                                          |
+| Lead time        | Days between ordering and receiving goods                                    |
+| Safety stock     | Extra stock kept as a buffer                                                 |
+| Reorder point    | Stock level used to trigger a replenishment suggestion                       |
+| Days of cover    | Estimated time that stock can meet the current demand estimate               |
+| Forecast horizon | Number of future days predicted after usable history                         |
+| Moving Average   | A demand estimate based on recent usable daily sales                         |
+| XGBoost          | The machine-learning method used for eligible products                       |
+| Ensemble         | A weighted combination of Moving Average and XGBoost                         |
+| Audit trail      | Saved evidence of a record or stock change                                   |
+| MAE / RMSE       | Error measures on evaluated sales; lower values mean smaller measured errors |

@@ -13,6 +13,8 @@ export type CsvImportOptions = {
   numberFormat: CsvNumberFormat;
   dateConfirmed?: boolean;
   numberConfirmed?: boolean;
+  // Automatic counts keep saved metadata; new products always need source details.
+  inventoryDetails?: "new-only" | "all";
   // Exact, trimmed source identifiers are mapped to a current product ID by the user.
   productMatches: Record<string, string>;
   constants?: Record<string, string>;
@@ -24,21 +26,47 @@ export const CSV_IMPORT_FIELDS: Record<GuidedCsvKind, CsvField[]> = {
       key: "sku",
       label: "SKU",
       required: true,
-      aliases: ["sku", "itemcode", "productcode", "stockcode", "itemsku", "productsku"],
+      aliases: [
+        "sku",
+        "itemsku",
+        "productsku",
+        "stockkeepingunit",
+        "itemcode",
+        "productcode",
+        "stockcode",
+        "itemnumber",
+        "itemno",
+        "productnumber",
+        "productno",
+        "barcode",
+      ],
     },
     {
       key: "name",
       label: "Product name",
       required: true,
-      aliases: ["product", "name", "productname", "itemname", "description"],
+      aliases: [
+        "productname",
+        "itemname",
+        "product",
+        "name",
+        "itemdescription",
+        "productdescription",
+        "description",
+      ],
     },
     {
       key: "category",
       label: "Category",
       required: true,
-      aliases: ["category", "productcategory", "group"],
+      aliases: ["category", "productcategory", "itemcategory", "productgroup", "group"],
     },
-    { key: "unit", label: "Unit", required: true, aliases: ["unit", "uom", "countingunit"] },
+    {
+      key: "unit",
+      label: "Unit",
+      required: true,
+      aliases: ["unit", "uom", "countingunit", "unitofmeasure", "unitofmeasurement"],
+    },
     {
       key: "stock",
       label: "On Hand",
@@ -51,20 +79,38 @@ export const CSV_IMPORT_FIELDS: Record<GuidedCsvKind, CsvField[]> = {
         "quantityonhand",
         "quantityavailable",
         "availablequantity",
+        "onhandquantity",
+        "onhandqty",
+        "qtyonhand",
+        "stockquantity",
+        "stockqty",
+        "stockcount",
+        "physicalstock",
+        "closingstock",
+        "availablestock",
+        "availableqty",
+        "inventoryquantity",
+        "inventoryqty",
+        "inventorylevel",
       ],
     },
-    { key: "lead", label: "Lead Time", required: true, aliases: ["leadtime", "leadtimedays"] },
+    {
+      key: "lead",
+      label: "Lead Time",
+      required: true,
+      aliases: ["leadtimedays", "leadtimeindays", "leadtime"],
+    },
     {
       key: "safety",
       label: "Safety Stock",
       required: true,
-      aliases: ["safetystock", "bufferstock"],
+      aliases: ["safetystock", "safetystockquantity", "safetystockqty", "bufferstock"],
     },
     {
       key: "cost",
       label: "Unit Cost",
       required: true,
-      aliases: ["unitcost", "cost", "costperunit"],
+      aliases: ["unitcost", "costperunit", "cost"],
     },
   ],
   sales: [
@@ -72,7 +118,16 @@ export const CSV_IMPORT_FIELDS: Record<GuidedCsvKind, CsvField[]> = {
       key: "date",
       label: "Date",
       required: true,
-      aliases: ["date", "saledate", "salesdate", "transactiondate", "bookedon", "posteddate"],
+      aliases: [
+        "saledate",
+        "salesdate",
+        "transactiondate",
+        "date",
+        "bookedon",
+        "posteddate",
+        "orderdate",
+        "invoicedate",
+      ],
     },
     {
       key: "product",
@@ -87,6 +142,17 @@ export const CSV_IMPORT_FIELDS: Record<GuidedCsvKind, CsvField[]> = {
         "itemname",
         "itemsku",
         "productsku",
+        "productid",
+        "itemid",
+        "stockkeepingunit",
+        "stockcode",
+        "itemnumber",
+        "itemno",
+        "productnumber",
+        "productno",
+        "barcode",
+        "itemdescription",
+        "productdescription",
       ],
     },
     {
@@ -94,13 +160,16 @@ export const CSV_IMPORT_FIELDS: Record<GuidedCsvKind, CsvField[]> = {
       label: "Quantity",
       required: true,
       aliases: [
-        "quantity",
-        "qty",
         "unitssold",
         "quantitysold",
+        "qtysold",
         "soldqty",
         "soldquantity",
         "salesquantity",
+        "salesqty",
+        "soldunits",
+        "quantity",
+        "qty",
       ],
     },
     {
@@ -113,7 +182,7 @@ export const CSV_IMPORT_FIELDS: Record<GuidedCsvKind, CsvField[]> = {
       key: "unit",
       label: "Unit (optional check)",
       required: false,
-      aliases: ["unit", "uom", "countingunit"],
+      aliases: ["unit", "uom", "countingunit", "unitofmeasure", "unitofmeasurement"],
     },
   ],
 };
@@ -128,7 +197,8 @@ export const CSV_NUMBER_FORMATS: { value: CsvNumberFormat; label: string }[] = [
   { value: "decimal-comma", label: "Decimal comma, dot grouping (1.234,50)" },
 ];
 export const CSV_ISSUE_PREVIEW_LIMIT = 50;
-export const CSV_COLUMN_LIMIT = 100;
+// Bound optional mapping choices, not the number of unused columns a report can contain.
+export const CSV_COLUMN_PREVIEW_LIMIT = 100;
 export const CSV_INVENTORY_FIXED_FIELDS = ["category", "unit", "lead", "safety", "cost"];
 
 export type CsvImportIssue = {
@@ -143,14 +213,11 @@ export type CsvProductResolution = {
   reason: "unknown" | "ambiguous";
   rows: number;
 };
-export type CsvFormatQuestion = {
-  field: "date" | "number";
-  sample: string;
-  choices: { value: string; label: string }[];
-};
 export type GuidedCsvValidation = {
   options: CsvImportOptions;
   columns: string[];
+  columnIndices: number[];
+  sourceColumnCount: number;
   configurationErrors: string[];
   issues: CsvImportIssue[];
   rowCount: number;
@@ -168,7 +235,7 @@ const normalizedHeader = (value: string) =>
   value
     .trim()
     .toLowerCase()
-    .replace(/[\s_-]/g, "");
+    .replace(/[^a-z0-9]/g, "");
 function short(value: string, limit = 200): string {
   if (value.length <= limit) return value;
   let prefix = "",
@@ -181,7 +248,31 @@ function short(value: string, limit = 200): string {
   return prefix;
 }
 
-/** Suggest explicit header aliases or the documented headerless column order. */
+function conflictingAliasColumns(records: CsvRecord[], field: CsvField): boolean {
+  const names = (records[0]?.fields ?? []).map(normalizedHeader);
+  const soldAliases = field.aliases.filter((alias) => !["quantity", "qty"].includes(alias));
+  const groups =
+    field.key === "quantity"
+      ? [soldAliases.some((alias) => names.includes(alias)) ? soldAliases : ["quantity", "qty"]]
+      : field.key === "stock"
+        ? [field.aliases]
+        : field.aliases.map((alias) => [alias]);
+  return groups.some((aliases) => {
+    const columns = names.flatMap((name, column) => (aliases.includes(name) ? [column] : []));
+    return (
+      columns.length > 1 &&
+      records
+        .slice(1)
+        .some((row) =>
+          columns.some(
+            (column) => (row.fields[column] ?? "").trim() !== (row.fields[columns[0]] ?? "").trim(),
+          ),
+        )
+    );
+  });
+}
+
+/** Prefer specific header aliases, then source order; retain documented headerless order. */
 export function suggestCsvOptions(
   records: CsvRecord[],
   kind: GuidedCsvKind,
@@ -200,9 +291,16 @@ export function suggestCsvOptions(
     const candidates = names.flatMap((name, index) =>
       field.aliases.includes(name) ? [index] : [],
     );
-    // Ambiguous aliases stay unselected. Two fields cannot quietly share one source column.
+    // Multiple identity columns need whole-file catalog agreement before automatic selection.
+    candidates.sort(
+      (left, right) =>
+        field.aliases.indexOf(names[left]) - field.aliases.indexOf(names[right]) || left - right,
+    );
+    const conflictingDuplicates = conflictingAliasColumns(records, field);
     mapping[field.key] = header
-      ? candidates.length === 1
+      ? candidates.length &&
+        !conflictingDuplicates &&
+        (!(kind === "sales" && field.key === "product") || candidates.length === 1)
         ? candidates[0]
         : null
       : position < first.length && !(kind === "sales" && field.key === "unit")
@@ -215,6 +313,7 @@ export function suggestCsvOptions(
     mapping,
     dateFormat: "iso",
     numberFormat: "decimal-point",
+    ...(kind === "inventory" ? { inventoryDetails: "new-only" as const } : {}),
     productMatches: {},
   };
 }
@@ -297,24 +396,42 @@ function add(lookup: Lookup, key: string, product: Product) {
   else lookup.set(key, null);
 }
 
-/** Infer only interpretations supported by the whole file, and ask when values differ. */
+/** Use whole-file evidence, with stable format defaults when more than one meaning is valid. */
 export function analyzeCsvOptions(
   records: CsvRecord[],
   kind: GuidedCsvKind,
   products: Product[],
   supplied?: CsvImportOptions,
-): { options: CsvImportOptions; questions: CsvFormatQuestion[] } {
+): { options: CsvImportOptions } {
   const options = supplied
     ? { ...supplied, mapping: { ...supplied.mapping } }
     : suggestCsvOptions(records, kind);
   const rows = records.slice(options.header ? 1 : 0);
-  const questions: CsvFormatQuestion[] = [];
+  const inventoryCatalog: Lookup = new Map();
+  if (kind === "inventory") {
+    options.inventoryDetails ??= "new-only";
+    for (const product of products) add(inventoryCatalog, product.sku.toLowerCase(), product);
+    if (!supplied && options.inventoryDetails === "new-only") {
+      const neededRows = rows.filter(
+        (row) =>
+          !inventoryCatalog.get((row.fields[options.mapping.sku ?? -1] ?? "").trim().toLowerCase()),
+      );
+      const detailOptions = suggestCsvOptions(
+        options.header ? [records[0], ...neededRows] : records,
+        kind,
+        options.header,
+      );
+      for (const field of CSV_IMPORT_FIELDS.inventory)
+        if (!["sku", "stock"].includes(field.key))
+          options.mapping[field.key] = detailOptions.mapping[field.key];
+    }
+  }
   if (!supplied && kind === "sales" && rows.length) {
     const exact: Lookup = new Map(),
       sku: Lookup = new Map(),
       names: Lookup = new Map();
     for (const product of products) {
-      if (product.isActive === false) continue;
+      // Historical sales still belong to products that are no longer sold.
       add(exact, product.id, product);
       if (product.sku !== product.id) add(exact, product.sku, product);
       add(sku, product.sku.toLowerCase(), product);
@@ -327,19 +444,63 @@ export function analyzeCsvOptions(
       const code = sku.get(value.toLowerCase());
       return code !== undefined ? code : names.get(value.toLowerCase());
     };
-    if (options.mapping.product === null && options.header) {
-      const candidates = (records[0]?.fields ?? []).flatMap((_value, column) =>
-        rows.slice(0, 200).every((record) => resolve(record.fields[column] ?? "")) ? [column] : [],
+    if (
+      options.mapping.product === null &&
+      options.header &&
+      !conflictingAliasColumns(
+        records,
+        CSV_IMPORT_FIELDS.sales.find((field) => field.key === "product")!,
+      )
+    ) {
+      const productAliases = CSV_IMPORT_FIELDS.sales.find(
+        (field) => field.key === "product",
+      )!.aliases;
+      const identityColumns = records[0].fields.flatMap((name, column) =>
+        productAliases.includes(normalizedHeader(name)) ? [column] : [],
       );
+      // A partially unknown identifier column must not hide a known contradiction on another row.
+      const conflictingIdentities =
+        identityColumns.length > 1 &&
+        rows.some((record) => {
+          let productId: string | undefined;
+          return identityColumns.some((column) => {
+            const product = resolve(record.fields[column] ?? "");
+            if (!product) return false;
+            if (productId !== undefined && productId !== product.id) return true;
+            productId = product.id;
+            return false;
+          });
+        });
+      const candidates = conflictingIdentities
+        ? []
+        : // Named identities constrain automatic matching; a receipt/customer cell
+          // that happens to equal a catalog SKU must not replace unknown identities.
+          (identityColumns.length
+            ? identityColumns
+            : records[0].fields.map((_value, column) => column)
+          ).filter((column) => rows.every((record) => resolve(record.fields[column] ?? "")));
       // Prefer a clearly named SKU over a redundant name only if every row agrees.
       const codeColumns = candidates.filter((column) =>
-        ["sku", "itemcode", "productcode", "itemsku", "productsku"].includes(
-          normalizedHeader(records[0].fields[column]),
-        ),
+        [
+          "sku",
+          "itemcode",
+          "productcode",
+          "itemsku",
+          "productsku",
+          "productid",
+          "itemid",
+          "stockkeepingunit",
+          "stockcode",
+          "itemnumber",
+          "itemno",
+          "productnumber",
+          "productno",
+          "barcode",
+        ].includes(normalizedHeader(records[0].fields[column])),
       );
       if (candidates.length === 1) options.mapping.product = candidates[0];
       else if (
-        codeColumns.length === 1 &&
+        codeColumns.length &&
         candidates.every((column) =>
           rows.every(
             (record) =>
@@ -350,15 +511,20 @@ export function analyzeCsvOptions(
       )
         options.mapping.product = codeColumns[0];
     }
-    if (options.mapping.date === null && options.header) {
+    if (
+      options.mapping.date === null &&
+      options.header &&
+      !conflictingAliasColumns(
+        records,
+        CSV_IMPORT_FIELDS.sales.find((field) => field.key === "date")!,
+      )
+    ) {
       const candidates = (records[0]?.fields ?? []).flatMap((_value, column) =>
-        rows
-          .slice(0, 200)
-          .every((record) =>
-            /^\d{4}-\d{2}-\d{2}$|^\d{1,2}[/.-]\d{1,2}[/.-]\d{4}$/.test(
-              (record.fields[column] ?? "").trim(),
-            ),
-          )
+        rows.every((record) =>
+          /^\d{4}-\d{2}-\d{2}$|^\d{1,2}[/.-]\d{1,2}[/.-]\d{4}$/.test(
+            (record.fields[column] ?? "").trim(),
+          ),
+        )
           ? [column]
           : [],
       );
@@ -372,67 +538,38 @@ export function analyzeCsvOptions(
     convert: (raw: string, format: T, decimals: number) => string | number,
   ) => {
     let candidates = [...formats];
-    const disagreements: { raw: string; values: Map<T, string | number> }[] = [];
-    const cache = new Map<string, Map<T, string | number>>();
+    const cache = new Map<string, Set<T>>();
     for (const { raw, decimals } of observations) {
       const key = `${decimals}:${raw}`;
-      let values = cache.get(key);
-      if (!values) {
-        values = new Map();
+      let valid = cache.get(key);
+      if (!valid) {
+        valid = new Set();
         for (const format of formats) {
           try {
-            values.set(format, convert(raw, format, decimals));
+            convert(raw, format, decimals);
+            valid.add(format);
           } catch {
             /* Invalid rows remain row errors. */
           }
         }
-        if (cache.size < 1_000) cache.set(key, values);
+        if (cache.size < 1_000) cache.set(key, valid);
       }
-      if (!values.size) continue;
-      candidates = candidates.filter((format) => values!.has(format));
-      // Three pairs at most; retain a sample for each differing pair without retaining rows.
-      for (let a = 0; a < formats.length; a++)
-        for (let b = a + 1; b < formats.length; b++) {
-          if (
-            values.has(formats[a]) &&
-            values.has(formats[b]) &&
-            values.get(formats[a]) !== values.get(formats[b]) &&
-            !disagreements.some(
-              (item) =>
-                item.values.has(formats[a]) &&
-                item.values.has(formats[b]) &&
-                item.values.get(formats[a]) !== item.values.get(formats[b]),
-            )
-          )
-            disagreements.push({ raw, values });
-        }
+      if (!valid.size) continue;
+      candidates = candidates.filter((format) => valid.has(format));
     }
-    const ambiguous = disagreements.find(
-      (item) =>
-        new Set(candidates.map((format) => item.values.get(format))).size > 1 &&
-        candidates.every((format) => item.values.has(format)),
-    );
-    return { candidates, ambiguous };
+    return candidates;
   };
   if (kind === "sales" && !options.dateConfirmed && options.mapping.date != null) {
-    const result = infer(
+    const candidates = infer(
       CSV_DATE_FORMATS.map((item) => item.value),
       rows.map((row) => ({ raw: (row.fields[options.mapping.date!] ?? "").trim(), decimals: 0 })),
       convertedDate,
     );
-    if (result.ambiguous)
-      questions.push({
-        field: "date",
-        sample: short(result.ambiguous.raw),
-        choices: result.candidates.map((format) => ({
-          value: format,
-          label: `${new Date(`${result.ambiguous!.values.get(format)}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })} (${format === "dmy" ? "day first" : "month first"})`,
-        })),
-      });
-    else if (result.candidates.length)
-      options.dateFormat = result.candidates.includes(options.dateFormat)
+    // ISO is preferred, then day-first, then month-first. Explicit overrides are retained.
+    if (candidates.length)
+      options.dateFormat = candidates.includes(options.dateFormat)
         ? options.dateFormat
-        : result.candidates[0];
+        : candidates[0];
   }
   if (!options.numberConfirmed) {
     const numericFields =
@@ -447,43 +584,45 @@ export function analyzeCsvOptions(
     function* observations() {
       for (const row of rows)
         for (const [field, decimals] of numericFields) {
+          if (
+            kind === "inventory" &&
+            field !== "stock" &&
+            options.inventoryDetails === "new-only" &&
+            inventoryCatalog.get((row.fields[options.mapping.sku ?? -1] ?? "").trim().toLowerCase())
+          )
+            continue;
           const column = options.mapping[field];
           // A fractional lead time is a row error, not proof that dots mean thousands.
           if (column != null)
             yield { raw: (row.fields[column] ?? "").trim(), decimals: Math.max(3, decimals) };
         }
       for (const [field, decimals] of numericFields)
-        if (options.mapping[field] == null && Object.hasOwn(options.constants ?? {}, field))
+        if (
+          options.mapping[field] == null &&
+          Object.hasOwn(options.constants ?? {}, field) &&
+          (kind !== "inventory" ||
+            options.inventoryDetails !== "new-only" ||
+            rows.some(
+              (row) =>
+                !inventoryCatalog.get(
+                  (row.fields[options.mapping.sku ?? -1] ?? "").trim().toLowerCase(),
+                ),
+            ))
+        )
           yield { raw: options.constants![field].trim(), decimals: Math.max(3, decimals) };
     }
-    const result = infer(
+    const candidates = infer(
       CSV_NUMBER_FORMATS.map((item) => item.value),
       observations(),
       convertedNumber,
     );
-    if (result.ambiguous)
-      questions.push({
-        field: "number",
-        sample: short(result.ambiguous.raw),
-        choices: result.candidates
-          .filter(
-            (format, index, formats) =>
-              formats.findIndex(
-                (candidate) =>
-                  result.ambiguous!.values.get(candidate) === result.ambiguous!.values.get(format),
-              ) === index,
-          )
-          .map((format) => ({
-            value: format,
-            label: `${Number(result.ambiguous!.values.get(format)).toLocaleString("en-US", { maximumFractionDigits: 4 })} (${Number.isInteger(result.ambiguous!.values.get(format)) ? "whole number" : "decimal number"})`,
-          })),
-      });
-    else if (result.candidates.length)
-      options.numberFormat = result.candidates.includes(options.numberFormat)
+    // Prefer decimal points and comma grouping unless the complete source proves another format.
+    if (candidates.length)
+      options.numberFormat = candidates.includes(options.numberFormat)
         ? options.numberFormat
-        : result.candidates[0];
+        : candidates[0];
   }
-  return { options, questions };
+  return { options };
 }
 
 export function validateGuidedCsv(
@@ -491,22 +630,62 @@ export function validateGuidedCsv(
   kind: GuidedCsvKind,
   products: Product[],
   supplied?: CsvImportOptions,
-  questions: CsvFormatQuestion[] = [],
 ): GuidedCsvValidation {
   const options = supplied ?? suggestCsvOptions(records, kind);
   const fields = CSV_IMPORT_FIELDS[kind];
   const first = records[0]?.fields ?? [];
-  const columnCount = first.length;
+  const columnCount = records.reduce((count, record) => Math.max(count, record.fields.length), 0);
   const rows = records.slice(options.header ? 1 : 0);
+  const exact: Lookup = new Map(),
+    sku: Lookup = new Map(),
+    names: Lookup = new Map();
+  const byId = new Map<string, Product>();
+  for (const product of products) {
+    byId.set(product.id, product);
+    add(exact, product.id, product);
+    if (product.sku !== product.id) add(exact, product.sku, product);
+    add(sku, product.sku.toLowerCase(), product);
+    add(names, product.name.toLowerCase(), product);
+  }
+  const detailRows =
+    kind === "inventory" && options.inventoryDetails === "new-only"
+      ? rows.filter(
+          (row) => !sku.get((row.fields[options.mapping.sku ?? -1] ?? "").trim().toLowerCase()),
+        )
+      : rows;
+  const detailRecords = options.header ? [records[0], ...detailRows] : detailRows;
+  const columnIndices = Array.from(
+    { length: Math.min(columnCount, CSV_COLUMN_PREVIEW_LIMIT) },
+    (_value, index) => index,
+  );
+  // Keep detected late fields available after an optional override clears or
+  // remaps them. Both mappings have only the finite import fields, not all aliases.
+  const detectedMapping =
+    columnCount > CSV_COLUMN_PREVIEW_LIMIT
+      ? analyzeCsvOptions(records, kind, products).options.mapping
+      : {};
+  for (const mapping of [detectedMapping, options.mapping])
+    for (const field of fields) {
+      const column = mapping[field.key];
+      if (
+        column != null &&
+        Number.isInteger(column) &&
+        column >= 0 &&
+        column < columnCount &&
+        !columnIndices.includes(column)
+      )
+        columnIndices.push(column);
+    }
+  columnIndices.sort((left, right) => left - right);
   const result: GuidedCsvValidation = {
     options,
-    columns: first
-      .slice(0, CSV_COLUMN_LIMIT)
-      .map((name, index) =>
-        options.header
-          ? `${index + 1}: ${short(name || "(blank header)", 80)}`
-          : `${index + 1}: Column ${index + 1}`,
-      ),
+    columns: columnIndices.map((index) =>
+      options.header
+        ? `${index + 1}: ${short(first[index] || "(blank header)", 80)}`
+        : `${index + 1}: Column ${index + 1}`,
+    ),
+    columnIndices,
+    sourceColumnCount: columnCount,
     configurationErrors: [],
     issues: [],
     rowCount: rows.length,
@@ -531,15 +710,20 @@ export function validateGuidedCsv(
     reusedInventoryRows: 0,
     data: null,
   };
-  if (columnCount > CSV_COLUMN_LIMIT)
-    result.configurationErrors.push(
-      `This import supports at most ${CSV_COLUMN_LIMIT} source columns. Export only the relevant columns first.`,
-    );
   const occupied = new Map<number, string>();
   for (const field of fields) {
+    const inventoryDetail = kind === "inventory" && !["sku", "stock"].includes(field.key);
+    if (inventoryDetail && !detailRows.length) continue;
     const column = options.mapping[field.key];
     if (column === null || column === undefined) {
       if (
+        options.header &&
+        conflictingAliasColumns(inventoryDetail ? detailRecords : records, field)
+      )
+        result.configurationErrors.push(
+          `${field.label} has repeated or equivalent CSV headers with different values. Correct the file or use Adjust import.`,
+        );
+      else if (
         kind === "inventory" &&
         CSV_INVENTORY_FIXED_FIELDS.includes(field.key) &&
         Object.hasOwn(options.constants ?? {}, field.key)
@@ -548,35 +732,32 @@ export function validateGuidedCsv(
           result.configurationErrors.push(
             `Enter a verified value for ${field.label} that applies to every row.`,
           );
-      } else if (field.required && (kind !== "inventory" || ["sku", "stock"].includes(field.key)))
-        result.configurationErrors.push(`Select a source column for ${field.label}.`);
+      } else if (field.required && (kind !== "inventory" || ["sku", "stock"].includes(field.key))) {
+        const messages: Record<string, string> = {
+          quantity:
+            "CSV needs one clear sold-quantity column, such as Quantity or Units Sold. Repeated headers must agree; amount, revenue, and cost are not sold quantities.",
+          product:
+            "CSV needs an unambiguous Product / SKU column that identifies the catalog product.",
+          date: "CSV needs a sale Date column, such as Date, Sale Date, or Transaction Date.",
+          sku: "CSV needs an unambiguous SKU column, such as SKU or Item Code.",
+          stock:
+            "CSV needs one clear stock-count column, such as On Hand or Stock. Repeated headers must agree; sales quantities are not stock counts.",
+        };
+        result.configurationErrors.push(messages[field.key]);
+      }
     } else if (!Number.isInteger(column) || column < 0 || column >= columnCount)
-      result.configurationErrors.push(`Select a valid source column for ${field.label}.`);
+      result.configurationErrors.push(
+        `The mapped ${field.label} column does not exist in this CSV. Correct the file or use Adjust import.`,
+      );
     else if (occupied.has(column))
       result.configurationErrors.push(
-        `${field.label} and ${occupied.get(column)} use the same source column. Choose separate columns.`,
+        `${field.label} and ${occupied.get(column)} use the same source column. Correct the file or use Adjust import.`,
       );
     else occupied.set(column, field.label);
   }
   if (!rows.length) result.configurationErrors.push("CSV contains no data records to import.");
-  if (questions.length)
-    result.configurationErrors.push(
-      "Answer the date or number question below, then check the preview.",
-    );
   if (result.configurationErrors.length) return result;
 
-  const exact: Lookup = new Map(),
-    sku: Lookup = new Map(),
-    names: Lookup = new Map();
-  const byId = new Map<string, Product>();
-  for (const product of products) {
-    byId.set(product.id, product);
-    if (kind === "sales" && product.isActive === false) continue;
-    add(exact, product.id, product);
-    if (product.sku !== product.id) add(exact, product.sku, product);
-    add(sku, product.sku.toLowerCase(), product);
-    add(names, product.name.toLowerCase(), product);
-  }
   const unknown = new Map<string, CsvProductResolution>();
   const inventory: InventoryImportRow[] = [],
     sales: Sale[] = [];
@@ -593,6 +774,10 @@ export function validateGuidedCsv(
     safety: "safetyStock",
     cost: "unitCost",
   } as const;
+  const unitAliases = CSV_IMPORT_FIELDS.inventory.find((field) => field.key === "unit")!.aliases;
+  const unitColumns = first.flatMap((name, column) =>
+    unitAliases.includes(normalizedHeader(name)) || column === options.mapping.unit ? [column] : [],
+  );
   for (const record of rows) {
     const before = result.issues.length;
     const issue = (field: string, raw: string, message: string) =>
@@ -607,16 +792,19 @@ export function validateGuidedCsv(
       kind === "inventory"
         ? sku.get((record.fields[options.mapping.sku ?? -1] ?? "").trim().toLowerCase())
         : undefined;
+    const keepSavedDetails = options.inventoryDetails === "new-only" && !!savedProduct;
     const suppliedField = (key: string) =>
-      (options.mapping[key] !== null && options.mapping[key] !== undefined) ||
-      Object.hasOwn(options.constants ?? {}, key);
+      !(keepSavedDetails && Object.hasOwn(metadataFields, key)) &&
+      ((options.mapping[key] !== null && options.mapping[key] !== undefined) ||
+        Object.hasOwn(options.constants ?? {}, key));
     const value = (key: string) => {
+      const property = metadataFields[key as keyof typeof metadataFields];
+      if (keepSavedDetails && property) return String(savedProduct![property]);
       const index = options.mapping[key];
       if (index !== null && index !== undefined) return (record.fields[index] ?? "").trim();
       if (kind !== "inventory") return "";
       if (Object.hasOwn(options.constants ?? {}, key))
         return (options.constants?.[key] ?? "").trim();
-      const property = metadataFields[key as keyof typeof metadataFields];
       return savedProduct && property ? String(savedProduct[property]) : "";
     };
     const check = <T>(field: string, operation: () => T): T | undefined => {
@@ -626,12 +814,20 @@ export function validateGuidedCsv(
         issue(field, value(field), error instanceof Error ? error.message : "Invalid value.");
       }
     };
-    if (record.fields.length !== columnCount)
-      issue(
-        "row",
-        "",
-        `Expected ${columnCount} source columns, found ${record.fields.length}. Correct separators or missing fields.`,
-      );
+    // Only mapped values enter the import. Missing required mapped cells fail below;
+    // unrelated trailing source cells can be absent or extend beyond the header.
+    if (keepSavedDetails) {
+      const sourceUnits = unitColumns.map((column) => (record.fields[column] ?? "").trim());
+      if (Object.hasOwn(options.constants ?? {}, "unit"))
+        sourceUnits.push(options.constants!.unit.trim());
+      for (const sourceUnit of sourceUnits)
+        if (sourceUnit && sourceUnit.toLowerCase() !== savedProduct!.unit.trim().toLowerCase())
+          issue(
+            "unit",
+            sourceUnit,
+            `Existing SKU is counted in ${short(savedProduct!.unit, 50)}. Verify the counting unit and correct the file; quantities are not converted.`,
+          );
+    }
     const text = (key: string, max: number) =>
       check(key, () => {
         const raw = value(key);
@@ -729,8 +925,12 @@ export function validateGuidedCsv(
       let match: Product | null | undefined;
       if (Object.hasOwn(options.productMatches, key)) {
         match = byId.get(options.productMatches[key]);
-        if (!match || match.isActive === false) {
-          issue("product", key, "Selected product is no longer active. Select a current product.");
+        if (!match) {
+          issue(
+            "product",
+            key,
+            "Matched product is no longer in the catalog. Update the match in Adjust import.",
+          );
           match = undefined;
         }
       } else {
@@ -743,8 +943,8 @@ export function validateGuidedCsv(
             key,
             key
               ? match === null
-                ? "Ambiguous product. Select the correct existing product below."
-                : "Unknown product. Select an existing product or add the product in Products first."
+                ? "Product identifier matches multiple products. Use an exact SKU or product ID, or update the match in Adjust import."
+                : "Unknown product. Correct the CSV identifier, add the product in Products, or match it in Adjust import."
               : "Product identifier is required.",
           );
           // Oversized malformed identifiers must be corrected in the source, never cloned into React.
@@ -767,7 +967,9 @@ export function validateGuidedCsv(
       if (
         options.mapping.unit !== null &&
         options.mapping.unit !== undefined &&
-        (!unit || (match && unit.toLowerCase() !== match.unit.trim().toLowerCase()))
+        unit &&
+        match &&
+        unit.toLowerCase() !== match.unit.trim().toLowerCase()
       )
         issue(
           "unit",

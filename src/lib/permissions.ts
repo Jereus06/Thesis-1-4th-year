@@ -8,6 +8,7 @@ export function getPermissions(dataMode: "api" | "browser-demo", session: Sessio
   return {
     canManageProducts: owner,
     canImportRecords: owner,
+    canDeleteImportedSales: owner,
     canManageSettings: owner,
     canManageMembers: dataMode === "api" && session?.role === "owner",
     canRefreshForecast: owner,

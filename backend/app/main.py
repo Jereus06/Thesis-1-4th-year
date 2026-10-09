@@ -123,12 +123,25 @@ def principal_data(user: Principal) -> dict[str, str]:
     }
 
 
+def csv_cell(value):
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        # Quoting alone does not stop spreadsheets interpreting text as formulas.
+        # A quoted leading tab preserves the literal text; SKU/key import trimming
+        # removes this guard again. Keep actual numeric values numeric.
+        first = next((char for char in value if not char.isspace() and ord(char) > 32), "")
+        if first in {"=", "+", "-", "@", "＝", "＋", "－", "＠"}:
+            return "\t" + value
+    return value
+
+
 def csv_response(filename: str, columns: list[str], rows) -> Response:
     output = io.StringIO()
-    writer = csv.writer(output, lineterminator="\n")
+    writer = csv.writer(output, lineterminator="\n", quoting=csv.QUOTE_ALL)
     writer.writerow(columns)
     for row in rows:
-        writer.writerow([row[column] if row[column] is not None else "" for column in columns])
+        writer.writerow([csv_cell(row[column]) for column in columns])
     return Response(
         output.getvalue(),
         media_type="text/csv; charset=utf-8",
@@ -330,6 +343,31 @@ def record_sale(
     }
 
 
+@app.delete("/api/v1/businesses/{business_id}/sales/imported")
+def delete_all_imported_sales(
+    business_id: str,
+    repository: Repository = Depends(repo),
+    user: Principal = Depends(csrf_protected),
+):
+    business_user(business_id, user)
+    if user.role != "owner":
+        raise HTTPException(403, "Owner role required")
+    return {"data": repository.delete_imported_sales(user)}
+
+
+@app.delete("/api/v1/businesses/{business_id}/sales/{sale_id}")
+def delete_imported_sale(
+    business_id: str,
+    sale_id: UUID,
+    repository: Repository = Depends(repo),
+    user: Principal = Depends(csrf_protected),
+):
+    business_user(business_id, user)
+    if user.role != "owner":
+        raise HTTPException(403, "Owner role required")
+    return {"data": repository.delete_imported_sales(user, sale_id)}
+
+
 @app.get("/api/v1/businesses/{business_id}/inventory-movements")
 def movements(
     business_id: str,
@@ -347,7 +385,7 @@ def export_sales(
     business_id: str, repository: Repository = Depends(repo), user: Principal = Depends(principal)
 ):
     business_user(business_id, user)
-    columns = ["id", "sku", "sale_date", "quantity", "source", "data_origin"]
+    columns = ["id", "sku", "sale_date", "quantity", "source", "data_origin", "source_record_key"]
     return csv_response("stockcast-sales.csv", columns, repository.export_sales(business_id))
 
 

@@ -42,6 +42,7 @@ type ApiSale = {
   productId: string;
   saleDate: string;
   quantity: string;
+  source?: Sale["source"];
 };
 type ApiMovement = Omit<InventoryMovement, "quantityDelta" | "balanceAfter"> & {
   quantityDelta: string;
@@ -105,8 +106,11 @@ export const api = {
       method: "POST",
       body: { currentPassword, newPassword },
     }),
-  requestRecovery: (email: string) =>
-    request<{ accepted: boolean }>("/auth/password/recovery", { method: "POST", body: { email } }),
+  requestRecovery: (email: string, businessId?: string) =>
+    request<{ accepted: boolean }>("/auth/password/recovery", {
+      method: "POST",
+      body: { email, ...(businessId ? { businessId } : {}) },
+    }),
   completeRecovery: (token: string, newPassword: string) =>
     request<{ changed: boolean }>("/auth/password/recovery/complete", {
       method: "POST",
@@ -147,13 +151,18 @@ export const api = {
     ),
   sales: async (businessId: string) =>
     (await allSalesPages(`/businesses/${businessId}/sales`)).map(toSale),
+  deleteImportedSales: (businessId: string, saleId?: string) =>
+    request<{ deletedRows: number }>(
+      `/businesses/${businessId}/sales/${saleId ? encodeURIComponent(saleId) : "imported"}`,
+      { method: "DELETE" },
+    ),
   inventoryMovements: async (businessId: string) =>
     (await allPages<ApiMovement>(`/businesses/${businessId}/inventory-movements`)).map(toMovement),
-  importInventory: (businessId: string, rows: InventoryImportRow[]) =>
+  importInventory: (businessId: string, rows: InventoryImportRow[], idempotencyKey?: string) =>
     request<{ created: number; updated: number }>(`/businesses/${businessId}/inventory-imports`, {
       method: "POST",
       body: { rows },
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: idempotencyKey ?? crypto.randomUUID(),
     }),
   importSales: (
     businessId: string,
@@ -296,6 +305,7 @@ function toSale(value: ApiSale): Sale {
     productId: value.productId,
     date: value.saleDate,
     qty: Number(value.quantity),
+    source: value.source,
   };
 }
 function toMovement(value: ApiMovement): InventoryMovement {

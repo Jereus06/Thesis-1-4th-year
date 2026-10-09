@@ -142,6 +142,46 @@ def test_inventory_partial_metadata_and_full_new_product_are_compatible(pg_clien
     }).status_code == 403
 
 
+def test_inventory_exact_skus_precede_folded_matches_and_ambiguity_rolls_back(pg_client):
+    client, business, _dsn = pg_client
+    first = create_product(client, business)
+    base = f"/api/v1/businesses/{business}"
+    for sku in ["test-1", "OTHER"]:
+        created = client.post(base + "/products", json={
+            "sku": sku, "name": f"Synthetic {sku}", "category": "Test", "unit": "pc",
+            "currentStock": "20", "leadTimeDays": 2, "safetyStock": "2", "unitCost": "10",
+        })
+        assert created.status_code == 201, created.text
+    before = {row["sku"]: row for row in client.get(base + "/products").json()["data"]}
+    for sku, count in [(" TEST-1 ", "11"), ("test-1", "12")]:
+        response = client.post(base + "/inventory-imports", json={"rows": [
+            {"sku": sku, "currentStock": count},
+        ]})
+        assert response.status_code == 201, response.text
+        assert response.json()["data"] == {"created": 0, "updated": 1}
+    folded = client.post(base + "/inventory-imports", json={"rows": [
+        {"sku": "oThEr", "currentStock": "13"},
+    ]})
+    assert folded.status_code == 201, folded.text
+    assert folded.json()["data"] == {"created": 0, "updated": 1}
+    saved = {row["sku"]: row for row in client.get(base + "/products").json()["data"]}
+    assert saved["TEST-1"]["id"] == first["id"]
+    assert saved["test-1"]["id"] == before["test-1"]["id"]
+    assert float(saved["TEST-1"]["currentStock"]) == 11
+    assert float(saved["test-1"]["currentStock"]) == 12
+    assert saved["oThEr"]["id"] == before["OTHER"]["id"]
+    assert float(saved["oThEr"]["currentStock"]) == 13
+    movements_before = client.get(base + "/inventory-movements").json()["data"]
+    rejected = client.post(base + "/inventory-imports", json={"rows": [
+        {"sku": "OTHER", "currentStock": "1"},
+        {"sku": "TeSt-1", "currentStock": "0"},
+    ]})
+    assert rejected.status_code == 422, rejected.text
+    assert "matches multiple products" in rejected.json()["detail"]
+    assert {row["sku"]: row for row in client.get(base + "/products").json()["data"]} == saved
+    assert client.get(base + "/inventory-movements").json()["data"] == movements_before
+
+
 
 def test_sales_cursor_preserves_ties_legacy_offsets_and_business_scope(pg_client):
     client, business, _dsn = pg_client
@@ -845,6 +885,162 @@ def test_account_recovery_invitation_and_tenant_permissions(pg_client,monkeypatc
     assert client.post("/api/v1/auth/staff/invitations",json={"email":"other@example.com","displayName":"Other"}).status_code==403
 
 
+def test_password_change_revokes_previously_issued_recovery_links(pg_client, monkeypatch):
+    client, business, _dsn = pg_client
+    sent = []
+    monkeypatch.setattr(
+        "app.auth_routes.Mailer.send",
+        lambda _self, _to, _subject, text: sent.append(text),
+    )
+    response = client.post(
+        "/api/v1/auth/password/recovery",
+        json={"email": "owner@example.com", "businessId": business},
+    )
+    assert response.status_code == 200
+    token = sent[-1].split("?reset=")[1].split()[0]
+    changed = client.post(
+        "/api/v1/auth/password/change",
+        json={"currentPassword": "test-owner-password", "newPassword": "new-owner-password"},
+    )
+    assert changed.status_code == 200, changed.text
+    assert client.get("/api/v1/auth/me").status_code == 401
+    reused = client.post(
+        "/api/v1/auth/password/recovery/complete",
+        json={"token": token, "newPassword": "old-link-replacement-password"},
+    )
+    assert reused.status_code == 400
+    signed_in = client.post(
+        "/api/v1/auth/sign-in",
+        json={"email": "owner@example.com", "password": "new-owner-password"},
+    )
+    assert signed_in.status_code == 200
+
+
+def test_failed_password_change_keeps_valid_recovery_link(pg_client):
+    from app.auth_repository import AuthRepository
+
+    client, business, dsn = pg_client
+    token = "synthetic-recovery-after-wrong-current-password"
+    with psycopg.connect(dsn) as conn:
+        assert AuthRepository(conn).create_reset("owner@example.com", token)
+    changed = client.post(
+        "/api/v1/auth/password/change",
+        json={"currentPassword": "incorrect-password", "newPassword": "new-owner-password"},
+    )
+    assert changed.status_code == 401
+    assert client.get("/api/v1/auth/me").status_code == 200
+    reset = client.post(
+        "/api/v1/auth/password/recovery/complete",
+        json={"token": token, "newPassword": "recovered-owner-password"},
+    )
+    assert reset.status_code == 200
+    assert client.get("/api/v1/auth/me").status_code == 401
+    assert client.post(
+        "/api/v1/auth/sign-in",
+        json={"businessId": business, "email": "owner@example.com", "password": "recovered-owner-password"},
+    ).status_code == 200
+
+
+def test_recovery_revokes_other_previously_outstanding_links(pg_client):
+    from app.security import token_hash
+
+    client, _business, dsn = pg_client
+    tokens = ["synthetic-older-outstanding-reset", "synthetic-selected-outstanding-reset"]
+    with psycopg.connect(dsn) as conn:
+        user_id = conn.execute("SELECT id FROM users WHERE email='owner@example.com'").fetchone()[0]
+        for token in tokens:
+            # Older concurrent recovery requests could leave more than one active
+            # token. Completing either one must retire every outstanding link.
+            conn.execute(
+                "INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) "
+                "VALUES(%s,%s,now()+interval '30 minutes')",
+                (user_id, token_hash(token)),
+            )
+    assert client.post(
+        "/api/v1/auth/password/recovery/complete",
+        json={"token": tokens[1], "newPassword": "recovered-owner-password"},
+    ).status_code == 200
+    assert client.post(
+        "/api/v1/auth/password/recovery/complete",
+        json={"token": tokens[0], "newPassword": "stale-link-replacement-password"},
+    ).status_code == 400
+    assert client.post(
+        "/api/v1/auth/sign-in",
+        json={"email": "owner@example.com", "password": "recovered-owner-password"},
+    ).status_code == 200
+
+
+def test_concurrent_recovery_requests_leave_one_active_link(pg_client):
+    from concurrent.futures import ThreadPoolExecutor
+    from queue import Queue
+    from threading import Event
+    from time import monotonic
+    from app.auth_repository import AuthRepository
+    from app.security import token_hash
+
+    _client, _business, dsn = pg_client
+    started = Queue()
+    tokens = ["synthetic-first-concurrent-reset", "synthetic-second-concurrent-reset"]
+
+    def request_second():
+        with psycopg.connect(dsn) as conn:
+            started.put(conn.info.backend_pid)
+            return AuthRepository(conn).create_reset("owner@example.com", tokens[1])
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with psycopg.connect(dsn) as conn:
+            with conn.transaction():
+                assert AuthRepository(conn).create_reset("owner@example.com", tokens[0])
+                future = executor.submit(request_second)
+                waiter_pid = started.get(timeout=10)
+                deadline = monotonic() + 10
+                pause = Event()
+                with psycopg.connect(dsn, autocommit=True) as observer:
+                    while True:
+                        blockers = observer.execute(
+                            "SELECT pg_blocking_pids(%s)", (waiter_pid,),
+                        ).fetchone()[0]
+                        if conn.info.backend_pid in blockers:
+                            break
+                        if future.done():
+                            future.result()
+                            raise AssertionError("Concurrent recovery bypassed the account lock")
+                        assert monotonic() < deadline, "Concurrent recovery did not wait"
+                        pause.wait(0.01)
+        assert future.result(timeout=10)
+    with psycopg.connect(dsn) as conn:
+        active = conn.execute(
+            "SELECT token_hash FROM password_reset_tokens WHERE consumed_at IS NULL",
+        ).fetchall()
+    assert active == [(token_hash(tokens[1]),)]
+
+
+@pytest.mark.parametrize("inactive", ["user", "business"])
+def test_recovery_cannot_change_an_inactive_account(pg_client, inactive):
+    from app.auth_repository import AuthRepository
+    from app.security import verify_password
+
+    client, business, dsn = pg_client
+    token = "synthetic-recovery-before-account-disabled"
+    with psycopg.connect(dsn) as conn:
+        repository = AuthRepository(conn)
+        assert repository.create_reset("owner@example.com", token)
+        if inactive == "user":
+            conn.execute("UPDATE users SET is_active=false WHERE business_id=%s", (business,))
+        else:
+            conn.execute("UPDATE businesses SET is_active=false WHERE id=%s", (business,))
+        assert not repository.create_reset("owner@example.com", "synthetic-recovery-after-disabled")
+    response = client.post(
+        "/api/v1/auth/password/recovery/complete",
+        json={"token": token, "newPassword": "inactive-replacement-password"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Reset link is invalid or expired"
+    with psycopg.connect(dsn) as conn:
+        stored = conn.execute("SELECT password_hash FROM users WHERE business_id=%s", (business,)).fetchone()[0]
+    assert verify_password("test-owner-password", stored)
+
+
 @pytest.mark.parametrize("legacy_snapshot", [False, True])
 def test_worker_preserves_frozen_exclusions_after_live_classification_deletion(
     pg_client, legacy_snapshot
@@ -1246,6 +1442,43 @@ def test_sales_import_preserves_distinct_identical_sales_and_within_batch_diagno
     ]
     assert len(client.get(base + "/sales").json()["data"]) == 4
     assert float(client.get(base + "/products").json()["data"][0]["currentStock"]) == 20
+
+
+def test_historical_sales_import_preserves_inactive_product_and_live_sale_guard(pg_client):
+    client, business, _dsn = pg_client
+    product = create_product(client, business)
+    base = f"/api/v1/businesses/{business}"
+    deactivated = client.patch(base + f"/products/{product['id']}", json={"isActive": False})
+    assert deactivated.status_code == 200, deactivated.text
+    before = client.get(base + "/products").json()["data"][0]
+    movements_before = client.get(base + "/inventory-movements").json()["data"]
+    data = {"rows": [
+        {"sku": "TEST-1", "saleDate": "2026-01-01", "quantity": "2",
+         "sourceRecordKey": "inactive-history-1"},
+        {"sku": "test-1", "saleDate": "2026-01-02", "quantity": "3",
+         "sourceRecordKey": "inactive-history-2"},
+    ]}
+
+    imported = client.post(base + "/data-imports", json=data)
+    assert imported.status_code == 201, imported.text
+    result = imported.json()["data"]
+    assert (result["acceptedRows"], result["rejectedRows"]) == (2, 0)
+    sales = client.get(base + "/sales").json()["data"]
+    assert len(sales) == 2
+    assert all(sale["productId"] == product["id"] for sale in sales)
+    assert client.get(base + "/products").json()["data"][0] == before
+    assert before["isActive"] is False
+    assert float(before["currentStock"]) == 20
+    assert client.get(base + "/inventory-movements").json()["data"] == movements_before
+
+    live_sale = client.post(base + "/sales", json={
+        "productId": product["id"], "saleDate": "2026-01-03", "quantity": "1",
+    })
+    assert live_sale.status_code == 404, live_sale.text
+    assert len(client.get(base + "/sales").json()["data"]) == 2
+    assert client.get(base + "/products").json()["data"][0] == before
+    retry = client.post(base + "/data-imports", json=data)
+    assert retry.status_code == 409, retry.text
 
 
 def test_sales_import_source_keys_are_tenant_scoped(pg_client):

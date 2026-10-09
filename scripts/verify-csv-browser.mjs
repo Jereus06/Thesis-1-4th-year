@@ -284,7 +284,7 @@ try {
   });
   await measureFile("inventory.csv", "tiny inventory selection");
   if (phase === "after" && mode === "api-mock") {
-    await page.click(control("Import inventory"));
+    await page.click(control("Upload CSV"));
     await page.waitFor(`!document.querySelector('input[type=file]')`, "inventory accepted");
     await page.click(control("Import inventory"));
   }
@@ -335,11 +335,11 @@ try {
         report.samples.at(-1).previewRows <= 50 && report.samples.at(-1).textareaCharacters === 0,
     });
     if (mode === "api-mock") {
-      assert.equal(await page.evaluate(`${control("Import rows")}?.disabled`), false);
+      assert.equal(await page.evaluate(`${control(phase === "before" ? "Import rows" : "Upload CSV")}?.disabled`), false);
       report.checks.push({ name: "73100 sales rows within the new limit", passed: true });
       await measureFile("100001.csv", "100001 sales limit selection");
       assert.match(report.samples.at(-1).text, /100,000|100000/);
-      assert.equal(await page.evaluate(`${control("Import rows")}?.disabled`), true);
+      assert.equal(await page.evaluate(`${control(phase === "before" ? "Import rows" : "Upload CSV")}?.disabled`), true);
       report.checks.push({ name: "oversize submission prevented", passed: true });
     }
     for (const name of ["bad-header.csv", "huge-header.csv", "bad-date.csv", "invalid-utf8.csv"]) {
@@ -355,7 +355,7 @@ try {
     }
     for (const name of ["utf16le.csv", "utf16be.csv", "quoted.csv"]) {
       await measureFile(name, name);
-      assert.equal(await page.evaluate(`${control("Import rows")}?.disabled`), false);
+      assert.equal(await page.evaluate(`${control(phase === "before" ? "Import rows" : "Upload CSV")}?.disabled`), false);
     }
     await resetMetrics();
     await selectFile("73100.csv");
@@ -363,7 +363,7 @@ try {
     await page.waitFor(`document.querySelector('[data-csv-state="ready"]')`, "latest selection");
     assert.match(await page.evaluate(`document.querySelector('main').innerText`), /tiny\.csv/);
     report.checks.push({ name: "rapid reselection latest file wins", passed: true });
-    await page.click(control("Import rows"));
+    await page.click(control(phase === "before" ? "Import rows" : "Upload CSV"));
     await page.waitFor(
       `document.body.innerText.includes('Imported 2 sales rows') && document.querySelector('[data-csv-state="idle"]')`,
       "tiny file accepted",
@@ -382,15 +382,15 @@ try {
     await page.click(control("Paste CSV"));
     await page.type("textarea", salesCsv(2, "paste"));
     await page.waitFor(`document.querySelector('[data-csv-state="ready"]')`, "paste ready");
-    await page.click(control("Import rows"));
+    await page.click(control(phase === "before" ? "Import rows" : "Upload CSV"));
     await page.waitFor(
       `document.body.innerText.includes('Imported 2 sales rows') && document.querySelector('[data-csv-state="idle"]') && document.querySelector('textarea')?.value === ''`,
       "paste import",
     );
     report.checks.push({ name: "manual paste imported", passed: true });
-    await page.click(control("Uploaded file"));
+    // The persistent file input switches back from paste mode when a file is selected.
     await measureFile("large.csv", "100000 accepted sales selection");
-    await page.click(control("Import rows"));
+    await page.click(control(phase === "before" ? "Import rows" : "Upload CSV"));
     await page.waitFor(
       `document.body.innerText.includes('Imported 100000 sales rows') || document.body.innerText.includes('Imported 100,000 sales rows')`,
       "all accepted rows imported",
@@ -398,7 +398,7 @@ try {
     );
     await selectFile("large.csv");
     await page.waitFor(`document.querySelector('[data-csv-state="ready"]')`, "retry ready");
-    await page.click(control("Import rows"));
+    await page.click(control(phase === "before" ? "Import rows" : "Upload CSV"));
     await page.waitFor(
       `document.body.innerText.includes('already imported rows skipped')`,
       "retry skips duplicates",

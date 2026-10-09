@@ -54,6 +54,58 @@ test("semicolon and tab spreadsheet exports are detected without a directive", (
   }
 });
 
+test("separator detection uses consistent records instead of comma frequency in report headings", () => {
+  for (const delimiter of [";", "\t"]) {
+    const rows = [
+      ["Date", "SKU", "Quantity", "Locations, channels, regions, groups, totals"],
+      ["2026-09-01", product.sku, "1,25", "First shop"],
+      ["2026-09-02", product.sku, "2,50", "Shop, branch"],
+    ];
+    const records = parseCsvRecords(rows.map((fields) => fields.join(delimiter)).join("\r\n"));
+    assert.deepEqual(
+      records.map((record) => record.fields),
+      rows,
+    );
+    assert.deepEqual(
+      records.map((record) => [record.record, record.line]),
+      [
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ],
+    );
+  }
+});
+
+test("recognized headers break delimiter ties when every report row contains equally many commas", () => {
+  for (const delimiter of [";", "\t"]) {
+    const rows = [
+      ["Date", "SKU", "Quantity", "Locations, channels, regions, groups, totals"],
+      ["2026-09-01", product.sku, "2", "North, Metro, West, Daily, All"],
+    ];
+    assert.deepEqual(
+      parseCsvRecords(rows.map((fields) => fields.join(delimiter)).join("\n")).map(
+        (record) => record.fields,
+      ),
+      rows,
+    );
+  }
+});
+
+test("other separators in data never outweigh the consistent comma table header", () => {
+  const rows = [
+    ["Date", "SKU", "Quantity", "Notes"],
+    ["2026-09-01", product.sku, "2", "one;two;three;four;five\tsix"],
+    ["2026-09-02", product.sku, "3", "one;two;three;four;five\tsix"],
+  ];
+  assert.deepEqual(
+    parseCsvRecords(rows.map((fields) => fields.join(",")).join("\n")).map(
+      (record) => record.fields,
+    ),
+    rows,
+  );
+});
+
 test("a tab separator directive preserves quoted tabs", () => {
   assert.deepEqual(parseCsvRecords('sep=\t\n"left\tright"\tvalue')[0].fields, [
     "left\tright",

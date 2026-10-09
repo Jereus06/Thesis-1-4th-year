@@ -21,7 +21,7 @@ import type {
   StockMovementInput,
 } from "@/lib/types";
 import { fromApiSettings } from "@/lib/settings";
-import { deduplicateSales } from "@/lib/sales-import";
+import { deduplicateSales, isImportedSale } from "@/lib/sales-import";
 
 type Store = {
   dataOrigin: "demo" | "partner";
@@ -47,14 +47,16 @@ type Store = {
   refreshInventoryMovements: () => Promise<void>;
   updateProduct: (id: string, patch: ProductPatch) => Promise<void>;
   addProduct: (product: Omit<Product, "id" | "sku"> & { sku?: string }) => Promise<void>;
-  importInventory: (rows: InventoryImportRow[]) => Promise<void>;
+  importInventory: (rows: InventoryImportRow[], idempotencyKey?: string) => Promise<void>;
   updateSettings: (patch: Partial<Settings>) => Promise<void>;
   importSales: (rows: Sale[]) => Promise<SalesImportResult>;
+  deleteImportedSales: (saleId?: string) => Promise<{ deletedRows: number }>;
   resetDemo: () => void;
 };
 
 const dataMode = import.meta.env.VITE_DATA_MODE === "browser-demo" ? "browser-demo" : "api";
 let movementRefreshSequence = 0;
+let authRequestSequence = 0;
 
 export const useAppStore = create<Store>()(
   persist(
@@ -76,20 +78,17 @@ export const useAppStore = create<Store>()(
       apiError: null,
       connectApi: async () => {
         if (get().dataMode !== "api") return;
+        const requestSequence = ++authRequestSequence;
         set({ apiStatus: "loading", apiError: null });
         try {
           const session = await api.me();
-          await loadApiState(session, set);
+          if (requestSequence !== authRequestSequence) return;
+          await loadApiState(session, set, () => requestSequence === authRequestSequence);
         } catch (error) {
+          if (requestSequence !== authRequestSequence) return;
           const anonymous = error instanceof ApiError && error.status === 401;
           set({
-            session: null,
-            products: [],
-            sales: [],
-            importRefreshWarning: null,
-            inventoryMovements: [],
-            movementsStatus: "idle",
-            movementsError: null,
+            ...anonymousApiState(),
             apiStatus: anonymous ? "idle" : "error",
             apiError: anonymous
               ? null
@@ -100,11 +99,25 @@ export const useAppStore = create<Store>()(
         }
       },
       signIn: async (businessId, email, password) => {
+        const requestSequence = ++authRequestSequence;
+        let authenticated = false;
         set({ apiStatus: "loading", apiError: null });
         try {
           const session = await api.signIn(businessId, email, password);
-          await loadApiState(session, set);
+          authenticated = true;
+          if (requestSequence !== authRequestSequence) return;
+          await loadApiState(session, set, () => requestSequence === authRequestSequence);
         } catch (error) {
+          if (requestSequence !== authRequestSequence) return;
+          if (authenticated) {
+            set({
+              ...anonymousApiState(),
+              apiStatus: "error",
+              apiError:
+                "You signed in, but store records could not be loaded. Reload this page to try loading your store.",
+            });
+            return;
+          }
           set({
             apiStatus: "error",
             apiError: error instanceof Error ? error.message : "Sign-in failed",
@@ -113,11 +126,25 @@ export const useAppStore = create<Store>()(
         }
       },
       signUp: async (details) => {
+        const requestSequence = ++authRequestSequence;
+        let authenticated = false;
         set({ apiStatus: "loading", apiError: null });
         try {
           const session = await api.signUp(details);
-          await loadApiState(session, set);
+          authenticated = true;
+          if (requestSequence !== authRequestSequence) return;
+          await loadApiState(session, set, () => requestSequence === authRequestSequence);
         } catch (error) {
+          if (requestSequence !== authRequestSequence) return;
+          if (authenticated) {
+            set({
+              ...anonymousApiState(),
+              apiStatus: "error",
+              apiError:
+                "Your account was created, but store records could not be loaded. Reload this page to try loading your store.",
+            });
+            return;
+          }
           set({
             apiStatus: "error",
             apiError: error instanceof Error ? error.message : "Account creation failed",
@@ -126,11 +153,25 @@ export const useAppStore = create<Store>()(
         }
       },
       completeGoogle: async (details) => {
+        const requestSequence = ++authRequestSequence;
+        let authenticated = false;
         set({ apiStatus: "loading", apiError: null });
         try {
           const session = await api.completeGoogle(details);
-          await loadApiState(session, set);
+          authenticated = true;
+          if (requestSequence !== authRequestSequence) return;
+          await loadApiState(session, set, () => requestSequence === authRequestSequence);
         } catch (error) {
+          if (requestSequence !== authRequestSequence) return;
+          if (authenticated) {
+            set({
+              ...anonymousApiState(),
+              apiStatus: "error",
+              apiError:
+                "Your Google account setup was completed, but store records could not be loaded. Reload this page to try loading your store.",
+            });
+            return;
+          }
           set({
             apiStatus: "error",
             apiError: error instanceof Error ? error.message : "Google account setup failed",
@@ -139,18 +180,15 @@ export const useAppStore = create<Store>()(
         }
       },
       signOut: async () => {
-        await api.signOut();
-        set({
-          session: null,
-          products: [],
-          sales: [],
-          importRefreshWarning: null,
-          inventoryMovements: [],
-          movementsStatus: "idle",
-          movementsError: null,
-          apiStatus: "idle",
-          apiError: null,
-        });
+        if (get().dataMode !== "api") return;
+        const requestSequence = ++authRequestSequence;
+        try {
+          await api.signOut();
+        } catch (error) {
+          // An expired or revoked session is already signed out on the server.
+          if (!(error instanceof ApiError && error.status === 401)) throw error;
+        }
+        if (requestSequence === authRequestSequence) set(anonymousApiState());
       },
       recordSale: async (productId, date, qty) => {
         validateQuantity(qty);
@@ -187,6 +225,7 @@ export const useAppStore = create<Store>()(
           productId,
           date: date || todayISO(),
           qty,
+          source: "manual",
         };
         set({
           sales: [...get().sales, sale],
@@ -311,6 +350,7 @@ export const useAppStore = create<Store>()(
         if (get().dataMode === "api") {
           const session = requireSession(get());
           const updated = await api.updateProduct(session.businessId, id, patch);
+          if (get().session !== session) return;
           set({
             products: get().products.map((item) => (item.id === id ? updated : item)),
             movementsStatus: "idle",
@@ -347,6 +387,7 @@ export const useAppStore = create<Store>()(
             ...product,
             sku: product.sku?.trim() || `SKU-${Date.now()}`,
           });
+          if (get().session !== session) return;
           set({ products: [...get().products, created], movementsStatus: "idle" });
           return;
         }
@@ -384,12 +425,12 @@ export const useAppStore = create<Store>()(
               : get().inventoryMovements,
         });
       },
-      importInventory: async (rows) => {
+      importInventory: async (rows, idempotencyKey) => {
         requireOwner(get());
         if (!rows.length) return;
         if (get().dataMode === "api") {
           const session = requireSession(get());
-          await api.importInventory(session.businessId, rows);
+          await api.importInventory(session.businessId, rows, idempotencyKey);
           if (!sameSession(get().session, session)) return;
           set({ movementsStatus: "idle" });
           try {
@@ -473,6 +514,7 @@ export const useAppStore = create<Store>()(
         if (get().dataMode === "api") {
           const session = requireSession(get());
           const saved = await api.updateSettings(session.businessId, settings);
+          if (get().session !== session) return;
           set({
             settings: fromApiSettings(
               saved,
@@ -500,24 +542,57 @@ export const useAppStore = create<Store>()(
             })),
           );
           if (!sameSession(get().session, session)) return result;
-          try {
-            const sales = await api.sales(session.businessId);
-            if (sameSession(get().session, session)) {
-              set({ sales, importRefreshWarning: null });
-            }
-          } catch {
-            if (sameSession(get().session, session)) {
-              set({
-                importRefreshWarning:
-                  "Sales import was saved, but the ledger could not be refreshed. Reload saved records; do not repeat the import.",
-              });
-            }
-          }
+          await refreshApiSales(
+            session,
+            set,
+            get,
+            "Sales import was saved, but the ledger could not be refreshed. Reload saved records; do not repeat the import.",
+          );
           return result;
         }
         const { accepted, result } = deduplicateSales(get().sales, rows);
-        set({ sales: [...get().sales, ...accepted] });
+        set({
+          sales: [
+            ...get().sales,
+            ...accepted.map((sale) => ({
+              ...sale,
+              id: crypto.randomUUID(),
+              source: "csv_import" as const,
+            })),
+          ],
+        });
         return result;
+      },
+      deleteImportedSales: async (saleId) => {
+        requireOwner(get());
+        const selected = get().sales.filter(
+          (sale) => isImportedSale(sale) && (saleId === undefined || sale.id === saleId),
+        );
+        if (saleId !== undefined && !selected.length)
+          throw new Error("Only imported sales can be deleted.");
+        const selectedIds = new Set(selected.map((sale) => sale.id));
+        if (get().dataMode === "api") {
+          const session = requireSession(get());
+          const result = await api.deleteImportedSales(session.businessId, saleId);
+          if (!sameSession(get().session, session)) return result;
+          set({ sales: get().sales.filter((sale) => !selectedIds.has(sale.id)) });
+          await refreshApiSales(
+            session,
+            set,
+            get,
+            "Sales deleted, but the ledger could not be refreshed. Reload saved records; do not repeat the deletion.",
+          );
+          return result;
+        }
+        if (
+          get().inventoryMovements.some(
+            (movement) => movement.saleId && selectedIds.has(movement.saleId),
+          )
+        )
+          throw new Error("Sales linked to stock movements cannot be deleted.");
+        invalidatePipelineCache();
+        set({ sales: get().sales.filter((sale) => !selectedIds.has(sale.id)) });
+        return { deletedRows: selected.length };
       },
       resetDemo: () => {
         if (get().dataMode !== "browser-demo") return;
@@ -547,9 +622,22 @@ export const useAppStore = create<Store>()(
       merge: (persisted, current) => {
         if (current.dataMode === "api") return current;
         const p = (persisted ?? {}) as Partial<Store>;
+        const seenIds = new Set<string>();
+        const sales = (p.sales ?? current.sales).map((sale) => {
+          if (isImportedSale(sale)) {
+            // Older preparations reused row-number IDs between separate uploads.
+            // Retain every row while giving duplicate imported IDs their own identity.
+            const id = seenIds.has(sale.id) ? crypto.randomUUID() : sale.id;
+            seenIds.add(id);
+            return { ...sale, id, source: sale.source ?? ("csv_import" as const) };
+          }
+          seenIds.add(sale.id);
+          return sale;
+        });
         return {
           ...current,
           ...p,
+          sales,
           settings: { ...defaultSettings, ...(p.settings ?? {}) },
         };
       },
@@ -563,7 +651,43 @@ function requireSession(store: Store): SessionUser {
 }
 
 function sameSession(current: SessionUser | null, submitted: SessionUser): boolean {
-  return current?.businessId === submitted.businessId && current.userId === submitted.userId;
+  return current === submitted;
+}
+
+async function refreshApiSales(
+  session: SessionUser,
+  set: (patch: Partial<Store>) => void,
+  get: () => Store,
+  warning: string,
+) {
+  try {
+    for (;;) {
+      const previousSales = get().sales;
+      const sales = await api.sales(session.businessId);
+      if (!sameSession(get().session, session)) return;
+      if (get().sales !== previousSales) continue;
+      set({ sales, importRefreshWarning: null });
+      return;
+    }
+  } catch {
+    if (sameSession(get().session, session)) set({ importRefreshWarning: warning });
+  }
+}
+
+function anonymousApiState(): Partial<Store> {
+  return {
+    session: null,
+    products: [],
+    sales: [],
+    importRefreshWarning: null,
+    inventoryMovements: [],
+    movementsStatus: "idle",
+    movementsError: null,
+    settings: { ...defaultSettings, storeName: "StockCast Store", storeLocation: "" },
+    dataOrigin: "demo",
+    apiStatus: "idle",
+    apiError: null,
+  };
 }
 
 function requireOwner(store: Store) {
@@ -611,13 +735,18 @@ function demoMovement(
   };
 }
 
-async function loadApiState(session: SessionUser, set: (patch: Partial<Store>) => void) {
+async function loadApiState(
+  session: SessionUser,
+  set: (patch: Partial<Store>) => void,
+  isCurrent: () => boolean,
+) {
   const [products, sales, rawSettings, business] = await Promise.all([
     api.products(session.businessId),
     api.sales(session.businessId),
     api.settings(session.businessId),
     api.business(session.businessId),
   ]);
+  if (!isCurrent()) return;
   const settings = fromApiSettings(rawSettings, business, defaultSettings);
   set({
     session,

@@ -149,52 +149,76 @@ class AuthRepository(Repository):
     def change_password(self, user: Principal, current: str, replacement: str) -> None:
         if not 12 <= len(replacement) <= 128:
             raise HTTPException(422, "Password must contain 12 to 128 characters")
-        row = self.conn.execute(
-            "SELECT password_hash FROM users WHERE id=%s AND business_id=%s FOR UPDATE",
-            (user.user_id, user.business_id),
-        ).fetchone()
-        if (
-            not row
-            or not row["password_hash"]
-            or not verify_password(current, row["password_hash"])
-        ):
-            raise HTTPException(401, "Current password is incorrect")
-        self.conn.execute(
-            "UPDATE users SET password_hash=%s,password_changed_at=now() WHERE id=%s",
-            (hash_password(replacement), user.user_id),
-        )
-        self.conn.execute("DELETE FROM sessions WHERE user_id=%s", (user.user_id,))
+        with self.conn.transaction():
+            row = self.conn.execute(
+                "SELECT password_hash FROM users WHERE id=%s AND business_id=%s FOR UPDATE",
+                (user.user_id, user.business_id),
+            ).fetchone()
+            if (
+                not row
+                or not row["password_hash"]
+                or not verify_password(current, row["password_hash"])
+            ):
+                raise HTTPException(401, "Current password is incorrect")
+            self.conn.execute(
+                "UPDATE users SET password_hash=%s,password_changed_at=now() WHERE id=%s",
+                (hash_password(replacement), user.user_id),
+            )
+            self.conn.execute(
+                "UPDATE password_reset_tokens SET consumed_at=now() "
+                "WHERE user_id=%s AND consumed_at IS NULL",
+                (user.user_id,),
+            )
+            self.conn.execute("DELETE FROM sessions WHERE user_id=%s", (user.user_id,))
 
     def create_reset(self, email: str, raw_token: str, business_id: UUID | None = None) -> bool:
-        if business_id is None:
+        with self.conn.transaction():
+            # Password changes and recovery both lock this row first. Concurrent
+            # recovery requests cannot leave multiple still-valid reset links.
+            query = """SELECT u.id FROM users u JOIN businesses b ON b.id=u.business_id
+                       WHERE u.email=%s AND u.is_active AND b.is_active"""
+            params: tuple = (email.strip().lower(),)
+            if business_id is not None:
+                query += " AND u.business_id=%s"
+                params += (business_id,)
             rows = self.conn.execute(
-                "SELECT id FROM users WHERE email=%s AND is_active ORDER BY id",
-                (email.strip().lower(),),
+                query + " ORDER BY u.id FOR UPDATE OF u", params
             ).fetchall()
             if len(rows) != 1:
                 return False
             row = rows[0]
-        else:
-            row = self.conn.execute(
-                "SELECT id FROM users WHERE business_id=%s AND email=%s AND is_active",
-                (business_id, email.strip().lower()),
-            ).fetchone()
-        if not row:
-            return False
-        self.conn.execute(
-            "UPDATE password_reset_tokens SET consumed_at=now() WHERE user_id=%s AND consumed_at IS NULL",
-            (row["id"],),
-        )
-        self.conn.execute(
-            "INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) VALUES(%s,%s,now()+interval '30 minutes')",
-            (row["id"], token_hash(raw_token)),
-        )
-        return True
+            self.conn.execute(
+                "UPDATE password_reset_tokens SET consumed_at=now() "
+                "WHERE user_id=%s AND consumed_at IS NULL",
+                (row["id"],),
+            )
+            self.conn.execute(
+                "INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) "
+                "VALUES(%s,%s,now()+interval '30 minutes')",
+                (row["id"], token_hash(raw_token)),
+            )
+            return True
 
     def consume_reset(self, raw_token: str, password: str) -> None:
         if not 12 <= len(password) <= 128:
             raise HTTPException(422, "Password must contain 12 to 128 characters")
         with self.conn.transaction():
+            reset = self.conn.execute(
+                "SELECT user_id FROM password_reset_tokens "
+                "WHERE token_hash=%s AND consumed_at IS NULL AND expires_at>now()",
+                (token_hash(raw_token),),
+            ).fetchone()
+            if not reset:
+                raise HTTPException(400, "Reset link is invalid or expired")
+            user = self.conn.execute(
+                """SELECT u.id FROM users u JOIN businesses b ON b.id=u.business_id
+                   WHERE u.id=%s AND u.is_active AND b.is_active FOR UPDATE OF u""",
+                (reset["user_id"],),
+            ).fetchone()
+            if not user:
+                raise HTTPException(400, "Reset link is invalid or expired")
+            # Recheck after the user lock: another request may have replaced or
+            # consumed this link while this request waited for the same account.
             row = self.conn.execute(
                 """UPDATE password_reset_tokens SET consumed_at=now()
                 WHERE token_hash=%s AND consumed_at IS NULL AND expires_at>now() RETURNING user_id""",
@@ -205,6 +229,11 @@ class AuthRepository(Repository):
             self.conn.execute(
                 "UPDATE users SET password_hash=%s,password_changed_at=now() WHERE id=%s",
                 (hash_password(password), row["user_id"]),
+            )
+            self.conn.execute(
+                "UPDATE password_reset_tokens SET consumed_at=now() "
+                "WHERE user_id=%s AND consumed_at IS NULL",
+                (row["user_id"],),
             )
             self.conn.execute("DELETE FROM sessions WHERE user_id=%s", (row["user_id"],))
 

@@ -3,9 +3,8 @@ import { AccountAccessCard } from "@/components/account-access-card";
 import { AccountMaintenance } from "@/components/account-maintenance";
 import { ProductsPanel } from "@/components/products-panel";
 import { StockMovementsPanel } from "@/components/stock-movements-panel";
-import { RecordSaleDialog } from "@/components/record-sale-dialog";
+import { SalesLedgerCard } from "@/components/sales-ledger-card";
 import { CsvImporter } from "@/components/csv-importer";
-import { ImportRefreshNotice } from "@/components/import-refresh-notice";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -15,11 +14,9 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatShort, parseDate } from "@/lib/dates";
-import { num } from "@/lib/format";
 import { useAppStore } from "@/lib/store";
 import type { Sale } from "@/lib/types";
 import { CSV_API_ROW_LIMITS } from "@/lib/csv-preparation";
-import { api } from "@/lib/api";
 import { usePermissions } from "@/lib/permissions";
 
 export const Route = createFileRoute("/inventory")({ component: InventoryPage });
@@ -68,80 +65,12 @@ function InventoryPage() {
 
 function SalesPanel() {
   const { canImportRecords } = usePermissions();
+  const session = useAppStore((state) => state.session);
   return (
     <div className={`grid gap-4 ${canImportRecords ? "lg:grid-cols-[1.2fr_1fr]" : ""}`}>
-      <RecentSalesCard />
+      <SalesLedgerCard key={session ? `${session.businessId}:${session.userId}` : "browser-demo"} />
       {canImportRecords && <SalesImportCard />}
     </div>
-  );
-}
-
-function RecentSalesCard() {
-  const { canRecordSales } = usePermissions();
-  const sales = useAppStore((s) => s.sales);
-  const products = useAppStore((s) => s.products);
-  const session = useAppStore((s) => s.session);
-  const nameById = useMemo(
-    () => Object.fromEntries(products.map((p) => [p.id, p.name])),
-    [products],
-  );
-  const recent = useMemo(
-    () => [...sales].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 40),
-    [sales],
-  );
-  const hasActiveProducts = useMemo(
-    () => products.some((product) => product.isActive !== false),
-    [products],
-  );
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Recent sales</CardTitle>
-        <ImportRefreshNotice />
-        <CardDescription>
-          {num(sales.length)} sales rows ·{" "}
-          {session ? "saved in PostgreSQL" : "browser demonstration"}
-        </CardDescription>
-        {canRecordSales && (
-          <RecordSaleDialog
-            trigger={
-              <Button className="w-fit" disabled={!hasActiveProducts}>
-                Record sale
-              </Button>
-            }
-          />
-        )}
-        {session && (
-          <a
-            className="text-sm text-primary underline"
-            href={api.exportUrl(session.businessId, "sales")}
-          >
-            Export sales CSV
-          </a>
-        )}
-      </CardHeader>
-      <CardContent className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead className="text-xs tracking-wide text-muted uppercase">
-            <tr>
-              <th className="pb-2 font-medium">Date</th>
-              <th className="pb-2 font-medium">Product</th>
-              <th className="pb-2 font-medium">Qty</th>
-            </tr>
-          </thead>
-          <tbody>
-            {recent.map((sale) => (
-              <tr key={sale.id} className="border-t border-border">
-                <td className="py-2 pr-3 tabular">{sale.date}</td>
-                <td className="pr-3">{nameById[sale.productId] ?? sale.productId}</td>
-                <td className="tabular">{num(sale.qty)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -151,10 +80,6 @@ function SalesImportCard() {
   const importSales = useAppStore((s) => s.importSales);
   const session = useAppStore((s) => s.session);
   const mode = useAppStore((s) => s.dataMode);
-  const activeProducts = useMemo(
-    () => products.filter((product) => product.isActive !== false),
-    [products],
-  );
 
   async function importPreparedRows(rows: Sale[]) {
     if (!canImportRecords) throw new Error("Only an owner can import sales records.");
@@ -201,17 +126,17 @@ function SalesImportCard() {
       <CardHeader>
         <CardTitle>Import CSV</CardTitle>
         <CardDescription>
-          Upload your file and check the detected sale dates, products, and quantities. Answer any
-          questions shown before saving. A source key can identify each sale line.
+          Upload your file to automatically find sale dates, products, and quantities. Extra columns
+          are ignored. The prepared records appear below, ready to import when valid.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
         <CsvImporter
           key={session ? `${session.businessId}:${session.userId}` : "browser-demo"}
           kind="sales"
-          products={activeProducts}
+          products={products}
           rowLimit={mode === "api" ? CSV_API_ROW_LIMITS.sales : null}
-          importLabel="Import rows"
+          importLabel="Upload CSV"
           placeholder={
             "2026-09-18,Lucky Me Pancit Canton,12\n2026-09-18,Nature Spring Water 500ml,20"
           }

@@ -46,7 +46,9 @@ try {
             "--no-zygote",
           ],
         }
-      : {}),
+      : process.platform === "win32"
+        ? { channel: "msedge" }
+        : {}),
   });
   const context = await browser.newContext({
     acceptDownloads: true,
@@ -99,6 +101,11 @@ try {
           }
         });
         data = { acceptedRows: rows.length - errors.length, rejectedRows: errors.length, errors };
+      } else if (/\/products\/[^/]+$/.test(path) && request.method() === "PATCH") {
+        const product = products.find((item) => item.id === path.split("/").at(-1));
+        assert.ok(product, "Synthetic product to update must exist.");
+        Object.assign(product, request.postDataJSON());
+        data = product;
       } else if (path.endsWith("/products")) data = products;
       else if (path.endsWith("/sales")) {
         const cursorId = url.searchParams.get("beforeId");
@@ -174,8 +181,8 @@ try {
     )
       writes.push({ url: request.url(), rows: request.postDataJSON().rows });
   });
-  await page.goto(base + "/inventory");
-  await page.getByRole("tab", { name: "Products", exact: true }).waitFor();
+  await page.goto(base + "/inventory", { waitUntil: "domcontentloaded", timeout: 60_000 });
+  await page.getByRole("tab", { name: "Products", exact: true }).waitFor({ timeout: 60_000 });
   const apiData = async (path) =>
     page.evaluate(async (url) => {
       const response = await fetch(url, { credentials: "include" });
@@ -186,10 +193,16 @@ try {
   const waitState = async (state) => {
     await page.locator(`[data-csv-state="${state}"]`).waitFor({ timeout: 30_000 });
   };
-  const upload = async (text, name = "synthetic.csv") => {
-    await importer()
-      .locator('input[type="file"]')
-      .setInputFiles({ name, mimeType: "text/csv", buffer: Buffer.from(text) });
+  const upload = async (text, name = "synthetic.csv", activation = "click") => {
+    const chooserPromise = page.waitForEvent("filechooser");
+    const button = importer().getByRole("button", { name: "Choose CSV file", exact: true });
+    if (activation === "keyboard") {
+      await button.focus();
+      await button.press("Enter");
+    } else await button.click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles({ name, mimeType: "text/csv", buffer: Buffer.from(text) });
+    await importer().getByText(name, { exact: true }).waitFor();
   };
   const adjust = async () => {
     const details = importer()
@@ -197,10 +210,11 @@ try {
       .filter({ has: page.getByText("Adjust import", { exact: true }) });
     if ((await details.getAttribute("open")) === null) await details.locator("summary").click();
   };
-  const review = async () => {
-    await importer()
-      .getByRole("checkbox", { name: /I checked these records/ })
-      .check();
+  const importDetails = async () => {
+    const details = importer()
+      .locator("details")
+      .filter({ has: page.getByText("Import details", { exact: true }) });
+    if ((await details.getAttribute("open")) === null) await details.locator("summary").click();
   };
   const writeResponse = (suffix) =>
     page.waitForResponse(
@@ -222,12 +236,11 @@ try {
   await importer().getByLabel("Number format", { exact: true }).selectOption("decimal-comma");
   await waitState("ready");
   assert.equal(
-    await importer().getByRole("button", { name: "Import inventory", exact: true }).isDisabled(),
-    true,
+    await importer().getByRole("button", { name: "Upload CSV", exact: true }).isDisabled(),
+    false,
   );
-  await review();
   const inventoryResponse = writeResponse("/inventory-imports");
-  await importer().getByRole("button", { name: "Import inventory", exact: true }).click();
+  await importer().getByRole("button", { name: "Upload CSV", exact: true }).click();
   assert.equal((await inventoryResponse).status(), 201);
   await page.locator("[data-csv-state]").waitFor({ state: "detached" });
   const catalog = await apiData("/products"),
@@ -245,7 +258,7 @@ try {
   await upload(duplicate, "synthetic-duplicate-inventory.csv");
   await waitState("error");
   assert.equal(
-    await importer().getByRole("button", { name: "Import inventory", exact: true }).isDisabled(),
+    await importer().getByRole("button", { name: "Upload CSV", exact: true }).isDisabled(),
     true,
   );
   assert.equal(writes.length, 1);
@@ -300,25 +313,21 @@ try {
   const converted = importer().getByRole("table", { name: "Converted CSV preview" });
   assert.match(await converted.innerText(), /2026-10-05/);
   assert.match(await converted.innerText(), /1\.25/);
-  await review();
-  // Any option change resets the review and prevents the previous payload from being submitted.
+  // Any option change invalidates preparation and prevents the previous payload from being submitted.
   await importer().getByLabel("Number format", { exact: true }).selectOption("decimal-point");
   assert.equal(
-    await importer().getByRole("button", { name: "Import rows", exact: true }).isDisabled(),
+    await importer().getByRole("button", { name: "Upload CSV", exact: true }).isDisabled(),
     true,
   );
   await waitState("error");
   await importer().getByLabel("Number format", { exact: true }).selectOption("decimal-comma");
   await waitState("ready");
   assert.equal(
-    await importer()
-      .getByRole("checkbox", { name: /I checked/ })
-      .isChecked(),
+    await importer().getByRole("button", { name: "Upload CSV", exact: true }).isDisabled(),
     false,
   );
-  await review();
   const salesResponse = writeResponse("/data-imports");
-  await importer().getByRole("button", { name: "Import rows", exact: true }).click();
+  await importer().getByRole("button", { name: "Upload CSV", exact: true }).click();
   const result = await (await salesResponse).json();
   assert.equal(result.data.acceptedRows, 2);
   await waitState("idle");
@@ -335,7 +344,7 @@ try {
     ],
   );
   check(
-    "sales mapping, date conversion, product resolution and review invalidation preserve current stock",
+    "sales mapping, date conversion, product resolution and preparation invalidation preserve current stock",
   );
 
   const invalidText =
@@ -343,6 +352,8 @@ try {
     Array.from({ length: 75 }, (_, i) => `2026-02-30,Unknown-${i},bad`).join("\n");
   await upload(invalidText, "synthetic-all-errors.csv");
   await waitState("error");
+  assert.equal(await importer().getByRole("alert").count(), 0);
+  await importDetails();
   assert.equal(
     await importer().getByRole("table", { name: "CSV row errors" }).locator("tbody tr").count(),
     50,
@@ -374,7 +385,7 @@ try {
   );
   await waitState("ready");
   assert.match(await importer().innerText(), /synthetic-latest\.csv/);
-  assert.match(await importer().innerText(), /1 valid rows/);
+  assert.match(await importer().innerText(), /1 records ready to import/);
   assert.equal(
     await importer()
       .getByRole("table", { name: "Converted CSV preview" })
@@ -392,25 +403,17 @@ try {
   await importer().getByRole("button", { name: "Cancel preparation", exact: true }).click();
   await waitState("cancelled");
   assert.equal(
-    await importer().getByRole("button", { name: "Import rows", exact: true }).isDisabled(),
+    await importer().getByRole("button", { name: "Upload CSV", exact: true }).isDisabled(),
     true,
   );
   await importer().getByRole("button", { name: "Prepare again", exact: true }).click();
   await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
-  await waitState("error");
-  await importer()
-    .getByLabel("Confirm number meaning", { exact: true })
-    .selectOption("decimal-point");
   await waitState("ready");
   check("cancellation blocks submission, retains the source, and supports preparing again");
 
   await upload(large, "synthetic-100000.csv");
-  await waitState("error");
-  await importer()
-    .getByLabel("Confirm number meaning", { exact: true })
-    .selectOption("decimal-point");
   await waitState("ready");
-  assert.match(await importer().innerText(), /100,000 valid rows/);
+  assert.match(await importer().innerText(), /100,000 records ready to import/);
   assert.equal(
     await importer()
       .getByRole("table", { name: "Converted CSV preview" })
@@ -418,9 +421,8 @@ try {
       .count(),
     50,
   );
-  await review();
   const largeResponse = writeResponse("/data-imports");
-  await importer().getByRole("button", { name: "Import rows", exact: true }).click();
+  await importer().getByRole("button", { name: "Upload CSV", exact: true }).click();
   const largeResult = await (await largeResponse).json();
   assert.equal(largeResult.data.acceptedRows, 100_000);
   await waitState("idle");
@@ -440,9 +442,8 @@ try {
     "Date,SKU,Quantity,Source Record Key\n2026-10-05,SYN-001,1.25,legacy:1\n2026-10-06,SYN-001,2,overlap:new";
   await upload(overlap, "synthetic-overlap.csv");
   await waitState("ready");
-  await review();
   const overlapResponse = writeResponse("/data-imports");
-  await importer().getByRole("button", { name: "Import rows", exact: true }).click();
+  await importer().getByRole("button", { name: "Upload CSV", exact: true }).click();
   const overlapResult = await (await overlapResponse).json();
   assert.equal(overlapResult.data.acceptedRows, 1);
   assert.equal(overlapResult.data.rejectedRows, 1);
@@ -467,9 +468,8 @@ try {
     "synthetic-saved-read-failure.csv",
   );
   await waitState("ready");
-  await review();
   const savedResponse = writeResponse("/data-imports");
-  await importer().getByRole("button", { name: "Import rows", exact: true }).click();
+  await importer().getByRole("button", { name: "Upload CSV", exact: true }).click();
   assert.equal((await (await savedResponse).json()).data.acceptedRows, 1);
   await waitState("idle");
   await page.getByText(/Sales import was saved, but the ledger could not be refreshed/).waitFor();
@@ -495,6 +495,7 @@ try {
     "synthetic-many-product-matches.csv",
   );
   await waitState("error");
+  await adjust();
   for (let i = 0; i < 55; i++) {
     await importer()
       .getByLabel(`Match product for Legacy review ${i}`, { exact: true })
@@ -539,7 +540,6 @@ try {
     "more than 50 selected product matches stay searchable, paged, editable, and unsaved during review",
   );
 
-  await review();
   await adjust();
   await importer().getByLabel("Product / SKU *", { exact: true }).selectOption("4");
   await waitState("ready");
@@ -547,22 +547,23 @@ try {
   assert.equal(
     await importer()
       .getByRole("checkbox", { name: /I checked these records/ })
-      .isChecked(),
-    false,
+      .count(),
+    0,
   );
   assert.equal(
-    await importer().getByRole("button", { name: "Import rows", exact: true }).isDisabled(),
-    true,
+    await importer().getByRole("button", { name: "Upload CSV", exact: true }).isDisabled(),
+    false,
   );
   assert.match(
     await importer().getByRole("table", { name: "Converted CSV preview" }).innerText(),
     /SYN-001/,
   );
   assert.equal(writes.length, reviewWriteCount);
-  check("changing the product column clears earlier manual matches and requires a new review");
+  check("changing the product column clears earlier manual matches and prepares the new mapping");
 
   await upload("Date,SKU,Quantity\n2026-10-06,constructor,1", "synthetic-identifier-name.csv");
   await waitState("error");
+  await adjust();
   assert.equal(
     await importer().getByLabel("Match product for constructor", { exact: true }).inputValue(),
     "",
@@ -593,17 +594,24 @@ try {
     "header/separator changes clear contextual matches and inherited object names are not preselected",
   );
 
+  await importer().getByRole("button", { name: "Paste CSV", exact: true }).click();
   await upload(
     "Customer,Product Name,Date,SKU,Quantity,Source Record Key,Receipt Total\nIgnored,Synthetic Rice,2026-10-07,SYN-001,2,auto:sale,9999",
     "synthetic-automatic-sales.csv",
+    "keyboard",
   );
   await waitState("ready");
   assert.equal(await importer().locator("details").first().getAttribute("open"), null);
   assert.equal(await importer().getByLabel("Confirm date meaning").count(), 0);
   assert.equal(await importer().getByLabel("Confirm number meaning").count(), 0);
-  await review();
+  assert.equal(
+    await importer()
+      .getByRole("checkbox", { name: /I checked these records/ })
+      .count(),
+    0,
+  );
   const autoSaleResponse = writeResponse("/data-imports");
-  await importer().getByRole("button", { name: "Import rows", exact: true }).click();
+  await importer().getByRole("button", { name: "Upload CSV", exact: true }).click();
   assert.equal((await autoSaleResponse).status(), 201);
   await waitState("idle");
   assert.equal(Number(writes.at(-1).rows[0].quantity), 2);
@@ -613,45 +621,68 @@ try {
   );
 
   await upload(
-    "Date;SKU;Quantity;Source Record Key\n05/10/2026;SYN-001;1,234;auto:clarified",
+    "Date;SKU;Quantity;Source Record Key\n05/10/2026;SYN-001;1,234;auto:defaults",
     "synthetic-ambiguous-values.csv",
   );
-  await waitState("error");
-  const beforeClarification = writes.length;
+  await waitState("ready");
+  const beforeDefaults = writes.length;
+  assert.equal(await importer().locator("details").first().getAttribute("open"), null);
+  assert.equal(await importer().getByLabel("Confirm date meaning").count(), 0);
+  assert.equal(await importer().getByLabel("Confirm number meaning").count(), 0);
   assert.equal(
-    await importer().getByRole("button", { name: "Import rows", exact: true }).isDisabled(),
+    await importer()
+      .getByText(/^Dates: Day \/ month \/ year.*Numbers: Decimal point, comma grouping/)
+      .isVisible(),
     true,
   );
-  await importer().getByLabel("Confirm date meaning", { exact: true }).selectOption("dmy");
-  await waitState("error");
-  await importer()
-    .getByLabel("Confirm number meaning", { exact: true })
-    .selectOption("decimal-comma");
-  await waitState("ready");
-  assert.equal(writes.length, beforeClarification);
-  assert.equal(await importer().locator("details").first().getAttribute("open"), null);
-  await review();
-  const clarifiedResponse = writeResponse("/data-imports");
-  await importer().getByRole("button", { name: "Import rows", exact: true }).click();
-  assert.equal((await clarifiedResponse).status(), 201);
+  assert.match(
+    await importer().getByRole("table", { name: "Converted CSV preview" }).innerText(),
+    /2026-10-05/,
+  );
+  assert.match(
+    await importer().getByRole("table", { name: "Converted CSV preview" }).innerText(),
+    /1234/,
+  );
+  assert.equal(
+    await importer().getByRole("button", { name: "Upload CSV", exact: true }).isDisabled(),
+    false,
+  );
+  assert.equal(writes.length, beforeDefaults);
+  const defaultsResponse = writeResponse("/data-imports");
+  await importer().getByRole("button", { name: "Upload CSV", exact: true }).click();
+  assert.equal((await defaultsResponse).status(), 201);
   await waitState("idle");
   assert.equal(writes.at(-1).rows[0].saleDate, "2026-10-05");
-  assert.equal(Number(writes.at(-1).rows[0].quantity), 1.234);
-  check(
-    "brief date and number questions block ambiguous writes and save the confirmed interpretations",
+  assert.equal(Number(writes.at(-1).rows[0].quantity), 1234);
+  check("ambiguous dates and numbers prepare and import automatically with visible default values");
+
+  await upload(
+    "Date;SKU;Quantity;Source Record Key\n05/10/2026;SYN-001;1,234;auto:override",
+    "synthetic-optional-format-override.csv",
   );
+  await waitState("ready");
+  await adjust();
+  await importer().getByLabel("Date format", { exact: true }).selectOption("mdy");
+  await importer().getByLabel("Number format", { exact: true }).selectOption("decimal-comma");
+  await waitState("ready");
+  const overrideResponse = writeResponse("/data-imports");
+  await importer().getByRole("button", { name: "Upload CSV", exact: true }).click();
+  assert.equal((await overrideResponse).status(), 201);
+  await waitState("idle");
+  assert.equal(writes.at(-1).rows[0].saleDate, "2026-05-10");
+  assert.equal(Number(writes.at(-1).rows[0].quantity), 1.234);
+  check("optional format overrides replace automatic choices and save the revalidated values");
 
   await page.getByRole("tab", { name: "Products", exact: true }).click();
   const beforeCount = (await apiData("/products")).find((item) => item.sku === "SYN-001");
   await page.getByRole("button", { name: "Import inventory", exact: true }).click();
   await upload("SKU,Stock On Hand,Supplier\nSYN-001,47.5,Ignored", "synthetic-count-only.csv");
   await waitState("ready");
-  assert.match(await importer().innerText(), /1 existing products will keep saved details/);
+  assert.match(await importer().innerText(), /Saved details are kept for 1 existing products/);
   assert.equal(await importer().locator("details").first().getAttribute("open"), null);
   await page.screenshot({ path: `${output}/simple-inventory-preview.png`, fullPage: true });
-  await review();
   const countResponse = writeResponse("/inventory-imports");
-  await importer().getByRole("button", { name: "Import inventory", exact: true }).click();
+  await importer().getByRole("button", { name: "Upload CSV", exact: true }).click();
   assert.equal((await countResponse).status(), 201);
   await page.locator("[data-csv-state]").waitFor({ state: "detached" });
   assert.deepEqual(writes.at(-1).rows, [{ sku: "SYN-001", currentStock: 47.5 }]);
@@ -668,7 +699,7 @@ try {
   await waitState("error");
   const afterWrites = writes.length;
   assert.equal(
-    await importer().getByRole("button", { name: "Import inventory", exact: true }).isDisabled(),
+    await importer().getByRole("button", { name: "Upload CSV", exact: true }).isDisabled(),
     true,
   );
   assert.equal(
@@ -679,9 +710,158 @@ try {
   check(
     "an incomplete new product blocks the entire mixed inventory import before any counts are changed",
   );
+  await page.screenshot({ path: `${output}/incomplete-new-product.png`, fullPage: true });
+
+  await upload(
+    "SKU,Product,Category,Unit,On Hand,Lead Time,Safety Stock,Unit Cost\n" +
+      "SAMPLE-WATER,Synthetic sample water,Synthetic,bottle,11,1,0,1\n" +
+      "SAMPLE-NOODLES,Synthetic sample noodles,Synthetic,pack,22,1,0,1\n" +
+      "SAMPLE-RICE,Synthetic sample rice,Synthetic,bag,33,1,0,1",
+    "synthetic-historical-catalog.csv",
+  );
+  await waitState("ready");
+  const sampleCatalogResponse = writeResponse("/inventory-imports");
+  await importer().getByRole("button", { name: "Upload CSV", exact: true }).click();
+  assert.equal((await sampleCatalogResponse).status(), 201);
+  await page.locator("[data-csv-state]").waitFor({ state: "detached" });
+  const sampleWater = (await apiData("/products")).find((item) => item.sku === "SAMPLE-WATER");
+  const deactivateStatus = await page.evaluate(
+    async ({ businessId, productId }) => {
+      const csrf = document.cookie
+        .split(";")
+        .map((part) => part.trim())
+        .find((part) => part.startsWith("stockcast_csrf="))
+        ?.slice("stockcast_csrf=".length);
+      const response = await fetch(`/api/v1/businesses/${businessId}/products/${productId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": decodeURIComponent(csrf ?? ""),
+        },
+        body: JSON.stringify({ isActive: false }),
+      });
+      return response.status;
+    },
+    { businessId: session.businessId, productId: sampleWater.id },
+  );
+  assert.equal(deactivateStatus, 200);
+  await page.reload();
+  await page.getByRole("tab", { name: "Sales ledger", exact: true }).click();
+  const beforeHistoricalCatalog = await apiData("/products");
+  assert.equal(beforeHistoricalCatalog.find((item) => item.id === sampleWater.id).isActive, false);
+  const historicalSample =
+    "Date,SKU,Quantity,Source Record Key\n" +
+    Array.from({ length: 7 }, (_, index) =>
+      ["SAMPLE-WATER", "SAMPLE-NOODLES", "SAMPLE-RICE"]
+        .map((sku) => `2026-10-07,${sku},2,synthetic-inactive:${index}:${sku}`)
+        .join("\n"),
+    ).join("\n");
+  await upload(historicalSample, "synthetic-stockcast-sales.csv");
+  await waitState("ready");
+  assert.equal(
+    await importer().getByRole("button", { name: "Upload CSV", exact: true }).isEnabled(),
+    true,
+  );
+  assert.match(
+    await importer().locator("[data-csv-feedback]").innerText(),
+    /File ready: 21 sales records/,
+  );
+  assert.equal(await importer().locator("details[open]").count(), 0);
+  assert.equal(await importer().getByRole("combobox").count(), 0);
+  assert.equal(await importer().getByRole("checkbox").count(), 0);
+  assert.equal(await importer().getByRole("alert").count(), 0);
+  await page.screenshot({ path: `${output}/inactive-historical-sales-ready.png`, fullPage: true });
+  const historicalResponse = writeResponse("/data-imports");
+  await importer().getByRole("button", { name: "Upload CSV", exact: true }).click();
+  const historicalResult = (await (await historicalResponse).json()).data;
+  assert.equal(historicalResult.acceptedRows, 21);
+  assert.equal(historicalResult.rejectedRows, 0);
+  await waitState("idle");
+  assert.equal(writes.at(-1).rows.length, 21);
+  assert.equal(writes.at(-1).rows.filter((row) => row.sku === "SAMPLE-WATER").length, 7);
+  assert.deepEqual(await apiData("/products"), beforeHistoricalCatalog);
+  const sampleIds = new Set(
+    beforeHistoricalCatalog.filter((item) => item.sku.startsWith("SAMPLE-")).map((item) => item.id),
+  );
+  const persistedHistorical = mock
+    ? sales.slice(-21)
+    : (await apiData("/sales?limit=200")).filter((row) => sampleIds.has(row.productId));
+  assert.equal(persistedHistorical.length, 21);
+  assert.equal(persistedHistorical.filter((row) => row.productId === sampleWater.id).length, 7);
+  check(
+    "all 21 historical sales, including seven inactive-SKU rows, save without questions, reactivation or stock changes",
+  );
+
+  const beforeReportReview = writes.length;
+  for (const delimiter of [";", "\t"]) {
+    await upload(
+      [
+        ["Date", "SKU", "Quantity", "Locations, channels, regions, groups, totals"].join(delimiter),
+        ["2026-10-07", "SYN-001", "2", "North, Metro, West, Daily, All"].join(delimiter),
+      ].join("\n"),
+      delimiter === ";" ? "synthetic-comma-rich-semicolon.csv" : "synthetic-comma-rich-tab.csv",
+    );
+    await waitState("ready");
+    assert.equal(await importer().locator("details[open]").count(), 0);
+    assert.match(
+      await importer().getByRole("table", { name: "Converted CSV preview" }).innerText(),
+      /SYN-001/,
+    );
+  }
+  check("comma-rich unused notes do not override a semicolon or tab report's actual columns");
+
+  const extraHeaders = Array.from({ length: 201 }, (_, index) => `Unused ${index + 1}`);
+  await upload(
+    [
+      [...extraHeaders, "Date", "SKU", "Quantity", "Source Record Key"].join(","),
+      [...extraHeaders.map(() => "ignored"), "2026-10-07", "SYN-001", "2", "wide:line1"].join(","),
+    ].join("\n"),
+    "synthetic-wide-required-columns.csv",
+  );
+  await waitState("ready");
+  assert.equal(await importer().locator("details[open]").count(), 0);
+  await adjust();
+  for (const [label, value] of [
+    ["Date *", "201"],
+    ["Product / SKU *", "202"],
+    ["Quantity *", "203"],
+    ["Source Record Key", "204"],
+  ]) {
+    const select = importer().getByLabel(label, { exact: true });
+    assert.equal(await select.inputValue(), value);
+    assert.ok((await select.locator("option").count()) < 120, "Wide source choices stay bounded");
+    await select.selectOption(value);
+    await waitState("ready");
+  }
+  assert.match(await importer().innerText(), /205-column file/);
+  const lateProduct = importer().getByLabel("Product / SKU *", { exact: true });
+  await lateProduct.selectOption("");
+  await waitState("error");
+  assert.equal(await lateProduct.locator('option[value="202"]').count(), 1);
+  await lateProduct.selectOption("202");
+  await waitState("ready");
+  assert.equal(await lateProduct.inputValue(), "202");
+  check(
+    "wide reports prepare automatically and optional controls preserve real late-column indices",
+  );
+
+  await upload(
+    "Date,SKU,Product,Quantity,Receipt\n2026-10-07,OLD,Retired unknown product,2,SYN-001",
+    "synthetic-unrelated-catalog-value.csv",
+  );
+  await waitState("error");
+  assert.equal(
+    await importer().getByRole("button", { name: "Upload CSV", exact: true }).isDisabled(),
+    true,
+  );
+  assert.equal(writes.length, beforeReportReview);
+  check(
+    "an unrelated receipt value cannot silently replace unknown product identifiers; review sends no writes",
+  );
 
   assert.deepEqual(browserErrors, []);
-  await page.screenshot({ path: `${output}/incomplete-new-product.png`, fullPage: true });
+  await page.screenshot({ path: `${output}/historical-sales-saved.png`, fullPage: true });
   report.passed = true;
 } catch (error) {
   await page?.screenshot({ path: `${output}/failure.png`, fullPage: true }).catch(() => {});

@@ -372,7 +372,9 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                             ),
                         )
             conn.execute(
-                """UPDATE forecast_runs SET algorithm_version=%s,configuration=%s,
+                """UPDATE forecast_runs SET algorithm_version=%s,configuration=%s::jsonb
+                   || CASE WHEN configuration->>'salesHistoryChanged'='true'
+                       THEN '{"salesHistoryChanged":true}'::jsonb ELSE '{}'::jsonb END,
                    xgboost_verified=false WHERE id=%s""",
                 (xgboost_version, Jsonb(configuration), run["id"]),
             )

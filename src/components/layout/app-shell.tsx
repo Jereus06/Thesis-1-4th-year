@@ -9,8 +9,8 @@ import {
   Plus,
   Warehouse,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
-import { Toaster, toast } from "sonner";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Toaster } from "sonner";
 import { ApiForecastProvider, ForecastProvider } from "@/components/forecast-context";
 import { RecordSaleDialog } from "@/components/record-sale-dialog";
 import { Button } from "@/components/ui/button";
@@ -256,13 +256,46 @@ function MobileNavLink({
 
 function SignOutButton() {
   const signOut = useAppStore((s) => s.signOut);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submitting = useRef(false);
+
+  async function submit() {
+    if (submitting.current) return;
+    submitting.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await signOut();
+    } catch (failure) {
+      setError(
+        failure instanceof Error && failure.message
+          ? `Could not sign out. ${failure.message} Try again.`
+          : "Could not sign out. Check your connection and try again.",
+      );
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  }
+
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={() => void signOut().catch((error: Error) => toast.error(error.message))}
-    >
-      Sign out
-    </Button>
+    <div className="flex flex-col items-end gap-1">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={busy}
+        aria-busy={busy}
+        onClick={() => void submit()}
+      >
+        {busy ? "Signing out…" : "Sign out"}
+      </Button>
+      {error && (
+        <p role="alert" className="max-w-64 text-xs text-danger">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }

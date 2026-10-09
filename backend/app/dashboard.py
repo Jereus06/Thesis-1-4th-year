@@ -90,8 +90,11 @@ def dashboard(repository, business_id, *, forecast_schedule=None):
                 captured,
             ),
         ).fetchone()["changed"]
-        stale = bool(legacy_baselines) or changed or {p["id"] for p in products} != set(
-            completed["data_snapshot"].get("products", [])
+        stale = (
+            bool(completed["configuration"].get("salesHistoryChanged"))
+            or bool(legacy_baselines)
+            or changed
+            or {p["id"] for p in products} != set(completed["data_snapshot"].get("products", []))
         )
 
     recommendations = []

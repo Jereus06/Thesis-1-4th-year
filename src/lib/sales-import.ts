@@ -1,5 +1,13 @@
 import type { Sale, SalesImportError, SalesImportResult } from "./types";
 
+export function isImportedSale(sale: Sale): boolean {
+  if (sale.source !== undefined) {
+    return ["csv_import", "pos_import", "migration"].includes(sale.source);
+  }
+  // Earlier browser imports saved these IDs before provenance was stored explicitly.
+  return sale.id.startsWith("imp-") || sale.id.startsWith("prepared-");
+}
+
 // Demo imports use the same explicit source identities as API imports.
 // Equal-looking sales without a source ID remain separate transactions.
 export function deduplicateSales(existing: Sale[], incoming: Sale[]) {

@@ -52,22 +52,102 @@ function recordError(record: CsvRecord, message: string): Error {
 function detectDelimiter(source: string): Delimiter {
   const candidates: Delimiter[] = [",", ";", "\t"];
   const counts = [0, 0, 0];
+  const samples: number[][] = [];
+  const headerScores = [0, 0, 0];
   let quoted = false;
-  let content = false;
+  let value = false;
+  let recordCount = 0;
+  let recordStart = 0;
+  let fallbackCounts: number[] | null = null;
+  const sample = (end: number) => {
+    // Report titles and delimiter-only padding do not establish a table's separator.
+    if (!value || !counts.some((count) => count > 0)) return;
+    fallbackCounts ??= [...counts];
+    const firstText = source.slice(recordStart, Math.min(end, recordStart + 500));
+    const reportTitle =
+      /\b(?:report|statement|summary|export)\b/i.test(firstText) &&
+      !/\b(?:sku|quantity|qty|on\s*hand|stock\s*count|product|item\s*code)\b/i.test(firstText);
+    if (!reportTitle) {
+      if (!samples.length) {
+        const heading = source.slice(recordStart, Math.min(end, recordStart + 8_000));
+        for (const [column, delimiter] of candidates.entries()) {
+          try {
+            // Reuse the parser's existing header vocabulary to break equal-width
+            // ties, such as semicolon reports whose notes contain many commas.
+            const fields = parseCsvRecords(heading, delimiter)[0]?.fields ?? [];
+            const roles = (aliases: Record<string, string>) =>
+              new Set(
+                fields.flatMap((field) => {
+                  const name = normalizeHeader(field);
+                  return Object.hasOwn(aliases, name) ? [aliases[name]] : [];
+                }),
+              );
+            const sales = roles(salesAliases);
+            const inventory = roles(inventoryAliases);
+            if (["date", "product", "quantity"].every((field) => sales.has(field)))
+              headerScores[column] = sales.size;
+            if (["sku", "stock"].every((field) => inventory.has(field)))
+              headerScores[column] = Math.max(headerScores[column], inventory.size);
+          } catch {
+            // A candidate separator can make otherwise valid quoting look malformed.
+          }
+        }
+      }
+      samples.push([...counts]);
+    }
+  };
   for (let index = 0; index < source.length; index++) {
     const char = source[index];
     if (char === '"') {
-      content = true;
-      if (quoted && source[index + 1] === '"') index++;
-      else quoted = !quoted;
+      if (quoted && source[index + 1] === '"') {
+        value = true;
+        index++;
+      } else quoted = !quoted;
     } else if (!quoted && (char === "\r" || char === "\n")) {
-      if (content) break;
+      sample(index);
+      if (value) recordCount++;
+      counts.fill(0);
+      value = false;
+      if (char === "\r" && source[index + 1] === "\n") index++;
+      recordStart = index + 1;
+      if (recordCount >= 50) break;
     } else if (!quoted && candidates.includes(char as Delimiter)) {
       counts[candidates.indexOf(char as Delimiter)]++;
-      content = true;
-    } else if (char.trim()) content = true;
+    } else if (char.trim()) value = true;
   }
-  return candidates[counts.indexOf(Math.max(...counts))];
+  if (recordCount < 50) sample(source.length);
+  if (!samples.length) {
+    const fallback = fallbackCounts ?? counts;
+    return candidates[fallback.indexOf(Math.max(...fallback))];
+  }
+  // A real separator repeats a table's width across rows. A comma-rich note or
+  // heading must not outweigh consistent semicolon/tab records by raw frequency.
+  const scores = candidates.map((_candidate, column) => {
+    const frequencies = new Map<number, number>();
+    let populated = 0;
+    for (const row of samples) {
+      if (!row[column]) continue;
+      populated++;
+      frequencies.set(row[column], (frequencies.get(row[column]) ?? 0) + 1);
+    }
+    let agreement = 0;
+    let width = 0;
+    for (const [count, frequency] of frequencies)
+      if (frequency > agreement || (frequency === agreement && count > width)) {
+        agreement = frequency;
+        width = count;
+      }
+    return { column, header: headerScores[column], agreement, populated, width };
+  });
+  scores.sort(
+    (left, right) =>
+      right.header - left.header ||
+      right.agreement - left.agreement ||
+      right.populated - left.populated ||
+      right.width - left.width ||
+      left.column - right.column,
+  );
+  return candidates[scores[0].column];
 }
 
 /** Parse complete logical CSV records, retaining their starting physical line for errors. */
@@ -75,7 +155,7 @@ export function parseCsvRecords(text: string, selectedDelimiter?: CsvDelimiter):
   let source = text.replace(/^\uFEFF/, "");
   let line = 1;
   let delimiter: Delimiter;
-  const directive = /^(?:[ \t]*(?:\r\n|\r|\n))*[ \t]*sep=([^\r\n]*)(?:\r\n|\r|\n|$)/i.exec(source);
+  const directive = /^[ \t\r\n]*sep=([^\r\n]*)(?:\r\n|\r|\n|$)/i.exec(source);
   if (directive) {
     const separator = directive[1].replace(/ +$/g, "");
     if (![",", ";", "\t"].includes(separator))

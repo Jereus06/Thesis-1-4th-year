@@ -3,10 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { CsvImportReview } from "@/components/csv-import-review";
 import type { CsvImportOptions } from "@/lib/guided-csv";
-import type {
-  CsvPreparationSummary,
-  CsvWorkerRequest,
-  CsvWorkerResponse,
+import {
+  CSV_MAX_SOURCE_BYTES,
+  type CsvPreparationSummary,
+  type CsvWorkerRequest,
+  type CsvWorkerResponse,
 } from "@/lib/csv-preparation";
 import type { InventoryImportRow, Product, Sale } from "@/lib/types";
 
@@ -22,7 +23,7 @@ type ImporterProps = {
   | {
       kind: "inventory";
       products?: Product[];
-      onImport: (rows: InventoryRow[]) => Promise<boolean>;
+      onImport: (rows: InventoryRow[], idempotencyKey: string) => Promise<boolean>;
     }
 );
 type Phase =
@@ -44,12 +45,21 @@ const preparationLabels: Partial<Record<Phase, string>> = {
   validating: "Validating CSV records…",
 };
 
+function recordPreparationTimings(operation: () => void) {
+  try {
+    operation();
+  } catch {
+    // Optional browser timing support must never stop CSV preparation or rendering.
+  }
+}
+
 /** Owns preparation state so CSV edits never rerender the surrounding records or catalog. */
 export function CsvImporter(props: ImporterProps) {
   const { kind, rowLimit, disabled = false } = props;
   const products = props.products ?? EMPTY_PRODUCTS;
   const currentCatalog = useRef(products);
   currentCatalog.current = products;
+  const fileInput = useRef<HTMLInputElement>(null);
   const inputId = useId();
   const [method, setMethod] = useState<"file" | "paste">("file");
   const [file, setFile] = useState<File | null>(null);
@@ -57,10 +67,10 @@ export function CsvImporter(props: ImporterProps) {
   const [summary, setSummary] = useState<CsvPreparationSummary | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [importFailed, setImportFailed] = useState(false);
   const [cancelled, setCancelled] = useState(false);
   const [importing, setImporting] = useState(false);
   const [options, setOptions] = useState<CsvImportOptions | undefined>();
-  const [reviewed, setReviewed] = useState(false);
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const workerRef = useRef<Worker | null>(null);
@@ -71,6 +81,13 @@ export function CsvImporter(props: ImporterProps) {
     reject: (error: Error) => void;
   } | null>(null);
   const mounted = useRef(false);
+  const submitting = useRef(false);
+  const inventorySubmission = useRef<{
+    signature: string;
+    key: string;
+    rows: InventoryRow[];
+    options: CsvImportOptions | undefined;
+  } | null>(null);
 
   useEffect(() => {
     mounted.current = true;
@@ -81,9 +98,13 @@ export function CsvImporter(props: ImporterProps) {
 
   useLayoutEffect(() => {
     if (!summary) return;
-    performance.measure("csv-preview-render", "csv-preview-render-start");
+    recordPreparationTimings(() =>
+      performance.measure("csv-preview-render", "csv-preview-render-start"),
+    );
     const frame = requestAnimationFrame(() => {
-      performance.measure("csv-preview-frame", "csv-preview-render-start");
+      recordPreparationTimings(() =>
+        performance.measure("csv-preview-frame", "csv-preview-render-start"),
+      );
     });
     return () => cancelAnimationFrame(frame);
   }, [summary]);
@@ -94,7 +115,7 @@ export function CsvImporter(props: ImporterProps) {
     let worker: Worker | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     setError(null);
-    setReviewed(false);
+    setImportFailed(false);
     setDownloading(false);
     const source =
       method === "file"
@@ -129,23 +150,25 @@ export function CsvImporter(props: ImporterProps) {
             if (!active || generation.current !== requestId || data.requestId !== requestId) return;
             if (data.type === "phase") setPhase(data.phase);
             else if (data.type === "prepared") {
-              for (const [name, duration] of [
-                ["csv-read", data.summary.timings.readMs],
-                ["csv-decode", data.summary.timings.decodeMs],
-                ["csv-parse", data.summary.timings.parseMs],
-                ["csv-validation", data.summary.timings.validateMs],
-                ["csv-worker-total", data.summary.timings.totalMs],
-              ] as const) {
-                performance.clearMeasures(name);
-                performance.measure(name, {
-                  start: 0,
-                  duration,
-                  detail: { thread: "worker", requestId, scope: "duration-only" },
-                });
-              }
-              performance.clearMeasures("csv-preview-render");
-              performance.clearMeasures("csv-preview-frame");
-              performance.mark("csv-preview-render-start");
+              recordPreparationTimings(() => {
+                for (const [name, duration] of [
+                  ["csv-read", data.summary.timings.readMs],
+                  ["csv-decode", data.summary.timings.decodeMs],
+                  ["csv-parse", data.summary.timings.parseMs],
+                  ["csv-validation", data.summary.timings.validateMs],
+                  ["csv-worker-total", data.summary.timings.totalMs],
+                ] as const) {
+                  performance.clearMeasures(name);
+                  performance.measure(name, {
+                    start: 0,
+                    duration,
+                    detail: { thread: "worker", requestId, scope: "duration-only" },
+                  });
+                }
+                performance.clearMeasures("csv-preview-render");
+                performance.clearMeasures("csv-preview-frame");
+                performance.mark("csv-preview-render-start");
+              });
               preparedCatalog.current = products;
               setSummary(data.summary);
               setError(data.summary.error);
@@ -204,10 +227,21 @@ export function CsvImporter(props: ImporterProps) {
   }, [method, file, text, products, kind, rowLimit, cancelled, options]);
 
   const preparing = phase in preparationLabels;
-  const ready = phase === "ready" && !!summary && summary.rowCount > 0 && reviewed;
+  const ready =
+    phase === "ready" &&
+    !!summary &&
+    summary.rowCount > 0 &&
+    !!workerRef.current &&
+    preparedCatalog.current === products;
   const locked = importing || disabled;
   const guide = summary?.guided;
   const selectedOptions = preparing ? (options ?? guide?.options) : (guide?.options ?? options);
+  const firstIssue = guide?.issuePreview[0];
+  const preparationReason =
+    guide?.configurationErrors[0] ??
+    (firstIssue
+      ? `Record ${firstIssue.record}, ${firstIssue.field}: ${firstIssue.message}`
+      : error);
 
   function replacePreparation(nextPhase: Phase) {
     workerRef.current?.terminate();
@@ -218,8 +252,8 @@ export function CsvImporter(props: ImporterProps) {
     pendingRows.current = null;
     setSummary(null);
     setError(null);
+    setImportFailed(false);
     setPhase(nextPhase);
-    setReviewed(false);
     setDownloading(false);
   }
 
@@ -240,13 +274,13 @@ export function CsvImporter(props: ImporterProps) {
     workerRef.current = null;
     ++generation.current;
     preparedCatalog.current = null;
-    setReviewed(false);
     setPhase("validating");
     setOptions(next);
   }
 
   function switchMethod(next: "file" | "paste") {
     if (next === method) return;
+    inventorySubmission.current = null;
     replacePreparation("idle");
     setCancelled(false);
     setMethod(next);
@@ -262,10 +296,13 @@ export function CsvImporter(props: ImporterProps) {
 
   async function submit() {
     const worker = workerRef.current;
-    if (!ready || locked || !worker || preparedCatalog.current !== products) return;
+    if (!ready || locked || submitting.current || !worker || preparedCatalog.current !== products)
+      return;
     const requestId = generation.current;
+    submitting.current = true;
     setImporting(true);
     setError(null);
+    setImportFailed(false);
     try {
       const rows = await new Promise<ImportRows>((resolve, reject) => {
         pendingRows.current = { resolve, reject };
@@ -277,23 +314,40 @@ export function CsvImporter(props: ImporterProps) {
         preparedCatalog.current !== currentCatalog.current
       )
         return;
-      const clear =
-        props.kind === "sales"
-          ? await props.onImport(rows as Sale[])
-          : await props.onImport(rows as InventoryRow[]);
+      let clear: boolean;
+      if (props.kind === "sales") clear = await props.onImport(rows as Sale[]);
+      else {
+        const signature = JSON.stringify(rows);
+        // Retry the original request after an uncertain response, including when catalog refresh
+        // makes a newly created product prepare as an existing-product count with less metadata.
+        const previous = inventorySubmission.current;
+        if (!previous || (previous.options !== options && previous.signature !== signature))
+          inventorySubmission.current = {
+            signature,
+            key: crypto.randomUUID(),
+            rows: rows as InventoryRow[],
+            options,
+          };
+        else previous.options = options;
+        const submission = inventorySubmission.current!;
+        clear = await props.onImport(submission.rows, submission.key);
+      }
       if (clear && mounted.current) {
+        inventorySubmission.current = null;
         setFile(null);
         setText("");
         setSummary(null);
         setPhase("idle");
         setOptions(undefined);
         setAdjustOpen(false);
-        setReviewed(false);
       }
     } catch (failure) {
-      if (mounted.current && requestId === generation.current)
+      if (mounted.current && requestId === generation.current) {
+        setImportFailed(true);
         setError(failure instanceof Error ? failure.message : "Import failed.");
+      }
     } finally {
+      submitting.current = false;
       if (mounted.current) setImporting(false);
     }
   }
@@ -302,14 +356,15 @@ export function CsvImporter(props: ImporterProps) {
     <div className="grid gap-3" data-csv-state={preparing ? "preparing" : phase}>
       <div className="flex flex-wrap gap-2" aria-label="CSV input method">
         <Button
+          type="button"
           variant={method === "file" ? "secondary" : "outline"}
           disabled={locked}
-          onClick={() => switchMethod("file")}
-          aria-pressed={method === "file"}
+          onClick={() => fileInput.current?.click()}
         >
-          Uploaded file
+          Choose CSV file
         </Button>
         <Button
+          type="button"
           variant={method === "paste" ? "secondary" : "outline"}
           disabled={locked}
           onClick={() => switchMethod("paste")}
@@ -318,36 +373,27 @@ export function CsvImporter(props: ImporterProps) {
           Paste CSV
         </Button>
       </div>
-      {method === "file" ? (
-        <div className="grid gap-2">
-          <label
-            className={`inline-flex h-11 w-fit items-center justify-center rounded-lg border border-border bg-surface px-4 text-sm font-medium ${locked ? "opacity-50" : "cursor-pointer hover:bg-surface-2"}`}
-          >
-            Upload CSV file
-            <input
-              type="file"
-              disabled={locked}
-              accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain"
-              className="sr-only"
-              onChange={(event) => {
-                const selected = event.currentTarget.files?.[0];
-                event.currentTarget.value = "";
-                if (!selected) return;
-                replacePreparation("reading");
-                setCancelled(false);
-                setOptions(undefined);
-                setAdjustOpen(false);
-                setFile(selected);
-              }}
-            />
-          </label>
-          {file && (
-            <p className="break-all text-sm">
-              <span className="font-medium">{file.name}</span> · {file.size.toLocaleString()} bytes
-            </p>
-          )}
-        </div>
-      ) : (
+      <input
+        ref={fileInput}
+        type="file"
+        disabled={locked}
+        accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain"
+        className="hidden"
+        aria-label="CSV file"
+        onChange={(event) => {
+          const selected = event.currentTarget.files?.[0];
+          event.currentTarget.value = "";
+          if (!selected) return;
+          inventorySubmission.current = null;
+          replacePreparation("reading");
+          setCancelled(false);
+          setOptions(undefined);
+          setAdjustOpen(false);
+          setMethod("file");
+          setFile(selected);
+        }}
+      />
+      {method === "paste" && (
         <div className="grid gap-2">
           <Label htmlFor={inputId}>Paste CSV text</Label>
           <textarea
@@ -355,6 +401,7 @@ export function CsvImporter(props: ImporterProps) {
             value={text}
             disabled={locked}
             onChange={(event) => {
+              inventorySubmission.current = null;
               replacePreparation("queued");
               setCancelled(false);
               setOptions(undefined);
@@ -366,30 +413,95 @@ export function CsvImporter(props: ImporterProps) {
           />
         </div>
       )}
+      <div
+        className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 p-3"
+        aria-label="CSV upload actions"
+      >
+        <p className="min-w-0 flex-1 break-all text-sm" data-csv-filename>
+          {method === "file" ? (
+            file ? (
+              <>
+                <span className="font-medium">{file.name}</span> · {file.size.toLocaleString()}{" "}
+                bytes
+              </>
+            ) : (
+              "No CSV file chosen"
+            )
+          ) : (
+            "Pasted CSV"
+          )}
+        </p>
+        <Button type="button" onClick={submit} disabled={!ready || locked}>
+          {importing ? "Uploading…" : props.importLabel}
+        </Button>
+      </div>
       <p className="text-sm text-muted" role="status" aria-live="polite">
         {importing
-          ? "Importing prepared rows…"
+          ? "Uploading CSV records…"
           : preparing
             ? preparationLabels[phase]
             : phase === "cancelled"
               ? "Preparation cancelled. Your source is retained."
               : phase === "error"
-                ? "CSV preparation needs attention."
+                ? summary?.guided
+                  ? "The extracted records are shown below."
+                  : "No records could be read from this file."
                 : summary
-                  ? `${summary.rowCount.toLocaleString()} rows prepared · ${summary.encoding}. Review the converted values before importing.`
+                  ? `${summary.rowCount.toLocaleString()} ${kind} records extracted.`
                   : "Choose a file or paste CSV to prepare its records."}
       </p>
-      {error && (
+      <p className="text-sm text-muted" aria-live="polite" data-csv-feedback>
+        {importing
+          ? "Saving extracted records…"
+          : importFailed
+            ? "Upload did not finish. Your selected file is kept."
+            : ready
+              ? `File ready: ${summary!.rowCount.toLocaleString()} ${kind} records. Select ${props.importLabel} to save.`
+              : phase === "error" && !summary?.limitExceeded && preparationReason
+                ? `File not uploaded. ${preparationReason}`
+                : phase === "ready"
+                  ? "Checking the latest product details before upload…"
+                  : null}
+      </p>
+      {error && importFailed && (
         <p className="text-sm text-danger" role="alert">
           {error}
         </p>
       )}
-      {summary?.limitExceeded && !summary.error && (
-        <p className="text-sm text-danger" role="alert">
+      {error && !importFailed && !summary?.guided && (
+        <details className="text-sm text-muted">
+          <summary className="cursor-pointer">File details</summary>
+          <p className="mt-2">{error}</p>
+        </details>
+      )}
+      {summary?.limitExceeded && (
+        <p className="text-sm text-muted">
           This CSV has {summary.rowCount.toLocaleString()} rows; the maximum for one {kind} import
           is {summary.rowLimit?.toLocaleString()}. No rows have been submitted.
         </p>
       )}
+      {!!summary?.ignoredRowCount && (
+        <p className="text-sm text-muted" aria-label="Ignored CSV rows">
+          {summary.ignoredRowCount.toLocaleString()} blank or report rows ignored automatically.
+        </p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {preparing && (
+          <Button type="button" variant="outline" onClick={cancelPreparation}>
+            Cancel preparation
+          </Button>
+        )}
+        {cancelled && (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={locked}
+            onClick={() => setCancelled(false)}
+          >
+            Prepare again
+          </Button>
+        )}
+      </div>
       {guide && selectedOptions && (
         <CsvImportReview
           kind={kind}
@@ -400,11 +512,8 @@ export function CsvImporter(props: ImporterProps) {
           cancelled={cancelled}
           preparing={preparing}
           downloading={downloading}
-          canReview={phase === "ready"}
-          reviewed={reviewed}
           adjustOpen={adjustOpen}
           onAdjust={setAdjustOpen}
-          onReview={setReviewed}
           onOptions={changeOptions}
           onDownload={() => {
             if (workerRef.current) {
@@ -454,27 +563,16 @@ export function CsvImporter(props: ImporterProps) {
           </div>
         </details>
       )}
-      {rowLimit !== null && (
-        <p className="text-xs text-muted">
-          Maximum {rowLimit.toLocaleString()} data rows per import. Files above this limit can be
-          previewed; no rows are submitted.
-        </p>
-      )}
-      <div className="flex flex-wrap gap-2">
-        <Button variant="outline" onClick={submit} disabled={!ready || locked}>
-          {importing ? "Importing…" : props.importLabel}
-        </Button>
-        {preparing && (
-          <Button variant="outline" onClick={cancelPreparation}>
-            Cancel preparation
-          </Button>
+      <p className="text-xs text-muted">
+        Maximum {CSV_MAX_SOURCE_BYTES / (1024 * 1024)} MiB per file or pasted CSV.
+        {rowLimit !== null && (
+          <>
+            {" "}
+            Maximum {rowLimit.toLocaleString()} data rows per import. Sources within the size limit
+            but above the row limit can be previewed; no rows are submitted.
+          </>
         )}
-        {cancelled && (
-          <Button variant="outline" disabled={locked} onClick={() => setCancelled(false)}>
-            Prepare again
-          </Button>
-        )}
-      </div>
+      </p>
     </div>
   );
 }

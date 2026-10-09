@@ -5,11 +5,11 @@ const errorMessages: Record<string, string> = {
   google_denied: "Google sign-in was cancelled. You can try again or use your password.",
   google_expired: "This Google sign-in request expired. Start again from StockCast.",
   google_account_exists:
-    "This email already has a StockCast account. Sign in with your password, then connect Google in Inventory > Settings.",
+    "This email already has a StockCast account. Sign in with your password, then connect Google from your account settings in Inventory.",
   google_link_conflict:
     "This Google account or StockCast account is already connected to a different account.",
   google_link_expired:
-    "Your session expired before Google could be connected. Sign in again, then reconnect Google in Inventory > Settings.",
+    "Your session expired before Google could be connected. Sign in again, then reconnect Google from your account settings in Inventory.",
   google_failed: "Google sign-in could not be completed. Please try again.",
 };
 

@@ -7,8 +7,10 @@ import { csvIssueReport, suggestCsvOptions, validateGuidedCsv } from "../src/lib
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (
-      ["./import-csv", "./guided-csv"].includes(specifier) &&
-      context.parentURL?.endsWith("/csv-preparation.ts")
+      ["./import-csv", "./guided-csv", "./csv-extraction"].includes(specifier) &&
+      ["/csv-preparation.ts", "/csv-extraction.ts"].some((path) =>
+        context.parentURL?.endsWith(path),
+      )
     )
       return nextResolve(`${specifier}.ts`, context);
     return nextResolve(specifier, context);
@@ -30,9 +32,18 @@ const products = [product];
 const salesHeader = "Date,SKU,Quantity,Source Record Key";
 const inventoryHeader = "SKU,Product,Category,Unit,On Hand,Lead Time,Safety Stock,Unit Cost";
 const validate = (text, kind = "sales", options, catalog = products) =>
-  validateGuidedCsv(parseCsvRecords(text), kind, catalog, options);
+  validateGuidedCsv(
+    parseCsvRecords(text),
+    kind,
+    catalog,
+    options ??
+      (kind === "inventory"
+        ? { ...suggestCsvOptions(parseCsvRecords(text), kind), inventoryDetails: "all" }
+        : undefined),
+  );
 const configure = (text, changes = {}, kind = "sales") => ({
   ...suggestCsvOptions(parseCsvRecords(text), kind),
+  ...(kind === "inventory" ? { inventoryDetails: "all" } : {}),
   ...changes,
 });
 const request = (text, options = {}) => ({
@@ -53,7 +64,6 @@ test("automatic preparation finds catalog identifiers and dates and ignores unre
     ),
   );
   assert.equal(result.summary.error, null);
-  assert.equal(result.summary.guided.formatQuestions.length, 0);
   assert.deepEqual(result.data.rows[0], {
     id: "prepared-2",
     productId: product.id,
@@ -63,15 +73,176 @@ test("automatic preparation finds catalog identifiers and dates and ignores unre
   });
 });
 
-test("ambiguous dates and quantities require confirmation before rows can be submitted", async () => {
-  const text = "Date;SKU;Quantity\n05/10/2026;000123;1,234";
+test("unknown named identities never fall back to an unrelated catalog-looking receipt", async () => {
+  const text = "Date,SKU,Product,Quantity,Receipt\n2026-10-05,OLD,Retired item,2,000123";
   const result = await prepareCsv(request(text));
   assert.equal(result.data, null);
-  assert.deepEqual(
-    result.summary.guided.formatQuestions.map((item) => item.field),
-    ["date", "number"],
+  assert.equal(result.summary.guided.options.mapping.product, null);
+  assert.match(result.summary.error, /unambiguous Product/);
+  const options = {
+    ...result.summary.guided.options,
+    mapping: { ...result.summary.guided.options.mapping, product: 4 },
+  };
+  const intentional = await prepareCsv(request(text, { options }));
+  assert.equal(intentional.summary.error, null);
+  assert.equal(intentional.data.rows[0].productId, product.id);
+});
+
+test("recognized product names can resolve unknown legacy SKUs independently of unrelated values", async () => {
+  const other = { ...product, id: "other", sku: "OTHER", name: "Other synthetic item" };
+  const result = await prepareCsv(
+    request("Date,SKU,Product,Quantity,Receipt\n2026-10-05,OLD,Synthetic Rice,2,OTHER", {
+      products: [product, other],
+    }),
   );
-  assert.equal(result.summary.guided.convertedPreview.length, 0);
+  assert.equal(result.summary.error, null);
+  assert.equal(result.summary.guided.options.mapping.product, 2);
+  assert.equal(result.data.rows[0].productId, product.id);
+});
+
+test("wide reports ignore unused columns and keep late mapped fields in bounded choices", async () => {
+  const extras = Array.from({ length: 110 }, (_, index) => `Ignored ${index}`);
+  for (const late of [false, true]) {
+    const required = ["Date", "SKU", "Quantity", "Source Record Key"];
+    const values = ["2026-10-05", product.sku, "2", "line:wide"];
+    const header = late ? [...extras, ...required] : [...required, ...extras];
+    const data = late ? [...extras, ...values] : [...values, ...extras];
+    const result = await prepareCsv(request(`${header.join(",")}\n${data.join(",")}`));
+    assert.equal(result.summary.error, null);
+    assert.equal(result.data.rows[0].sourceRecordKey, "line:wide");
+    const guide = result.summary.guided;
+    assert.equal(guide.sourceColumnCount, 114);
+    assert.ok(guide.columns.length <= 104);
+    assert.equal(guide.columns.length, guide.columnIndices.length);
+    for (const key of ["date", "product", "quantity", "key"]) {
+      const column = guide.options.mapping[key];
+      const choice = guide.columnIndices.indexOf(column);
+      assert.ok(choice >= 0, key);
+      assert.equal(guide.columns[choice], `${column + 1}: ${header[column]}`);
+    }
+    data[late ? 112 : 2] = "bad quantity";
+    const invalid = await prepareCsv(request(`${header.join(",")}\n${data.join(",")}`));
+    assert.equal(invalid.data, null);
+    assert.equal(invalid.issues[0].field, "quantity");
+  }
+});
+
+test("wide existing inventory counts retain only required values and validate late stock cells", async () => {
+  const extras = Array.from({ length: 110 }, (_, index) => `Extra${index}`);
+  const header = [...extras, "SKU", "On Hand", "Unit Cost"];
+  const values = [...extras, product.sku, "7", "invalid ignored existing cost"];
+  const result = await prepareCsv(
+    request(`${header.join(",")}\n${values.join(",")}`, {
+      kind: "inventory",
+      rowLimit: 5000,
+    }),
+  );
+  assert.equal(result.summary.error, null);
+  assert.deepEqual(result.data.rows, [{ sku: product.sku, currentStock: 7 }]);
+  assert.equal(result.summary.guided.sourceColumnCount, 113);
+  assert.ok(result.summary.guided.columnIndices.includes(111));
+});
+
+test("wide Adjust import keeps original automatic columns available after clearing or remapping", async () => {
+  const extras = Array.from({ length: 110 }, (_, index) => `Ignored${index}`);
+  const header = [...extras, "Date", "SKU", "Quantity"];
+  const values = extras.map(() => "unrelated");
+  values[0] = product.sku;
+  values[1] = "2026-10-05";
+  const text = `${header.join(",")}\n${[...values, "2026-10-05", product.sku, "2"].join(",")}`;
+  const original = await prepareCsv(request(text));
+  assert.equal(original.summary.error, null);
+  const options = original.summary.guided.options;
+  assert.equal(options.mapping.product, 111);
+  for (const [field, originalColumn, earlyColumn, label] of [
+    ["product", 111, 0, "112: SKU"],
+    ["date", 110, 1, "111: Date"],
+  ])
+    for (const column of [null, earlyColumn]) {
+      const changed = await prepareCsv(
+        request(text, {
+          options: {
+            ...options,
+            mapping: { ...options.mapping, [field]: column },
+          },
+        }),
+      );
+      const guide = changed.summary.guided;
+      assert.equal(guide.options.mapping[field], column);
+      const choice = guide.columnIndices.indexOf(originalColumn);
+      assert.ok(choice >= 0, "The originally detected field must remain selectable");
+      assert.equal(guide.columns[choice], label);
+      assert.ok(guide.columns.length <= 105);
+      const restored = await prepareCsv(
+        request(text, {
+          options: {
+            ...guide.options,
+            mapping: { ...guide.options.mapping, [field]: originalColumn },
+          },
+        }),
+      );
+      assert.equal(restored.summary.error, null);
+      assert.equal(restored.data.rows[0].productId, product.id);
+    }
+});
+
+test("wide catalog-inferred identity columns remain selectable after an optional override", async () => {
+  const extras = Array.from({ length: 110 }, (_, index) => `Ignored${index}`);
+  const header = [...extras, "Date", "Legacy Identifier", "Quantity"];
+  const text = `${header.join(",")}\n${[
+    ...extras.map(() => "unrelated"),
+    "2026-10-05",
+    product.sku,
+    "2",
+  ].join(",")}`;
+  const original = await prepareCsv(request(text));
+  assert.equal(original.summary.error, null);
+  assert.equal(original.summary.guided.options.mapping.product, 111);
+  const options = original.summary.guided.options;
+  const cleared = await prepareCsv(
+    request(text, {
+      options: { ...options, mapping: { ...options.mapping, product: null } },
+    }),
+  );
+  assert.equal(cleared.data, null);
+  const guide = cleared.summary.guided;
+  const choice = guide.columnIndices.indexOf(111);
+  assert.ok(choice >= 0);
+  assert.equal(guide.columns[choice], "112: Legacy Identifier");
+  assert.ok(guide.columns.length <= 103);
+});
+
+test("quoted backend exports preserve guarded SKU and real source keys during automatic re-import", async () => {
+  const catalog = [{ ...product, sku: "=SYN" }];
+  const rows = [
+    ["id", "sku", "sale_date", "quantity", "source", "data_origin", "source_record_key"],
+    ["server-sale-id", "\t=SYN", "2026-10-05", "2", "import", "synthetic", "\t+pos:1"],
+  ];
+  const text = rows
+    .map((fields) => fields.map((value) => `"${value.replaceAll('"', '""')}"`).join(","))
+    .join("\r\n");
+  const result = await prepareCsv(request(text, { products: catalog }));
+  assert.equal(result.summary.error, null);
+  assert.equal(result.data.rows[0].productId, product.id);
+  assert.equal(result.data.rows[0].sourceRecordKey, "+pos:1");
+  assert.equal(result.data.rows[0].qty, 2);
+  assert.equal(result.summary.guided.options.mapping.key, 6);
+  assert.equal(result.sourceText, text);
+});
+
+test("ambiguous dates and quantities prepare automatically with stable defaults and allow overrides", async () => {
+  const text = "Date;SKU;Quantity\n05/10/2026;000123;1,234";
+  const result = await prepareCsv(request(text));
+  assert.equal(result.summary.error, null);
+  assert.equal(result.summary.guided.options.dateFormat, "dmy");
+  assert.equal(result.summary.guided.options.numberFormat, "comma-grouped");
+  assert.equal(result.data.rows[0].date, "2026-10-05");
+  assert.equal(result.data.rows[0].qty, 1234);
+  assert.equal(result.summary.guided.convertedPreview.length, 1);
+  const dotted = await prepareCsv(request(text.replace("1,234", "1.234")));
+  assert.equal(dotted.summary.error, null);
+  assert.equal(dotted.data.rows[0].qty, 1.234);
+  assert.equal(dotted.summary.guided.options.numberFormat, "decimal-point");
   const options = {
     ...result.summary.guided.options,
     dateFormat: "dmy",
@@ -83,6 +254,10 @@ test("ambiguous dates and quantities require confirmation before rows can be sub
   assert.equal(confirmed.summary.error, null);
   assert.equal(confirmed.data.rows[0].date, "2026-10-05");
   assert.equal(confirmed.data.rows[0].qty, 1.234);
+  const monthFirst = await prepareCsv(
+    request(text, { options: { ...options, dateFormat: "mdy" } }),
+  );
+  assert.equal(monthFirst.data.rows[0].date, "2026-05-10");
   assert.equal(
     (await prepareCsv(request(text, { options: { ...options, numberFormat: "comma-grouped" } })))
       .data.rows[0].qty,
@@ -97,7 +272,6 @@ test("format detection uses evidence beyond the preview and retains malformed ro
     "\n15/10/2026;000123;1,25\n31/04/2026;000123;bad";
   const result = await prepareCsv(request(text));
   assert.equal(result.data, null);
-  assert.equal(result.summary.guided.formatQuestions.length, 0);
   assert.equal(result.summary.guided.options.dateFormat, "dmy");
   assert.equal(result.summary.guided.options.numberFormat, "decimal-comma");
   assert.equal(result.summary.guided.validRowCount, 251);
@@ -119,6 +293,130 @@ test("equivalent interpretations need no question but revenue is never guessed a
   assert.equal(revenue.summary.guided.options.mapping.quantity, null);
 });
 
+test("common export aliases and punctuation automatically extract needed fields without receipt-wide keys", async () => {
+  const result = await prepareCsv(
+    request(
+      "Customer;Qty. Sold;Item No.;Sale Date;Unit of Measure;Receipt No.;Amount;Line Key\nIgnored;1,25;000123;15/10/2026;bag;receipt:1;50;line:1",
+    ),
+  );
+  assert.equal(result.summary.error, null);
+  assert.deepEqual(result.data.rows[0], {
+    id: "prepared-2",
+    productId: product.id,
+    date: "2026-10-15",
+    qty: 1.25,
+    sourceRecordKey: "line:1",
+  });
+  const noLineKey = await prepareCsv(
+    request(
+      "Sale Date,Product ID,Sales Qty,Receipt No.,Revenue,Unit Cost\n2026-10-05,synthetic-1,2,receipt:1,80,40",
+    ),
+  );
+  assert.equal(noLineKey.summary.error, null);
+  assert.equal(Object.hasOwn(noLineKey.data.rows[0], "sourceRecordKey"), false);
+  assert.equal(noLineKey.data.rows[0].qty, 2);
+  const stock = await prepareCsv(
+    request("Item No.;Stock Count;Supplier\n000123;1,25;ignored", {
+      kind: "inventory",
+      rowLimit: 5000,
+    }),
+  );
+  assert.equal(stock.summary.error, null);
+  assert.deepEqual(stock.data.rows, [{ sku: "000123", currentStock: 1.25 }]);
+});
+
+test("historical sales quantities are never detected as current inventory stock counts", async () => {
+  for (const quantityHeader of ["Quantity", "Qty", "Units Sold"]) {
+    const result = await prepareCsv(
+      request(`Date,SKU,${quantityHeader}\n2026-10-05,000123,2`, {
+        kind: "inventory",
+        rowLimit: 5000,
+      }),
+    );
+    assert.equal(result.data, null);
+    assert.equal(result.summary.guided.options.mapping.stock, null);
+    assert.match(result.summary.error, /stock-count column/);
+  }
+});
+
+test("conflicting repeated headers block whole-file preparation while agreeing duplicates import automatically", async () => {
+  for (const [kind, text, field] of [
+    ["sales", "Date,SKU,Quantity,Quantity\n2026-10-05,000123,1,2", "Quantity"],
+    ["sales", "Date,Date,SKU,Quantity\n2026-10-05,bad,000123,1", "Date"],
+    ["sales", "Date,SKU,SKU,Quantity\n2026-10-05,000123,UNKNOWN,1", "Product / SKU"],
+    [
+      "sales",
+      "Date,Product,SKU,SKU,Quantity\n2026-10-05,Synthetic Rice,000123,UNKNOWN,1",
+      "Product / SKU",
+    ],
+    ["sales", "Date,SKU,Quantity,Qty\n2026-10-05,000123,1,2", "Quantity"],
+    ["sales", "Date,SKU,Units Sold,Quantity Sold\n2026-10-05,000123,1,2", "Quantity"],
+    ["inventory", "SKU,On Hand,On Hand\n000123,1,2", "On Hand"],
+    ["inventory", "SKU,On Hand,Current Stock\n000123,1,2", "On Hand"],
+    ["inventory", "SKU,On Hand,Stock Count\n000123,1,2", "On Hand"],
+    ["inventory", "SKU,On Hand,Unit Cost,Unit Cost\nNEW,1,40,50", "Unit Cost"],
+    ["inventory", "SKU,On Hand,Product Name,Product Name\nNEW,1,Rice,Beans", "Product name"],
+    [
+      "sales",
+      "Date,SKU,Quantity,Source Record Key,Source Record Key\n2026-10-05,000123,1,a,b",
+      "Source Record Key",
+    ],
+  ]) {
+    const conflict = await prepareCsv(request(text, { kind }));
+    assert.equal(conflict.data, null, text);
+    assert.ok(
+      conflict.summary.guided.configurationErrors.some(
+        (error) => error.includes(field) && error.includes("CSV headers"),
+      ),
+      text,
+    );
+  }
+  for (const [kind, text] of [
+    ["sales", "Date,SKU,Quantity,Quantity\n2026-10-05,000123,2,2"],
+    ["sales", "Date,SKU,Quantity,Qty\n2026-10-05,000123,2,2"],
+    ["sales", "Date,SKU,Units Sold,Quantity Sold\n2026-10-05,000123,2,2"],
+    ["inventory", "SKU,On Hand,On Hand\n000123,2,2"],
+    ["inventory", "SKU,On Hand,Current Stock\n000123,2,2"],
+  ]) {
+    const agreed = await prepareCsv(request(text, { kind }));
+    assert.equal(agreed.summary.error, null, text);
+    assert.equal(agreed.data.rows.length, 1);
+  }
+  const lateConflict = await prepareCsv(
+    request(
+      "Date,SKU,Quantity,Quantity\n" +
+        Array.from({ length: 250 }, () => "2026-10-05,000123,1,1").join("\n") +
+        "\n2026-10-05,000123,1,2",
+    ),
+  );
+  assert.equal(lateConflict.data, null);
+  assert.match(lateConflict.summary.error, /CSV headers/);
+});
+
+test("late file evidence selects month-first dates and mixed locale rows still block the whole import", async () => {
+  const result = await prepareCsv(
+    request(
+      "Date;SKU;Quantity\n" +
+        Array.from({ length: 250 }, () => "05/10/2026;000123;1,234").join("\n") +
+        "\n10/15/2026;000123;2.50",
+    ),
+  );
+  assert.equal(result.summary.error, null);
+  assert.equal(result.summary.guided.options.dateFormat, "mdy");
+  assert.equal(result.summary.guided.options.numberFormat, "comma-grouped");
+  assert.equal(result.data.rows[0].date, "2026-05-10");
+  assert.equal(result.data.rows.at(-1).date, "2026-10-15");
+  assert.equal(result.data.rows.at(-1).qty, 2.5);
+  for (const text of [
+    "Date;SKU;Quantity\n15/10/2026;000123;1\n10/15/2026;000123;2",
+    "Date;SKU;Quantity\n2026-10-05;000123;1,25\n2026-10-06;000123;1.25",
+  ]) {
+    const mixed = await prepareCsv(request(text));
+    assert.equal(mixed.data, null);
+    assert.ok(mixed.issues.length > 0);
+  }
+});
+
 test("redundant SKU and name columns are accepted only when their product identities agree", async () => {
   const text = "Date,SKU,Product Name,Quantity\n2026-10-05,000123,Synthetic Rice,2";
   assert.equal((await prepareCsv(request(text))).summary.error, null);
@@ -128,6 +426,99 @@ test("redundant SKU and name columns are accepted only when their product identi
   );
   assert.equal(conflict.data, null);
   assert.equal(conflict.summary.guided.options.mapping.product, null);
+});
+
+test("automatic identity inference blocks known contradictions despite unknown SKUs elsewhere", async () => {
+  const catalog = [
+    { ...product, id: "a", sku: "A", name: "Alpha" },
+    { ...product, id: "b", sku: "B", name: "Beta" },
+  ];
+  for (const secondSku of ["OLD", "A"]) {
+    const result = await prepareCsv(
+      request(`Date,SKU,Product,Quantity\n2026-10-05,A,Beta,2\n2026-10-06,${secondSku},Beta,3`, {
+        products: catalog,
+      }),
+    );
+    assert.equal(result.data, null);
+    assert.equal(result.summary.guided.options.mapping.product, null);
+    assert.match(result.summary.error, /unambiguous Product \/ SKU/);
+  }
+});
+
+test("automatic identity conflict checks include records beyond the converted preview", async () => {
+  const catalog = [
+    { ...product, id: "a", sku: "A", name: "Alpha" },
+    { ...product, id: "b", sku: "B", name: "Beta" },
+  ];
+  const rows = Array.from(
+    { length: 60 },
+    (_, index) => `2026-10-05,${index === 0 ? "OLD" : index === 59 ? "A" : "B"},Beta,2`,
+  );
+  const result = await prepareCsv(
+    request(`Date,SKU,Product,Quantity\n${rows.join("\n")}`, { products: catalog }),
+  );
+  assert.equal(result.summary.rowCount, 60);
+  assert.equal(result.data, null);
+  assert.equal(result.summary.guided.options.mapping.product, null);
+  assert.match(result.summary.error, /unambiguous Product \/ SKU/);
+});
+
+test("unknown legacy SKUs still fall back to known names when every known identity agrees", async () => {
+  const catalog = [
+    { ...product, id: "a", sku: "A", name: "Alpha" },
+    { ...product, id: "b", sku: "B", name: "Beta" },
+  ];
+  const result = await prepareCsv(
+    request("Date,SKU,Product,Quantity\n2026-10-05,OLD,Beta,2\n2026-10-06,B,Beta,3", {
+      products: catalog,
+    }),
+  );
+  assert.equal(result.summary.error, null);
+  assert.equal(result.summary.guided.options.mapping.product, 2);
+  assert.deepEqual(
+    result.data.rows.map((row) => [row.productId, row.qty]),
+    [
+      ["b", 2],
+      ["b", 3],
+    ],
+  );
+});
+
+test("agreeing SKU, ID and name columns resolve inactive historical products automatically", async () => {
+  const inactive = { ...product, id: "b", sku: "B", name: "Beta", isActive: false };
+  const original = structuredClone(inactive);
+  const result = await prepareCsv(
+    request("Date,SKU,Product ID,Product Name,Quantity\n2026-10-05,B,b,Beta,2", {
+      products: [inactive],
+    }),
+  );
+  assert.equal(result.summary.error, null);
+  assert.equal(result.summary.guided.options.mapping.product, 1);
+  assert.equal(result.data.rows[0].productId, "b");
+  assert.deepEqual(inactive, original);
+});
+
+test("explicit product-column and manual-match overrides retain their reviewed meaning", async () => {
+  const catalog = [
+    { ...product, id: "a", sku: "A", name: "Alpha" },
+    { ...product, id: "b", sku: "B", name: "Beta" },
+  ];
+  const text = "Date,SKU,Product,Quantity\n2026-10-05,A,Beta,2\n2026-10-06,OLD,Beta,3";
+  const automatic = await prepareCsv(request(text, { products: catalog }));
+  const options = {
+    ...automatic.summary.guided.options,
+    mapping: { ...automatic.summary.guided.options.mapping, product: 1 },
+    productMatches: { OLD: "b" },
+  };
+  const reviewed = await prepareCsv(request(text, { products: catalog, options }));
+  assert.equal(reviewed.summary.error, null);
+  assert.deepEqual(
+    reviewed.data.rows.map((row) => [row.productId, row.qty]),
+    [
+      ["a", 2],
+      ["b", 3],
+    ],
+  );
 });
 
 test("saved inventory metadata is previewed but omitted from count-only update requests", async () => {
@@ -152,7 +543,121 @@ test("saved inventory metadata is previewed but omitted from count-only update r
   ]);
 });
 
-test("count-only inventory rejects incomplete new SKUs and explicit blank or incompatible units", async () => {
+test("automatic existing-product counts ignore unused metadata and preserve their saved details", async () => {
+  const text =
+    "SKU;Inventory Level;Product;Category;Unit;Lead Time;Safety Stock;Unit Cost;Unit Cost;Supplier\n000123;1.234;;; ;1,25;bad;₱40;contradiction;ignored";
+  const result = await prepareCsv(request(text, { kind: "inventory", rowLimit: 5000 }));
+  assert.equal(result.summary.error, null);
+  assert.equal(result.summary.guided.options.inventoryDetails, "new-only");
+  assert.equal(result.summary.guided.options.numberFormat, "decimal-point");
+  assert.equal(result.summary.guided.reusedInventoryRows, 1);
+  assert.deepEqual(result.data.rows, [{ sku: "000123", currentStock: 1.234 }]);
+  assert.deepEqual(result.summary.guided.convertedPreview[0].fields, [
+    "000123",
+    "Synthetic Rice",
+    "Synthetic",
+    "bag",
+    "1.234",
+    "3",
+    "1",
+    "40",
+  ]);
+  const updateDetails = await prepareCsv(
+    request(text, {
+      kind: "inventory",
+      rowLimit: 5000,
+      options: { ...result.summary.guided.options, inventoryDetails: "all" },
+    }),
+  );
+  assert.equal(updateDetails.data, null);
+  assert.ok(updateDetails.issues.some((issue) => issue.field === "name"));
+  assert.ok(updateDetails.issues.some((issue) => issue.field === "cost"));
+});
+
+test("mixed inventory files use source details only for new products and never invent missing new details", async () => {
+  const text =
+    "SKU;Product;Category;Unit;On Hand;Lead Time;Safety Stock;Unit Cost;Unit Cost\n" +
+    "000123;;;;2;not needed;bad;₱40;ignored\n" +
+    "NEW;New Rice;Staples;bag;5;2;0.5;10.50;10.50";
+  const result = await prepareCsv(request(text, { kind: "inventory", rowLimit: 5000 }));
+  assert.equal(result.summary.error, null);
+  assert.equal(result.summary.guided.reusedInventoryRows, 1);
+  assert.deepEqual(result.data.rows, [
+    { sku: "000123", currentStock: 2 },
+    {
+      sku: "NEW",
+      name: "New Rice",
+      category: "Staples",
+      unit: "bag",
+      currentStock: 5,
+      leadTimeDays: 2,
+      safetyStock: 0.5,
+      unitCost: 10.5,
+    },
+  ]);
+  const missing = await prepareCsv(
+    request(text.replace("NEW;New Rice;Staples;bag", "NEW;;Staples;bag"), {
+      kind: "inventory",
+      rowLimit: 5000,
+    }),
+  );
+  assert.equal(missing.data, null);
+  assert.equal(missing.summary.guided.validRowCount, 1);
+  assert.equal(missing.summary.guided.invalidRowCount, 1);
+  assert.equal(missing.issues[0].field, "name");
+});
+
+test("ignoring existing inventory metadata retains all explicit nonblank unit checks", async () => {
+  for (const text of [
+    "SKU,Stock,Unit\n000123,2,piece",
+    "SKU,Stock,Unit,UOM\n000123,2,bag,piece",
+    "SKU,Stock,Unit,Unit\n000123,2,bag,piece",
+  ]) {
+    const result = await prepareCsv(request(text, { kind: "inventory", rowLimit: 5000 }));
+    assert.equal(result.data, null, text);
+    assert.ok(
+      result.issues.some((issue) => issue.field === "unit"),
+      text,
+    );
+  }
+});
+
+test("unused trailing CSV cells may vary while required values, units, and stable keys retain validation", async () => {
+  const text =
+    "Date,SKU,Quantity,Unit,Source Record Key,Notes\n" +
+    "2026-10-05,000123,2,,key:1\n" +
+    "2026-10-06,000123,3,bag,key:2,ignored,extra\n" +
+    "2026-10-07,000123,4";
+  const result = await prepareCsv(request(text));
+  assert.equal(result.summary.error, null);
+  assert.deepEqual(
+    result.data.rows.map((row) => [row.qty, row.sourceRecordKey]),
+    [
+      [2, "key:1"],
+      [3, "key:2"],
+      [4, undefined],
+    ],
+  );
+  const inventory = await prepareCsv(
+    request("SKU,On Hand,Notes\n000123,2", {
+      kind: "inventory",
+      rowLimit: 5000,
+    }),
+  );
+  assert.equal(inventory.summary.error, null);
+  for (const broken of [
+    text + "\n2026-10-08,000123",
+    text.replace("3,bag,key:2", "3,piece,key:2"),
+    text.replace("key:2", "key:1"),
+    text + '\n2026-10-08,000123,1,bag,key:3,"unclosed',
+  ]) {
+    const invalid = await prepareCsv(request(broken));
+    assert.equal(invalid.data, null, broken);
+    assert.ok(invalid.summary.error);
+  }
+});
+
+test("count-only inventory rejects incomplete new SKUs and incompatible nonblank units", async () => {
   const mixed = await prepareCsv(
     request("SKU,On Hand\n000123,2\nNEW,3", { kind: "inventory", rowLimit: 5000 }),
   );
@@ -160,7 +665,12 @@ test("count-only inventory rejects incomplete new SKUs and explicit blank or inc
   assert.equal(mixed.summary.guided.validRowCount, 1);
   assert.equal(mixed.summary.guided.invalidRowCount, 1);
   assert.equal(mixed.issues.length, 6);
-  for (const unit of ["", "piece"]) {
+  const blankUnit = await prepareCsv(
+    request("SKU,On Hand,Unit\n000123,2,", { kind: "inventory", rowLimit: 5000 }),
+  );
+  assert.equal(blankUnit.summary.error, null);
+  assert.deepEqual(blankUnit.data.rows, [{ sku: "000123", currentStock: 2 }]);
+  for (const unit of ["piece"]) {
     const result = await prepareCsv(
       request(`SKU,On Hand,Unit\n000123,2,${unit}`, { kind: "inventory", rowLimit: 5000 }),
     );
@@ -177,19 +687,19 @@ test("a headerless sale containing a header-like SKU is not discarded", async ()
   assert.equal(result.summary.guided.options.header, false);
 });
 
-test("fractional lead times never become evidence to silently multiply stock quantities", async () => {
+test("ignored saved-product lead times cannot change stock number interpretation; explicit detail updates still validate", async () => {
   const text = "SKU;On Hand;Lead Time\n000123;1.001;1.001";
   const pending = await prepareCsv(request(text, { kind: "inventory", rowLimit: 5000 }));
-  assert.equal(pending.data, null);
-  assert.deepEqual(
-    pending.summary.guided.formatQuestions.map((item) => item.field),
-    ["number"],
-  );
-  assert.equal(pending.summary.guided.formatQuestions[0].choices.length, 2);
+  assert.equal(pending.summary.error, null);
+  assert.deepEqual(pending.data.rows, [{ sku: "000123", currentStock: 1.001 }]);
+  assert.equal(pending.summary.guided.options.numberFormat, "decimal-point");
+  assert.equal(pending.issues.length, 0);
+  assert.equal(pending.summary.guided.convertedPreview[0].fields[4], "1.001");
   const options = {
     ...pending.summary.guided.options,
     numberFormat: "decimal-point",
     numberConfirmed: true,
+    inventoryDetails: "all",
   };
   const corrected = await prepareCsv(request(text, { kind: "inventory", rowLimit: 5000, options }));
   assert.equal(corrected.data, null);
@@ -243,12 +753,15 @@ test("unknown headers require explicit mapping, with headerless records still av
   assert.deepEqual(inv.data.rows[0], (({ id: _id, ...row }) => row)(product));
 });
 
-test("multiple aliases and shared source columns require an explicit unambiguous choice", () => {
+test("conflicting quantity synonyms stay invalid while explicit sold quantities take priority", async () => {
   const text = "Date,SKU,Product Name,Quantity,Qty\n2026-10-05,000123,Synthetic Rice,1,2";
-  assert.deepEqual(validate(text).configurationErrors, [
-    "Select a source column for Product / SKU.",
-    "Select a source column for Quantity.",
-  ]);
+  const automatic = await prepareCsv(request(text));
+  assert.equal(automatic.data, null);
+  assert.match(automatic.summary.error, /equivalent CSV headers/);
+  assert.equal(automatic.summary.guided.options.mapping.product, 1);
+  const explicitSold = await prepareCsv(request(text.replace("Qty", "Units Sold")));
+  assert.equal(explicitSold.summary.error, null);
+  assert.equal(explicitSold.data.rows[0].qty, 2);
   const options = configure(text, {
     mapping: { date: 0, product: 1, quantity: 0, key: null, unit: null },
   });
@@ -383,9 +896,11 @@ test("manual product resolution preserves source records and applies consistentl
     ],
   );
   assert.equal(products[0].currentStock, 20);
-  const stale = validate(text, "sales", result.options, [{ ...product, isActive: false }]);
+  const inactive = validate(text, "sales", result.options, [{ ...product, isActive: false }]);
+  assert.equal(inactive.data.rows.length, 2);
+  const stale = validate(text, "sales", result.options, []);
   assert.equal(stale.data, null);
-  assert.match(stale.issues[0].message, /no longer active/);
+  assert.match(stale.issues[0].message, /no longer in the catalog/);
 });
 
 test("matching tiers keep ambiguities, exact matches, IDs equal to SKUs, and inactive products safe", () => {
@@ -409,13 +924,49 @@ test("matching tiers keep ambiguities, exact matches, IDs equal to SKUs, and ina
   assert.equal(
     validate("Date,SKU,Quantity\n2026-10-05,000123,1", "sales", undefined, [
       { ...product, isActive: false },
-    ]).data,
-    null,
+    ]).data.rows[0].productId,
+    product.id,
   );
   assert.equal(
     validate("Date,SKU,Quantity\n2026-10-05,000123,1", "sales", undefined, [product, product]).data,
     null,
   );
+});
+
+test("historical sales automatically include inactive catalog products without changing them", async () => {
+  const catalog = [
+    {
+      ...product,
+      id: "sample-water",
+      sku: "SAMPLE-WATER",
+      name: "Sample Water 500ml",
+      unit: "bottle",
+      isActive: false,
+    },
+    {
+      ...product,
+      id: "sample-noodles",
+      sku: "SAMPLE-NOODLES",
+      name: "Sample Instant Noodles",
+      unit: "pack",
+      isActive: true,
+    },
+    { ...product, id: "sample-rice", sku: "SAMPLE-RICE", name: "Sample Rice 1kg", isActive: true },
+  ];
+  const original = structuredClone(catalog);
+  const rows = Array.from({ length: 7 }, (_, day) =>
+    catalog.map((item) => `2026-10-0${day + 1},${item.sku},${item.name},12`).join("\n"),
+  ).join("\n");
+  // Both SKU and product-name columns must agree across active and inactive products.
+  const result = await prepareCsv(
+    request(`Date,SKU,Product Name,Quantity\n${rows}`, { products: catalog }),
+  );
+  assert.equal(result.summary.error, null);
+  assert.equal(result.summary.guided.unresolvedProductCount, 0);
+  assert.equal(result.summary.guided.validRowCount, 21);
+  assert.equal(result.data.rows.length, 21);
+  assert.equal(result.data.rows.filter((row) => row.productId === "sample-water").length, 7);
+  assert.deepEqual(catalog, original);
 });
 
 test("counting units are validated without pack/piece conversions or catalog changes", () => {
@@ -469,8 +1020,9 @@ test("required text, column shape, and API length limits never receive invented 
   );
   assert.deepEqual(
     result.issues.map((issue) => issue.field),
-    ["name", "unit", "safety", "row"],
+    ["name", "unit", "safety"],
   );
+  assert.equal(result.validRowCount, 1);
   const long = validate(`${salesHeader}\n2026-10-05,000123,1,${"😀".repeat(201)}`);
   assert.equal(long.data, null);
   assert.equal(

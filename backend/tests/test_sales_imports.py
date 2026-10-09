@@ -76,11 +76,18 @@ class ImportConnection:
             assert self.locked_business == params[0]
             matches = [batch for batch in self.batches if (
                 batch["business_id"] == params[0] and batch["content_sha256"] in params[1]
+                and (batch.get("accepted_rows", 0) == 0 or any(
+                    sale["business_id"] == batch["business_id"] and sale["import_id"] == batch["id"]
+                    for sale in self.sales
+                ))
             )]
             return Result(sorted(matches, key=lambda batch: (batch["rejected_rows"], batch["id"])))
         if "FROM products" in query:
             assert self.locked_business == params[0]
-            return Result([product for product in self.products if product["business_id"] == params[0]])
+            return Result([product for product in self.products if (
+                product["business_id"] == params[0]
+                and ("AND is_active" not in query or product.get("is_active", True))
+            )])
         if "FROM sales" in query:
             assert self.locked_business == params[0]
             self.key_reads += 1
@@ -186,6 +193,39 @@ def test_source_record_keys_and_batches_are_scoped_to_business(repository):
     second = repository.create_sales_import(owner("store-2"), data)
     assert first["acceptedRows"] == second["acceptedRows"] == 1
     assert [sale["product_id"] for sale in repository.conn.sales] == [PRODUCT_ID, OTHER_PRODUCT_ID]
+
+
+@pytest.mark.parametrize("sku", ["test-1", "TEST-1"])
+def test_historical_import_resolves_inactive_products_without_changing_catalog(repository, sku):
+    repository.conn.products[0].update({"is_active": False, "current_stock": "20"})
+    repository.conn.products[1].update({"sku": "FOREIGN-INACTIVE", "is_active": False})
+    catalog_before = [dict(product) for product in repository.conn.products]
+
+    result = repository.create_sales_import(owner(), payload([
+        row("inactive-history", sku=sku), row("foreign-history", sku="FOREIGN-INACTIVE"),
+    ]))
+
+    assert (result["acceptedRows"], result["rejectedRows"]) == (1, 1)
+    assert result["errors"] == [{"row": 2, "code": "unknown_sku", "sku": "FOREIGN-INACTIVE"}]
+    assert [sale["product_id"] for sale in repository.conn.sales] == [PRODUCT_ID]
+    assert repository.conn.products == catalog_before
+
+
+def test_deactivation_keeps_historical_source_key_identity_and_overlap_checks(repository):
+    repository.create_sales_import(owner(), payload([row("saved-history")]))
+    repository.conn.products[0]["is_active"] = False
+
+    result = repository.create_sales_import(owner(), payload([
+        row("saved-history"), row("new-history", saleDate="2026-01-02"),
+    ]))
+
+    assert (result["acceptedRows"], result["rejectedRows"]) == (1, 1)
+    assert result["errors"] == [{"row": 1, "code": "duplicate_source_record_key"}]
+    assert [sale["source_record_key"] for sale in repository.conn.sales] == [
+        "saved-history", "new-history",
+    ]
+    assert all(sale["product_id"] == PRODUCT_ID for sale in repository.conn.sales)
+    assert repository.conn.products[0]["is_active"] is False
 
 
 @pytest.mark.parametrize("keys", [(None, None), ("sale-1", "sale-2")])
