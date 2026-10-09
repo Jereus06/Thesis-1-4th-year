@@ -26,6 +26,15 @@ Read [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) before changing this p
 
 ## Documentation
 
-The latest revised thesis Chapters 1–3 are maintained outside this repository. Files under `public/thesis/` support the Strategies page but can lag the latest approved working drafts. Ask for the latest chapters when a coding task depends on the thesis wording; do not silently treat those checked-in files as the final manuscript.
+The supplied formal manuscript revised on 9 October 2026 has current text companions under
+`docs/thesis/`, with the questionnaire and final reference section. The Word master remains
+outside this repository and retains the submission layout and figures. Use those text companions
+for the current thesis wording until the owner supplies a newer revision; source code remains the
+authority on implemented behavior. The retail research scope excludes sari-sari-store studies.
+Authorized client records or a documented permitted public retail dataset may support forecasting;
+client survey respondents remain the owner or manager and staff. The strategy Markdown under
+`public/thesis/` mirrors the revised methodology; the earlier Word insert remains an archive.
+Do not describe dated synthetic verification records as collected client findings or a fresh check
+of a later version.
 
 When handing work back, name what was changed, what was verified, and which assumptions still need confirmation from the team or future partner.

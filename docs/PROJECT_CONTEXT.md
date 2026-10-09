@@ -11,8 +11,14 @@ StockCast records products, sales, and stock movements, evaluates product demand
 supports owner restocking decisions. The team is still finding a partner business. Do not invent a
 partner, collected data, accuracy result, evaluator response, or deployed domain.
 
-Current Chapters 1–3 text mirrors are under `docs/thesis/`. Formal manuscript files are maintained
-outside the repository. Downloads under `public/thesis/` can lag current drafts.
+Current Chapters 1–3 text companions under `docs/thesis/` match the supplied formal manuscript
+revised on 9 October 2026, including its questionnaire and final references. The panel's retail
+scope excludes sari-sari-store research. Authorized client records or a documented permitted
+public retail dataset may support forecast evaluation; the client survey remains owner/manager
+and staff only. The final Word manuscript is maintained outside the repository. The strategy
+Markdown under `public/thesis/` mirrors the current section; the earlier Word insert is an archive.
+Table 3.14 attributes the recorded 5 October 2026 synthetic software verification and does not
+claim a new runtime execution or completed client findings.
 
 ## Application in this branch
 
