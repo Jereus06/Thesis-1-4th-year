@@ -49,7 +49,7 @@ type Store = {
   addProduct: (product: Omit<Product, "id" | "sku"> & { sku?: string }) => Promise<void>;
   importInventory: (rows: InventoryImportRow[], idempotencyKey?: string) => Promise<void>;
   updateSettings: (patch: Partial<Settings>) => Promise<void>;
-  importSales: (rows: Sale[]) => Promise<SalesImportResult>;
+  importSales: (rows: Sale[], originalFilename?: string) => Promise<SalesImportResult>;
   deleteImportedSales: (saleId?: string) => Promise<{ deletedRows: number }>;
   resetDemo: () => void;
 };
@@ -526,7 +526,7 @@ export const useAppStore = create<Store>()(
         }
         set({ settings });
       },
-      importSales: async (rows) => {
+      importSales: async (rows, originalFilename) => {
         requireOwner(get());
         if (!rows.length) return { acceptedRows: 0, rejectedRows: 0, errors: [] };
         if (get().dataMode === "api") {
@@ -540,6 +540,7 @@ export const useAppStore = create<Store>()(
               quantity: String(row.qty),
               sourceRecordKey: row.sourceRecordKey,
             })),
+            originalFilename,
           );
           if (!sameSession(get().session, session)) return result;
           await refreshApiSales(

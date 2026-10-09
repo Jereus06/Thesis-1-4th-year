@@ -68,7 +68,7 @@ test("legacy keys normalize surrounding whitespace and conflicting saved copies 
   assert.equal(conflict.result.errors[0].code, "source_record_key_conflict");
 });
 
-test("API store forwards source IDs and returns partial outcomes without changing inventory", async (t) => {
+test("API store preserves uploaded filenames and source IDs without changing inventory", async (t) => {
   const { createServer } = await import("vite");
   const server = await createServer({
     root: fileURLToPath(new URL("../", import.meta.url)),
@@ -106,14 +106,19 @@ test("API store forwards source IDs and returns partial outcomes without changin
     products: [{ id: "synthetic-product", sku: "SKU-1", currentStock: 20 }],
     sales: [],
   });
-  const result = await useAppStore.getState().importSales([sale("till:1"), sale("till:2")]);
+  const filename = "Retail sales café October.csv";
+  const result = await useAppStore.getState().importSales([sale("till:1"), sale("till:2")], filename);
   assert.deepEqual(result, outcome);
   assert.equal(requests[0].options.method, "POST");
+  assert.equal(JSON.parse(requests[0].options.body).originalFilename, filename);
   assert.deepEqual(JSON.parse(requests[0].options.body).rows, [
     { sku: "SKU-1", saleDate: "2026-09-01", quantity: "3", sourceRecordKey: "till:1" },
     { sku: "SKU-1", saleDate: "2026-09-01", quantity: "3", sourceRecordKey: "till:2" },
   ]);
   assert.equal(useAppStore.getState().products[0].currentStock, 20);
+  await useAppStore.getState().importSales([sale("pasted:1")]);
+  const pastedRequest = requests.filter(({ options }) => options.method === "POST").at(-1);
+  assert.equal(Object.hasOwn(JSON.parse(pastedRequest.options.body), "originalFilename"), false);
 });
 
 // These checks exercise the real frontend store/API adapter against a mock HTTP

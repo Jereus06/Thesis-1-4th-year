@@ -81,10 +81,10 @@ function SalesImportCard() {
   const session = useAppStore((s) => s.session);
   const mode = useAppStore((s) => s.dataMode);
 
-  async function importPreparedRows(rows: Sale[]) {
+  async function importPreparedRows(rows: Sale[], originalFilename?: string) {
     if (!canImportRecords) throw new Error("Only an owner can import sales records.");
     try {
-      const result = await importSales(rows);
+      const result = await importSales(rows, originalFilename);
       const skipped = result.errors.filter(
         (error) => error.code === "duplicate_source_record_key",
       ).length;

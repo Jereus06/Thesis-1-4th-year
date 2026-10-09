@@ -179,7 +179,7 @@ try {
       request.method() === "POST" &&
       /\/(inventory-imports|data-imports)$/.test(new URL(request.url()).pathname)
     )
-      writes.push({ url: request.url(), rows: request.postDataJSON().rows });
+      writes.push({ url: request.url(), ...request.postDataJSON() });
   });
   await page.goto(base + "/inventory", { waitUntil: "domcontentloaded", timeout: 60_000 });
   await page.getByRole("tab", { name: "Products", exact: true }).waitFor({ timeout: 60_000 });
@@ -297,7 +297,8 @@ try {
   await page.getByRole("tab", { name: "Sales ledger", exact: true }).click();
   const mappedSales =
     "Booked On;Old Item;Units Sold;Line Key;UOM;Customer\n05/10/2026;Legacy Rice;1,250;legacy:1;bag;Ignored\n06/10/2026;Legacy Rice;2,5;legacy:2;bag;Ignored";
-  await upload(mappedSales, "synthetic-sales-mapping.csv");
+  const mappedFilename = "synthetic sales café.csv";
+  await upload(mappedSales, mappedFilename);
   await waitState("error");
   await adjust();
   await importer().getByLabel("Date *", { exact: true }).selectOption("0");
@@ -330,6 +331,13 @@ try {
   await importer().getByRole("button", { name: "Upload CSV", exact: true }).click();
   const result = await (await salesResponse).json();
   assert.equal(result.data.acceptedRows, 2);
+  assert.equal(writes[1].originalFilename, mappedFilename);
+  if (!mock) {
+    assert.equal(result.data.originalFilename, mappedFilename);
+    const savedImport = await apiData(`/data-imports/${result.data.id}`);
+    assert.equal(savedImport.originalFilename, mappedFilename);
+  }
+  check("uploaded historical filenames preserve spaces and Unicode through the saved import");
   await waitState("idle");
   assert.equal((await apiData("/sales")).length, 2);
   assert.equal(
@@ -425,6 +433,11 @@ try {
   await importer().getByRole("button", { name: "Upload CSV", exact: true }).click();
   const largeResult = await (await largeResponse).json();
   assert.equal(largeResult.data.acceptedRows, 100_000);
+  assert.equal(writes[2].originalFilename, "synthetic-100000.csv");
+  if (!mock) {
+    const savedImport = await apiData(`/data-imports/${largeResult.data.id}`);
+    assert.equal(savedImport.originalFilename, "synthetic-100000.csv");
+  }
   await waitState("idle");
   assert.equal(writes[2].rows.length, 100_000);
   assert.equal(writes[2].rows.at(-1).sourceRecordKey, "large:99999");
@@ -859,6 +872,23 @@ try {
   check(
     "an unrelated receipt value cannot silently replace unknown product identifiers; review sends no writes",
   );
+
+  await importer().getByRole("button", { name: "Paste CSV", exact: true }).click();
+  await importer().getByLabel("Paste CSV text", { exact: true }).fill(
+    "Date,SKU,Quantity,Source Record Key\n2026-10-07,SYN-001,1,provenance:pasted",
+  );
+  await waitState("ready");
+  const pastedResponse = writeResponse("/data-imports");
+  await importer().getByRole("button", { name: "Upload CSV", exact: true }).click();
+  const pastedResult = (await (await pastedResponse).json()).data;
+  assert.equal(pastedResult.acceptedRows, 1);
+  await waitState("idle");
+  assert.equal(Object.hasOwn(writes.at(-1), "originalFilename"), false);
+  if (!mock) {
+    const savedImport = await apiData(`/data-imports/${pastedResult.id}`);
+    assert.equal(savedImport.originalFilename, null);
+  }
+  check("switching from a selected file to pasted sales saves no invented or previous filename");
 
   assert.deepEqual(browserErrors, []);
   await page.screenshot({ path: `${output}/historical-sales-saved.png`, fullPage: true });

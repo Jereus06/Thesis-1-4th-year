@@ -167,10 +167,11 @@ export const api = {
   importSales: (
     businessId: string,
     rows: { sku: string; saleDate: string; quantity: string; sourceRecordKey?: string }[],
+    originalFilename?: string,
   ) =>
     request<SalesImportResult>(`/businesses/${businessId}/data-imports`, {
       method: "POST",
-      body: { source: "csv", rows },
+      body: { source: "csv", rows, ...(originalFilename === undefined ? {} : { originalFilename }) },
     }),
   dataQuality: (businessId: string) =>
     request<DataQualityEntry[]>(`/businesses/${businessId}/data-quality`),
