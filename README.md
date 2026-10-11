@@ -1,0 +1,244 @@
+# StockCast
+
+Sales Forecasting and Inventory Optimization for Small Retail Businesses Using XGBoost Algorithm.
+
+StockCast uses a React/TypeScript frontend, one Python/FastAPI backend, PostgreSQL, and a separate
+Python forecasting worker. The same application runs on a laptop and on a server using Docker
+Compose. Normal startup opens an empty business catalog; add products and authorized sales records
+through the interface.
+
+## Run on your laptop
+
+One-time prerequisites: Node.js 24 or newer and Docker Desktop with Linux containers running.
+Open the repository folder in VS Code, open its terminal, and run:
+
+```bash
+npm start
+```
+
+You do not need to install Python, PostgreSQL, or frontend packages manually for this startup.
+Docker builds the frontend and Python runtime, waits for PostgreSQL, applies migrations, creates
+the initial owner, and starts the website, API, and forecast worker. The first build downloads
+dependencies and can take several minutes.
+
+Open **http://localhost:8080**. Choose **Create account** for your own empty store, or use the
+initial owner account. The first start creates a private `.env` file and prints its setup details:
+
+- Optional Business ID: `00000000-0000-4000-8000-000000000001`
+- Email: `owner@example.com`
+- Password: read `OWNER_PASSWORD` from your private, locally generated `.env` file. There is no shared default password.
+
+Downloading another ZIP on the same laptop reuses this Docker installation. After a successful
+start, StockCast saves a private configuration copy in your user profile and restores it when a
+newly extracted folder has no `.env`. Your local `.env` takes precedence; run `npm start` after
+editing it to update the saved copy. Different laptops keep separate installations and records.
+
+Startup checks actual PostgreSQL password authentication before applying migrations. For an older
+**local development** installation whose generated passwords do not match its retained database,
+startup repairs the database connection passwords transactionally. Existing records and users'
+sign-in password hashes are preserved. Hosted/public-domain and remote Docker installations require
+their matching configuration; startup never changes their database passwords automatically.
+
+Keep `.env` private and keep a copy of it. To choose your account details before first startup,
+run `npm run setup`, edit `.env`, then run `npm start`. The initial owner is created only for a store without an owner;
+restarting the app preserves its existing password.
+
+To change an existing owner password, sign in, open **Inventory > Account & settings >
+Account maintenance**, enter the current password and a new password of 12 to 128 characters,
+and choose **Change password**. This ends all active sessions; sign in again with the new password.
+This workflow does not require SMTP. If access is lost, **Forgot password** requires working SMTP
+configuration. Editing `.env` alone does not change the existing account.
+
+If an account used a password previously shared in documentation, its owner must change it through
+that workflow. Removing text from this repository does not rotate any local or deployed credential.
+
+| Command             | Purpose                                        |
+| ------------------- | ---------------------------------------------- |
+| `npm start`         | Build and start the complete application       |
+| `npm run stop`      | Stop containers; saved database records remain |
+| `npm run logs`      | Follow service logs                            |
+| `npm run backup`    | Save a PostgreSQL backup under `backups/`      |
+| `npm run benchmark` | Generate an isolated synthetic account/workload and measure idle/busy API reads |
+| `docker compose ps` | Inspect service status                         |
+
+## Accounts and Google sign-in
+
+**Create account** lets each new user create an owner account and a separate store with an empty
+catalog. Enter your name, store name, email, and a 12 to 128 character password, then choose
+test-record or authorized-business-record provenance. Registration does not generate inventory,
+sales, or research data. Public signup uses a previously unregistered email on this installation.
+
+Existing users sign in with email/password. **Choose a specific business** retains an optional
+Business ID for older accounts whose credentials match multiple stores. Active cookie sessions
+restore automatically for their lifetime, normally 12 hours.
+
+Google is optional. Configure server-only `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+`GOOGLE_REDIRECT_URI`, and the exact website `CORS_ORIGIN`; the Google button appears only when
+the configuration is complete and valid. The default Compose callback is
+`http://localhost:8080/api/v1/auth/google/callback`, with
+`CORS_ORIGIN=http://localhost:8080`. Hosted callbacks use the real HTTPS origin.
+
+Follow [the setup reference's Google and hosting instructions](docs/SETUP_AND_OPERATIONS.md#configuration-and-hosting),
+including Google Cloud's Web application client, consent/Audience configuration, and current
+testing/publishing rules. Google may require account selection or consent. A first Google user
+finishes store setup; a connected user signs in to the existing account.
+
+Password users connect Google intentionally from **Inventory > Account & settings** (owners)
+or **Inventory > Account** (staff).
+Matching emails do not automatically connect identities. This preserves the signed-in user's
+store and owner/staff permissions.
+
+Password signup does not verify email. Password changes, single-use recovery, and owner-issued
+staff invitations are implemented. Configure recovery/invitation email in the private root
+`.env` using `SMTP_HOST`, `SMTP_PORT` (default 587), `SMTP_USERNAME`, `SMTP_PASSWORD`,
+`SMTP_FROM`, and `SMTP_STARTTLS` (default `true`), as listed in [.env.example](.env.example).
+Compose passes these settings to the API only. `PUBLIC_APP_URL` controls the website URL in
+email links and defaults to `CORS_ORIGIN`; use the recipient-accessible public HTTPS URL when
+hosting. Run `npm start` after changing the configuration and verify actual delivery.
+Direct Python development uses [backend/.env.example](backend/.env.example) instead.
+Per-process authentication attempt limits are documented in
+[the backend README](backend/README.md#authentication-contract); multiple API replicas need shared
+gateway limits. Successful live Google OAuth still needs verification with the deployment's
+registered credentials. Other people need access to the same running website; a localhost URL
+works only on that person's computer.
+
+## Where records are saved
+
+Products, sales, stock movements, imports, settings, accounts, forecast runs, predictions,
+metrics, and submitted client surveys are saved in PostgreSQL. Docker keeps the database in the persistent
+`stockcast_postgres_data` volume, including on Windows through Docker Desktop. Official XGBoost
+model files are saved in `stockcast_model_data`. Containers can be recreated without clearing
+those volumes.
+
+Browser demonstration records use the separate `stockcast-v5` browser storage key. Older SQLite
+records remain in their original SQLite files. Import an authorized inventory snapshot and
+historical sales explicitly to transfer records to the PostgreSQL application. Historical sales
+imports add history; inventory counts are saved as audited stock adjustments.
+
+## Use the system
+
+Open **User guide** in the application header, or **Strategies > User guide**, for searchable
+steps covering daily tasks, where to find each screen, recording and reviewing transactions,
+CSV imports, forecasts, restock advice, accounts, and common problems. The task manual can also
+be downloaded there; its source is [How to use StockCast](docs/USER_GUIDE.md). Installation,
+service commands, backups, email/Google setup, and hosting are kept in the separate
+[setup and operations reference](docs/SETUP_AND_OPERATIONS.md). **Strategies > Evaluation** provides a versioned
+client questionnaire covering functional suitability, reliability, interaction capability, and
+perceived performance efficiency. **Save draft** keeps answers in this browser; **Submit** saves
+one final questionnaire per authenticated account/version in PostgreSQL, with server-derived
+role, timestamp, and record provenance. Staff see their own submissions; owners see business
+summaries by role and can download submitted CSV. Unanswered and Not applicable items are
+excluded from rating means. Earlier browser ratings remain a read-only archive.
+
+Maintainability is documented separately in [the engineering review](docs/MAINTAINABILITY_REVIEW.md).
+Demo submissions and generated benchmark records are software test evidence; they do not represent
+actual client evaluation or research findings. See [the review verification record](docs/REVIEW_VERIFICATION.md)
+and the repeatable [API](docs/PERFORMANCE_BENCHMARK.md) and [browser](docs/BROWSER_BENCHMARK.md) procedures.
+
+1. Sign in and add products in **Inventory**.
+2. Record sales and deliveries. A sale deducts stock; a delivery increases stock.
+3. Import inventory or historical sales by matching spreadsheet columns, choosing formats, and reviewing converted values and complete row diagnostics in the interface.
+4. Review **Forecasts**. The Python worker refreshes eligible business history daily; owners can also choose **Refresh forecasts**.
+5. Review **Restock**. Suggested quantities apply when stock reaches the reorder point.
+6. Export sales or stock movements from Inventory, and make database backups.
+
+XGBoost eligibility requires enough _training_ history: eight calendar weeks and 100 nonzero sales
+days by default. Short histories still receive a Python Moving Average baseline. Refresh uses
+separate chronological training, validation, and final-test periods; fewer than three calendar
+days can use the baseline but cannot form all three evaluation periods. Valid sales and effective
+confirmed-zero reviews for active products determine usable history through the current business
+date. Missing or excluded dates remain unknown/excluded, and old forecast dates stay fixed.
+Before and after Refresh, each fallback uses its contiguous usable tail and own forecast origin.
+Sparse test dates retain elapsed calendar steps; without usable cutoff history, baseline test
+metrics are unavailable. Earlier saved baselines require Refresh under the current calendar policy.
+
+The worker uses the official CPU XGBoost package, selects parameters using the configured
+training-only CV folds (default three), then chooses its operating method on later validation.
+It evaluates identical final-test dates for all compared methods, then refits for future
+operations. Normal Refresh expands validation for separate interval calibration when sufficient
+eligible history remains; shorter histories show unavailable intervals. Frontend settings saves
+preserve backend thresholds, timezone, and fold count. Saved runs retain their input snapshot, model parameters, weights, predictions,
+metrics, and measured processing phases. Missing timings remain unavailable; total processing is
+separate from model training and browser responsiveness. By default, the worker checks for a daily
+run at 00:15 in the business timezone, using history through the preceding completed day. Staff
+see new saved outputs through the five-second dashboard poll; owners retain manual refresh for
+earlier updates. The worker must remain running. See
+[backend/README.md](backend/README.md) for the evaluation contract.
+
+## Host online
+
+Use a Linux server/container host that supports Docker Compose and persistent disks. A domain
+points visitors to that server; the Python API, worker, and PostgreSQL must run there.
+
+1. Download or clone this version of the repository on the server.
+2. Install Docker Compose and Node.js 24 or newer.
+3. Run `npm run setup` and edit the private `.env` before starting:
+   ```dotenv
+   APP_ENV=production
+   APP_ADDRESS=stockcast.your-domain.com
+   HTTP_PORT=80
+   HTTPS_PORT=443
+   CORS_ORIGIN=https://stockcast.your-domain.com
+   ```
+   Set your owner name/email/password and record provenance. Use URL-safe generated database
+   passwords. Choose `OWNER_DATA_ORIGIN=partner` only for authorized real business records.
+4. Point the domain's DNS A/AAAA records to the server and allow incoming ports 80 and 443.
+5. Run **`npm start`**. Caddy obtains and renews HTTPS certificates for the configured public domain.
+6. Open your HTTPS URL and sign in with your configured owner credentials or create a separate store account.
+
+PostgreSQL is reachable only inside the Compose network. The application database role has no
+superuser, role-creation, or database-creation privileges. Hosting account setup, DNS, disk
+allocation, and backup retention are configured on the chosen server.
+
+The local and hosted installations have separate databases. Move records through a deliberate
+backup/restore or import when transferring to a host.
+
+## Back up and check recovery
+
+Run `npm run backup`. This produces a PostgreSQL custom-format dump that preserves tables, records,
+and migration checksums. Copy the dump and your private configuration to your chosen backup
+location. Copy trained model files separately:
+
+```bash
+docker compose cp worker:/app/data/models backups/models
+```
+
+You can check a dump by restoring it into a separate database. Replace the filename below with
+the backup you created:
+
+```bash
+docker compose exec database createdb -U stockcast_admin -O stockcast stockcast_restore_check
+docker compose cp backups/your-backup.dump database:/tmp/stockcast-backup.dump
+docker compose exec database pg_restore -U stockcast -d stockcast_restore_check --exit-on-error /tmp/stockcast-backup.dump
+docker compose exec database psql -U stockcast -d stockcast_restore_check -c "SELECT count(*) FROM products;"
+```
+
+The CI workflow checks backup restoration and persistence after container recreation. A live
+hosting cutover and recovery drill use the deployment's own storage and credentials.
+
+## Development and verification
+
+For frontend hot reload, run `npm ci`, then `npm run dev`. Vite proxies `/api` to the Python API on
+port 3001; see [backend/README.md](backend/README.md) for running Python directly with a PostgreSQL
+development database.
+
+The old browser prototype is an explicit optional mode: put
+`VITE_DATA_MODE=browser-demo` in `.env.local` before `npm run dev`. It keeps synthetic browser data
+and its custom boosted-tree demonstrations separate from the Python application. Container builds
+use API mode by default.
+
+Checks: `npm run typecheck`, `npm run lint`, `npm run build`, and
+`python -m pytest backend/tests`. [.github/workflows/system.yml](.github/workflows/system.yml) runs
+the full Compose installation with real PostgreSQL and the Python worker.
+
+Read [AGENTS.md](AGENTS.md), [project context](docs/PROJECT_CONTEXT.md), and
+[implementation checklist](docs/COMPLETION_CHECKLIST.md) before code changes. Real partner data,
+permission, and research outcomes are documented separately from implementation checks.
+
+## Data quality and performance
+
+**Data quality** lets authenticated users distinguish confirmed zero-sale dates from closures,
+incomplete ledgers, and documented full or partial stockouts. Corrections retain an audit trail and
+can be exported as CSV. Absent dates are not silently treated as zero demand. See
+[the benchmark procedure](docs/PERFORMANCE_BENCHMARK.md) for safe Windows Docker Desktop and Linux
+VPS commands. Benchmark output is synthetic operational evidence, not client or research results.

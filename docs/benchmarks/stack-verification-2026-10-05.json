@@ -1,0 +1,58 @@
+{
+  "verificationDate": "2026-10-05",
+  "project": "stockcast-review-e0d778",
+  "origin": "http://localhost:18089",
+  "syntheticOnly": true,
+  "researchResponsesCollected": false,
+  "checks": {
+    "installedPackage": {
+      "surveyJsonOutsideSourceTree": true,
+      "schemaContract": true
+    },
+    "survey": {
+      "browserFinalsReplayed": true,
+      "immutableReplayMatched": true,
+      "ownerBusinessScope": true,
+      "staffOwnScope": true,
+      "staffExportDenied": true,
+      "participantCount": 2,
+      "csvItemRows": 24,
+      "serverSubmissionTimestamps": [
+        "2026-10-05T09:24:50.842057Z",
+        "2026-10-05T09:25:10.086657Z"
+      ],
+      "freshConnectionReadsMatched": true,
+      "readsAfterRestartMatched": true
+    },
+    "memberManagement": {
+      "ownerListWithoutCsrfHeader": true,
+      "staffListDenied": true,
+      "mutationCsrfRequired": true,
+      "deactivationRevokedSession": true,
+      "reactivationRequiresNewSession": true,
+      "tenantDenials": true,
+      "membersListed": 2
+    },
+    "backupAndRestart": {
+      "binaryDump": true,
+      "restoreDatabase": "stockcast_review_restore_e0d778",
+      "restoredRecordsAndTimestampsMatch": true,
+      "databaseAndApplicationRestarted": true,
+      "recordsAndTimestampsPreservedAfterRestart": true,
+      "savedModelArtifactCount": 40,
+      "modelArtifactCountPreserved": true,
+      "tableCounts": {
+        "products": 9,
+        "inventory_movements": 35,
+        "forecast_runs": 5,
+        "forecast_predictions": 3360,
+        "forecast_metrics": 240,
+        "client_survey_submissions": 2,
+        "client_survey_answers": 24
+      }
+    }
+  },
+  "status": "passed",
+  "completedAt": "2026-10-05T09:50:44.791871+00:00",
+  "totalVerificationMs": 33055.025
+}

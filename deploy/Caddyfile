@@ -1,0 +1,16 @@
+{$APP_ADDRESS::80} {
+    encode zstd gzip
+    handle /api/* {
+        reverse_proxy api:3001
+    }
+    handle {
+        root * /srv
+        try_files {path} /index.html
+        file_server
+    }
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy same-origin
+        X-Frame-Options DENY
+    }
+}
