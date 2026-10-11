@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-import type { ForecastEvidence } from "@/lib/types";
+import type { ForecastConfidence, ForecastEvidence } from "@/lib/types";
 
 const labels = {
   tested: [
@@ -15,9 +15,11 @@ const labels = {
 
 export function ForecastEvidenceBadge({
   evidence,
+  confidence,
   demonstration = false,
 }: {
   evidence?: ForecastEvidence;
+  confidence?: ForecastConfidence;
   demonstration?: boolean;
 }) {
   if (demonstration)
@@ -26,12 +28,36 @@ export function ForecastEvidenceBadge({
         Demonstration
       </Badge>
     );
+  const stateWarning =
+    evidence && ["needs_refresh", "unavailable", "expired"].includes(evidence.status);
+  if (!stateWarning && confidence?.policy === "past_test_wape_v1" && confidence.level) {
+    const label = {
+      high: "High confidence",
+      medium: "Medium confidence",
+      low: "Low confidence",
+    }[confidence.level];
+    return (
+      <Badge
+        variant={
+          confidence.level === "high"
+            ? "success"
+            : confidence.level === "low"
+              ? "warning"
+              : "outline"
+        }
+        title={
+          confidence.reason + " This is a past-test error rating, not a chance of future sales."
+        }
+      >
+        {label}
+      </Badge>
+    );
+  }
   const [label, explanation] = evidence
     ? labels[evidence.status]
     : ["Evidence unavailable", "Refresh forecasts to load their saved test evidence."];
-  const warning = evidence && ["needs_refresh", "unavailable", "expired"].includes(evidence.status);
   return (
-    <Badge variant={warning ? "warning" : "outline"} title={explanation}>
+    <Badge variant={stateWarning ? "warning" : "outline"} title={explanation}>
       {label}
     </Badge>
   );

@@ -1126,6 +1126,8 @@ def test_dashboard_baseline_preserves_empty_unknown_and_excluded_history(pg_clie
     assert empty["predictions"] == []
     assert not empty["recommendations"][0]["demandAvailable"]
     assert empty["recommendations"][0]["forecastEvidence"]["status"] == "unavailable"
+    assert empty["recommendations"][0]["forecastConfidence"]["level"] is None
+    assert empty["trainingScope"] is None
     assert empty["modelComparison"]["finalTest"]["observationCount"] == 0
     for day, quantity in [("2026-01-01", "2"), ("2026-01-03", "6")]:
         response = client.post(
@@ -1139,6 +1141,7 @@ def test_dashboard_baseline_preserves_empty_unknown_and_excluded_history(pg_clie
     assert all(float(point["predictedQuantity"]) == 6 for point in sparse["predictions"])
     assert sparse["recommendations"][0]["demandAvailable"]
     assert sparse["recommendations"][0]["forecastEvidence"]["status"] == "basic"
+    assert sparse["recommendations"][0]["forecastConfidence"]["level"] == "low"
     assert client.put(
         base + "/data-quality",
         json={"classificationDate": "2026-01-03", "classification": "incomplete"},
@@ -1241,6 +1244,8 @@ def test_dashboard_expiration_uses_business_day_and_preserves_archived_predictio
     assert final_day["recommendations"][0]["demandAvailable"]
     assert final_day["recommendations"][0]["forecastEvidence"]["status"] == "tested"
     assert final_day["recommendations"][0]["forecastEvidence"]["testObservations"] == 1
+    assert final_day["recommendations"][0]["forecastConfidence"]["level"] == "low"
+    assert final_day["trainingScope"]["products"] == []
     assert final_day["modelComparison"]["finalTest"]["observationCount"] == 1
     assert {point["predictionDate"] for point in final_day["predictions"]
             if point["datasetSplit"] == "future"} == {"2026-01-12"}
@@ -1252,6 +1257,7 @@ def test_dashboard_expiration_uses_business_day_and_preserves_archived_predictio
     assert advice["forecastExpired"] and not advice["demandAvailable"]
     assert advice["forecastEvidence"]["status"] == "expired"
     assert advice["forecastEvidence"]["testObservations"] == 1
+    assert advice["forecastConfidence"]["level"] is None
     assert advice["daily_demand"] is None and advice["suggested_quantity"] == "0"
     assert not any(point["datasetSplit"] == "future" for point in expired["predictions"])
     archived = client.get(base + f"/forecast-runs/{run_id}/predictions").json()["data"]

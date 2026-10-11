@@ -307,3 +307,27 @@ def test_untrained_preview_cannot_inherit_old_saved_test_scores():
     advice = dashboard(repository, "business")["recommendations"][0]
     assert advice["demandAvailable"]
     assert advice["forecastEvidence"] == {"status": "basic", "testObservations": 0, "mae": None, "rmse": None}
+
+
+def test_dashboard_grades_measured_low_volume_forecasts_and_preserves_saved_scope():
+    from datetime import timedelta
+
+    tested = [prediction(str(date(2026, 9, 18) + timedelta(days=i)), 4, "final_test")
+              for i in range(14)]
+    repository = FakeRepository(predictions=tested + [prediction("2026-10-02", 4)])
+    repository.metrics[0].update(mae="0", rmse="0", observationCount=14)
+    scope = {
+        "limit": 5, "trainingStart": "2026-01-01", "trainingEnd": "2026-09-01",
+        "ranking": "training_sales_volume_v1", "products": [],
+    }
+    repository.completed["configuration"]["trainingScope"] = scope
+    value = dashboard(repository, "business")
+    assert value["recommendations"][0]["forecastConfidence"]["level"] == "high"
+    assert value["recommendations"][0]["confidenceLevel"] == "high"
+    assert value["trainingScope"] == scope
+    repository.changed = True
+    repository.settings["topNProducts"] = 20
+    changed = dashboard(repository, "business")
+    assert changed["recommendations"][0]["forecastConfidence"]["level"] is None
+    assert changed["trainingScope"] == scope
+    assert repository.completed["configuration"]["trainingScope"] == scope

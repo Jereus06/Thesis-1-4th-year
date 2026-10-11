@@ -59,6 +59,9 @@ const { DemandEvidence } = await server.ssrLoadModule("/src/components/demand-ev
 const { ForecastEvidenceBadge } = await server.ssrLoadModule(
   "/src/components/forecast-evidence-badge.tsx",
 );
+const { TopForecastProducts } = await server.ssrLoadModule(
+  "/src/components/top-forecast-products.tsx",
+);
 const { Route: overviewRoute } = await server.ssrLoadModule("/src/routes/index.tsx");
 const { Route: restockRoute } = await server.ssrLoadModule("/src/routes/restock.tsx");
 const { Route: forecastsRoute } = await server.ssrLoadModule("/src/routes/forecasts.tsx");
@@ -454,6 +457,115 @@ test("browser demonstration does not present its heuristic confidence as real ac
   });
   assert.match(markup, />Demonstration<\/span>/);
   assert.doesNotMatch(markup, /High confidence|Low confidence/);
+});
+
+test("operational confidence badges show Python ratings with their measured explanations", () => {
+  for (const [level, label, relativeError] of [
+    ["high", "High confidence", "0.1"],
+    ["medium", "Medium confidence", "0.3"],
+    ["low", "Low confidence", "0.8"],
+  ]) {
+    const markup = renderPage(restockRoute, {
+      rows: [
+        {
+          ...baseRow,
+          forecastEvidence: { status: "tested", testObservations: 14, mae: "1", rmse: "2" },
+          forecastConfidence: {
+            level,
+            policy: "past_test_wape_v1",
+            relativeError,
+            testObservations: 14,
+            reason: "Saved past error rating.",
+          },
+        },
+      ],
+    });
+    assert.match(markup, new RegExp(label));
+    assert.match(markup, /Saved past error rating/);
+    assert.match(markup, /Past error compared with actual sales:/);
+    assert.match(markup, /Past test: 14 days/);
+  }
+});
+
+test("stale evidence overrides a passed high rating and demo labels remain demonstrations", () => {
+  const confidence = {
+    level: "high",
+    policy: "past_test_wape_v1",
+    relativeError: "0.1",
+    testObservations: 14,
+    reason: "Past test.",
+  };
+  const markup = renderToStaticMarkup(
+    createElement(ForecastEvidenceBadge, {
+      confidence,
+      evidence: { status: "needs_refresh", testObservations: 14, mae: "1", rmse: "2" },
+    }),
+  );
+  assert.match(markup, /Refresh needed/);
+  assert.doesNotMatch(markup, /High confidence/);
+  assert.doesNotMatch(
+    renderToStaticMarkup(
+      createElement(ForecastEvidenceBadge, {
+        confidence,
+        demonstration: true,
+      }),
+    ),
+    /High confidence/,
+  );
+});
+
+const testScope = {
+  limit: 5,
+  trainingStart: "2026-01-01",
+  trainingEnd: "2026-05-01",
+  ranking: "training_sales_volume_v1",
+  products: [{ productId: product.id, rank: 1, trainingQuantity: "1234" }],
+};
+function topPanel(patch = {}) {
+  return renderToStaticMarkup(
+    createElement(TopForecastProducts, {
+      scope: testScope,
+      configuredLimit: 5,
+      products: [product],
+      forecasts: { [product.id]: { dailyDemand: 2, demandAvailable: true } },
+      ...patch,
+    }),
+  );
+}
+
+test("Forecasts visibly includes the saved Top products selection and dates", () => {
+  const markup = renderPage(forecastsRoute, {
+    forecast: { holdout: [], future: [] },
+    diagnostics: { trainingScope: testScope },
+  });
+  assert.match(markup, /Top products for XGBoost/);
+  assert.match(markup, /1 selected in the saved run.*limit 5/);
+  assert.match(markup, /2026-01-01 to 2026-05-01/);
+  assert.match(markup, /1,234\.0.*bag/);
+  assert.match(markup, /Product code: SYNTHETIC-001/);
+});
+
+test("Top products explains fewer eligible products without filling fake slots", () => {
+  const markup = topPanel();
+  assert.match(markup, /1 active products shown/);
+  assert.match(markup, /The limit is a maximum/);
+  assert.match(markup, /2\.0 bag/);
+  assert.match(topPanel({ scope: null }), /No saved product selection/);
+  assert.match(
+    topPanel({ scope: { ...testScope, products: [] } }),
+    /No active products.*qualify for XGBoost/,
+  );
+});
+
+test("Top products preserves old ranking limit and hides inactive or stale current advice", () => {
+  const changed = topPanel({ configuredLimit: 20, stale: true });
+  assert.match(changed, /current limit is 20/);
+  assert.match(changed, /previous saved selection/);
+  assert.doesNotMatch(changed, /2\.0 bag/);
+  const inactive = topPanel({ products: [{ ...product, isActive: false }] });
+  assert.doesNotMatch(inactive, /Product code: SYNTHETIC-001/);
+  assert.match(inactive, /0 active products shown/);
+  assert.equal(topPanel({ demonstration: true }), "");
 });
 
 test("a ready page without validation evidence does not mark any model selected", () => {

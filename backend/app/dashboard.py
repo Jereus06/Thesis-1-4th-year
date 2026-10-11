@@ -11,7 +11,10 @@ from .data_quality import (
     usable_history_bounds,
 )
 from .forecasting import moving_average
-from .forecast_evidence import forecast_evidence, index_forecast_evidence, model_comparison
+from .forecast_evidence import (
+    forecast_confidence, forecast_evidence, index_forecast_evidence, model_comparison,
+    training_scope,
+)
 from .inventory import calculate_reorder
 
 
@@ -233,18 +236,22 @@ def dashboard(repository, business_id, *, forecast_schedule=None):
                 "days_of_cover": None,
                 "status": "stockout" if Decimal(product["currentStock"]) == 0 else "healthy",
             }
+        evidence = forecast_evidence(
+            product_id=pid, method=method, metrics=metrics, predictions=predictions,
+            demand_available=demand_available, expired=forecast_expired, stale=stale,
+            saved_forecast=saved_forecast, evidence_index=saved_evidence,
+        )
+        confidence = forecast_confidence(
+            product_id=pid, method=method, evidence=evidence, evidence_index=saved_evidence,
+        )
         recommendations.append(
             {
                 "productId": pid,
                 "method": method,
-                # Kept for old API consumers; the UI uses measured forecastEvidence.
-                "confidenceLevel": "low",
-                "forecastEvidence": forecast_evidence(
-                    product_id=pid, method=method, metrics=metrics, predictions=predictions,
-                    demand_available=demand_available, expired=forecast_expired, stale=stale,
-                    saved_forecast=saved_forecast,
-                    evidence_index=saved_evidence,
-                ),
+                # Retain the original required enum for older API consumers.
+                "confidenceLevel": confidence["level"] or "low",
+                "forecastEvidence": evidence,
+                "forecastConfidence": confidence,
                 "demandAvailable": demand_available,
                 "forecastExpired": forecast_expired,
                 "unavailableReason": (
@@ -272,6 +279,9 @@ def dashboard(repository, business_id, *, forecast_schedule=None):
             if point["datasetSplit"] != "future" or point["predictionDate"] >= today_text
         ],
         "metrics": metrics,
+        "trainingScope": (
+            completed["configuration"].get("trainingScope") or training_scope(completed)
+        ) if completed else None,
         "modelComparison": model_comparison(
             metrics, predictions, summaries, product_ids, evidence_index=saved_evidence,
         ),

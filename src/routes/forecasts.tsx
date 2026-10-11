@@ -8,6 +8,7 @@ import { IntervalEvidence } from "@/components/interval-evidence";
 import { useForecast } from "@/components/forecast-context";
 import { TrainingBanner } from "@/components/training-banner";
 import { ForecastTimingEvidence } from "@/components/forecast-timing-evidence";
+import { TopForecastProducts } from "@/components/top-forecast-products";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
@@ -32,6 +33,7 @@ function ForecastsPage() {
   const mode = useAppStore((s) => s.dataMode);
   const { canRefreshForecast } = usePermissions();
   const window = useAppStore((s) => s.settings.maWindow);
+  const configuredLimit = useAppStore((s) => s.settings.topNProducts);
   const { result, status, refresh, forecastThrough, schedule } = useForecast();
   const refreshAdvice = forecastRefreshAdvice(mode, canRefreshForecast, schedule);
   const ready = Boolean(result);
@@ -106,6 +108,15 @@ function ForecastsPage() {
         <p className="text-sm text-muted">The owner can refresh forecasts after records change.</p>
       )}
 
+      <TopForecastProducts
+        scope={result?.diagnostics.trainingScope}
+        configuredLimit={configuredLimit}
+        products={products}
+        forecasts={result?.byProduct ?? {}}
+        stale={result?.diagnostics.trainingScopeStale}
+        demonstration={mode === "browser-demo"}
+      />
+
       <section className="grid gap-3 md:grid-cols-3">
         <Score
           name="Ensemble"
@@ -163,6 +174,7 @@ function ForecastsPage() {
             {forecast && (
               <ForecastEvidenceBadge
                 evidence={forecast.forecastEvidence}
+                confidence={forecast.forecastConfidence}
                 demonstration={mode === "browser-demo"}
               />
             )}
@@ -215,6 +227,19 @@ function ForecastsPage() {
               : "Shaded demonstration bands are illustrative; their coverage has not been validated."}{" "}
             {result?.diagnostics.disclaimer ?? DISCLAIMER}
           </p>
+          {mode === "api" && (
+            <details className="mt-3 text-sm text-muted">
+              <summary className="cursor-pointer font-medium">How confidence is rated</summary>
+              <p className="mt-2">
+                High: past error is at most 20% of actual sales. Medium: at most 50%. Both need at
+                least 14 consecutive tested days with some actual sales. Low: larger errors, shorter
+                tests, gaps, no sales, or no usable saved test. The error rating uses total absolute
+                prediction error divided by total actual sales. These are StockCast display rules,
+                not a probability or a guarantee. High confidence can support a small sales estimate
+                too.
+              </p>
+            </details>
+          )}
         </CardContent>
       </Card>
 

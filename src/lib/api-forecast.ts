@@ -3,6 +3,7 @@ import { LOW_CONFIDENCE_OBS, SPARSE_ZERO_SHARE } from "./forecast/constants.ts";
 import type {
   ForecastMethod,
   ForecastEvidence,
+  ForecastConfidence,
   ForecastPoint,
   PipelineResult,
   Product,
@@ -39,6 +40,27 @@ function currentEvidence(
         : data.stale
           ? "needs_refresh"
           : evidence.status,
+  };
+}
+
+function currentConfidence(
+  data: ApiDashboard,
+  row: ApiDashboard["recommendations"][number] | undefined,
+  demandAvailable: boolean,
+): ForecastConfidence | undefined {
+  const confidence = row?.forecastConfidence;
+  if (!confidence || confidence.policy !== "past_test_wape_v1") return undefined;
+  const status = currentEvidence(data, row, demandAvailable).status;
+  if (!["needs_refresh", "expired", "unavailable"].includes(status)) return confidence;
+  return {
+    ...confidence,
+    level: null,
+    reason:
+      status === "needs_refresh"
+        ? "Records changed. Refresh forecasts before using a confidence rating."
+        : status === "expired"
+          ? "The forecast period ended. Refresh forecasts for a current rating."
+          : "There is no current sales estimate to rate.",
   };
 }
 
@@ -79,6 +101,7 @@ export function toReorderRows(data: ApiDashboard, products: Product[]): ReorderR
         winnerModel: methodName(row.method),
         confidence: row.confidenceLevel,
         forecastEvidence: currentEvidence(data, row, demandAvailable),
+        forecastConfidence: currentConfidence(data, row, demandAvailable),
       },
     ];
   });
@@ -175,6 +198,7 @@ export function toResult(
       confidence: recommendation?.confidenceLevel ?? "low",
       confidenceScore: NaN,
       forecastEvidence: currentEvidence(data, recommendation, demandAvailable),
+      forecastConfidence: currentConfidence(data, recommendation, demandAvailable),
       observationCount: summary?.historyDays ?? 0,
       nonzeroCount: summary?.nonzeroDays ?? 0,
       grain: "daily",
@@ -268,6 +292,8 @@ export function toResult(
       comparisonWinnerAvailable: validation.length > 0,
       comparisonProductCount: comparisonFor("final_test")?.productIds.length ?? 0,
       comparisonObservationCount: comparisonFor("final_test")?.observationCount ?? 0,
+      trainingScope: data.trainingScope,
+      trainingScopeStale: data.stale,
       disclaimer: data.message,
       topN,
       trainedProductCount: mlIds.length,
