@@ -1,0 +1,148 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { parseEnv } from "node:util";
+
+// CI only: exercise the real Compose application and PostgreSQL from ZIP-like folders.
+assert.equal(process.env.CI, "true", "Run this verification only in a disposable CI installation.");
+const projectDir = fileURLToPath(new URL("..", import.meta.url));
+const temporary = mkdtempSync(join(tmpdir(), "StockCast extracted ZIP "));
+const original = readFileSync(join(projectDir, ".env"), "utf8");
+const ignored = new Set([".git", ".env", "node_modules", ".venv", "__pycache__", ".pytest_cache"]);
+const runtimeRoots = new Set(["dist", "backups", "data", "benchmarks"]);
+function command(program, args, cwd = projectDir) {
+  const result = spawnSync(program, args, { cwd, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
+  // On failure, print only a short diagnostic with disposable secrets removed.
+  if (result.status !== 0) {
+    const services = spawnSync(
+      "docker",
+      ["compose", "logs", "--no-color", "--tail", "30", "initialize", "api", "worker"],
+      {
+        cwd,
+        encoding: "utf8",
+        maxBuffer: 1024 * 1024,
+      },
+    );
+    let diagnostics = `${result.stdout || ""}\n${result.stderr || ""}\n${services.stdout || ""}\n${services.stderr || ""}`;
+    const privateFiles = [original, readFileSync(join(cwd, ".env"), "utf8")];
+    for (const file of privateFiles)
+      for (const [key, value] of Object.entries(parseEnv(file)))
+        if (/PASSWORD|SECRET|TOKEN/i.test(key) && value) {
+          diagnostics = diagnostics
+            .replaceAll(value, "[private]")
+            .replaceAll(encodeURIComponent(value), "[private]");
+        }
+    diagnostics = diagnostics.replace(/postgres(?:ql)?:\/\/[^\s]+/g, "[private database URL]");
+    console.error(diagnostics.slice(-5000));
+  }
+  assert.equal(result.status, 0, `${program} ${args.slice(0, 3).join(" ")} failed`);
+  return result.stdout.trim();
+}
+function sql(source) {
+  return command("docker", [
+    "compose",
+    "exec",
+    "-T",
+    "database",
+    "psql",
+    "-X",
+    "-U",
+    "stockcast_admin",
+    "-d",
+    "stockcast",
+    "-Atqc",
+    source,
+  ]);
+}
+const evidence = () =>
+  sql(`SELECT json_build_object(
+  'products', (SELECT count(*) FROM products),
+  'sales', (SELECT count(*) FROM sales),
+  'movements', (SELECT count(*) FROM inventory_movements),
+  'users', (SELECT json_agg(json_build_array(id,password_hash) ORDER BY id) FROM users),
+  'sentinel', (SELECT count(*) FROM products WHERE sku='SMOKE-PERSIST'))::text`);
+// Independently reject each wrong role password through the actual Docker network.
+// A localhost/trust probe would incorrectly succeed and miss the original ZIP bug.
+const checker = readFileSync(join(projectDir, "deploy/check-database.sh"), "utf8");
+for (const key of ["APP_DB_PASSWORD", "POSTGRES_PASSWORD"]) {
+  const probe = spawnSync(
+    "docker",
+    [
+      "compose",
+      "exec",
+      "-T",
+      "-e",
+      `${key}=deliberately-wrong-ci-password`,
+      "database",
+      "sh",
+      "-s",
+      "--",
+    ],
+    {
+      cwd: projectDir,
+      input: checker,
+      encoding: "utf8",
+    },
+  );
+  assert.equal(probe.status, 10, `${key} must be validated, not bypassed by localhost trust`);
+}
+const before = evidence();
+assert.equal(JSON.parse(before).sentinel, 1, "Run the normal application smoke check first");
+let failure;
+try {
+  for (const name of ["First new ZIP", "Another ZIP with spaces"]) {
+    const copied = join(temporary, name);
+    cpSync(projectDir, copied, {
+      recursive: true,
+      filter: (path) => {
+        const local = relative(projectDir, path);
+        // Root data/ is runtime storage; src/lib/data/ contains required source files.
+        return (
+          !local ||
+          (!runtimeRoots.has(local.split(sep)[0]) &&
+            !ignored.has(basename(path)) &&
+            !basename(path).startsWith(".env."))
+        );
+      },
+    });
+    // cpSync deliberately excludes private configuration and includes its public template.
+    writeFileSync(join(copied, ".env.example"), readFileSync(join(projectDir, ".env.example")));
+    command(process.execPath, ["scripts/start.mjs"], copied);
+    assert.ok(
+      readFileSync(join(copied, ".env"), "utf8") === original,
+      "A fresh ZIP must reuse the installation configuration",
+    );
+    if (name.startsWith("Another")) {
+      const broken = original
+        .replace(/^APP_DB_PASSWORD=.*$/m, `APP_DB_PASSWORD=${"c".repeat(48)}`)
+        .replace(/^POSTGRES_PASSWORD=.*$/m, `POSTGRES_PASSWORD=${"d".repeat(48)}`)
+        .replace(/^OWNER_EMAIL=.*$/m, "OWNER_EMAIL=new-zip-owner@example.com");
+      writeFileSync(join(copied, ".env"), broken);
+      command(process.execPath, ["scripts/start.mjs"], copied);
+      assert.ok(
+        readFileSync(join(copied, ".env"), "utf8") === broken,
+        "Local recovery must not replace the selected configuration",
+      );
+    }
+    assert.ok(
+      evidence() === before,
+      "Products, sales, stock audits and user password hashes must survive ZIP startup/recovery",
+    );
+  }
+} catch (error) {
+  failure = error;
+} finally {
+  // Restore original container mounts/credentials BEFORE deleting temporary source folders.
+  command(process.execPath, ["scripts/start.mjs"]);
+  assert.ok(evidence() === before);
+  rmSync(temporary, { recursive: true, force: true });
+}
+if (failure) throw failure;
+const values = parseEnv(original);
+assert.ok(values.APP_DB_PASSWORD);
+console.log(
+  "Real PostgreSQL ZIP startup, credential recovery, stock/sales persistence and unchanged account password hashes passed.",
+);

@@ -34,7 +34,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./deploy/init-database.sh:/docker-entrypoint-initdb.d/10-stockcast.sh:ro
     healthcheck:
-      test: [CMD-SHELL, "pg_isready -U stockcast_admin -d stockcast"]
+      test: [CMD-SHELL, "pg_isready -h 127.0.0.1 -U stockcast_admin -d stockcast"]
       interval: 5s
       timeout: 5s
       retries: 20

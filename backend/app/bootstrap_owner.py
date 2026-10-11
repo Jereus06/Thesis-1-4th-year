@@ -21,6 +21,13 @@ def bootstrap() -> str:
             "INSERT INTO business_settings(business_id) VALUES(%s) ON CONFLICT DO NOTHING",
             (business_id,),
         )
+        # A new ZIP's default email must not grant another owner access to an existing store.
+        # Serialize first-owner creation on its business row; preserve all existing owners.
+        conn.execute("SELECT id FROM businesses WHERE id=%s FOR UPDATE", (business_id,))
+        if conn.execute(
+            "SELECT 1 FROM users WHERE business_id=%s AND role='owner' LIMIT 1", (business_id,)
+        ).fetchone():
+            return business_id
         conn.execute(
             """INSERT INTO users(business_id,email,display_name,role,password_hash,password_changed_at)
             VALUES(%s,%s,%s,'owner',%s,now())
