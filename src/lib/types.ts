@@ -135,6 +135,14 @@ export type PredictionIntervalEvidence = {
   method?: string;
 };
 
+/** Evidence about a saved forecast, not a probability of correctness. */
+export type ForecastEvidence = {
+  status: "tested" | "basic" | "untested" | "needs_refresh" | "unavailable" | "expired";
+  testObservations: number;
+  mae: string | null;
+  rmse: string | null;
+};
+
 export type ProductForecast = {
   productId: string;
   maMae: number;
@@ -153,6 +161,7 @@ export type ProductForecast = {
   seriesMean: number;
   confidence: ConfidenceLevel;
   confidenceScore: number;
+  forecastEvidence?: ForecastEvidence;
   observationCount: number;
   nonzeroCount: number;
   grain: Grain;
@@ -195,6 +204,9 @@ export type PipelineDiagnostics = {
   ensembleUsedCount: number;
   xgbUnstableCount: number;
   lowConfidenceCount: number;
+  comparisonWinnerAvailable?: boolean;
+  comparisonProductCount?: number;
+  comparisonObservationCount?: number;
   disclaimer: string;
   topN: number;
   trainedProductCount: number;
@@ -255,6 +267,7 @@ export type ReorderRow = {
   status: StockStatus;
   winnerModel: ForecastMethod;
   confidence: ConfidenceLevel;
+  forecastEvidence?: ForecastEvidence;
 };
 
 export type TrainProgress = {

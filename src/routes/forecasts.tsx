@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { DemandChart } from "@/components/demand-chart";
 import { DemandEvidence } from "@/components/demand-evidence";
+import { ForecastEvidenceBadge } from "@/components/forecast-evidence-badge";
 import { IntervalEvidence } from "@/components/interval-evidence";
 import { useForecast } from "@/components/forecast-context";
 import { TrainingBanner } from "@/components/training-banner";
@@ -34,6 +35,7 @@ function ForecastsPage() {
   const { result, status, refresh, forecastThrough, schedule } = useForecast();
   const refreshAdvice = forecastRefreshAdvice(mode, canRefreshForecast, schedule);
   const ready = Boolean(result);
+  const winnerAvailable = result?.diagnostics.comparisonWinnerAvailable !== false;
   const mlFirst =
     products.find((p) => result?.byProduct[p.id]?.trainedWithMl)?.id ?? products[0]?.id ?? "";
   const [productId, setProductId] = useState("");
@@ -109,7 +111,7 @@ function ForecastsPage() {
           name="Ensemble"
           mae={result?.ensembleMae}
           rmse={result?.ensembleRmse}
-          winner={ready ? result?.winner === "ensemble" : false}
+          winner={ready && winnerAvailable ? result?.winner === "ensemble" : false}
           note="Weighted by validation MAE"
           ready={ready}
         />
@@ -117,7 +119,7 @@ function ForecastsPage() {
           name="XGBoost"
           mae={result?.xgbMae}
           rmse={result?.xgbRmse}
-          winner={ready ? result?.winner === "xgb" : false}
+          winner={ready && winnerAvailable ? result?.winner === "xgb" : false}
           note={
             mode === "api"
               ? "Official Python XGBoost · saved model"
@@ -129,11 +131,21 @@ function ForecastsPage() {
           name="Moving Average"
           mae={result?.maMae}
           rmse={result?.maRmse}
-          winner={ready ? result?.winner === "ma" || result?.winner === "rule" : false}
+          winner={
+            ready && winnerAvailable ? result?.winner === "ma" || result?.winner === "rule" : false
+          }
           note={`${window}-day window baseline`}
           ready={ready}
         />
       </section>
+      {mode === "api" && ready && (
+        <p className="text-sm text-muted">
+          {result?.diagnostics.comparisonObservationCount
+            ? `Saved test scores cover ${num(result.diagnostics.comparisonObservationCount)} product-days across ${num(result.diagnostics.comparisonProductCount ?? 0)} products. Compared models use matching records.`
+            : "A matching saved test is not available for this comparison. Unavailable scores are shown as —."}{" "}
+          The selected model uses validation results, not final-test scores.
+        </p>
+      )}
 
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -148,6 +160,12 @@ function ForecastsPage() {
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {forecast && (
+              <ForecastEvidenceBadge
+                evidence={forecast.forecastEvidence}
+                demonstration={mode === "browser-demo"}
+              />
+            )}
             <Select
               className="md:max-w-xs"
               value={selected?.id}

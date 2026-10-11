@@ -351,9 +351,17 @@ The automatic refresh schedule is displayed on Overview, Restock, and Forecasts 
 | Expired                   | Update recent sales or verified zero-sale dates, then ask the owner to refresh |
 | Unavailable or an em dash | Read the reason; a value was not available, rather than measured as zero       |
 | Moving Average fallback   | Check the product's history and quality notes; it may not qualify for XGBoost  |
-| Low confidence            | Treat the estimate as decision support and check the underlying records        |
+| Tested on past sales      | Read the number of tested days and average error; future sales can still differ |
+| Basic estimate            | Uses recent usable sales; no saved past test is available yet                  |
+| Not tested yet            | No usable saved test is available for this model; review its records           |
+| Refresh needed            | Records or settings changed after this estimate was saved                     |
+| Demonstration             | Uses synthetic practice data; it does not describe client accuracy             |
 
 Check forecast dates before using them for today's purchasing. Unknown or excluded dates do not move old predictions forward. MAE and RMSE describe error on evaluated records, not a guaranteed accuracy percentage. Available prediction intervals show an estimated range, not a guarantee of future demand.
+
+For example, **Past test: 14 days. Average error: 2.0 units** means the saved model was checked against 14 past days and its estimates differed from actual sales by an average of 2 units. It does not mean a 98% chance of being correct. The label describes available evidence, so there is no automatic high-confidence score based only on having many rows.
+
+Overall model comparisons use matching products and saved test records. If that evidence is incomplete, scores appear as an em dash. The model marked Selected comes from the earlier validation results; final-test scores are reported separately. A Moving Average-only test does not show an XGBoost score.
 
 ## Use restock recommendations
 

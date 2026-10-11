@@ -439,7 +439,7 @@ function LevelEvidence({ id }: { id: number }) {
   return (
     <Evidence
       items={[
-        `Low-confidence SKUs (<${30} observations): ${d.lowConfidenceCount}`,
+        `Products with fewer than 30 nonzero sales days: ${d.lowConfidenceCount}`,
         "Browser demonstration bands are illustrative; their coverage has not been validated.",
         d.disclaimer,
       ]}

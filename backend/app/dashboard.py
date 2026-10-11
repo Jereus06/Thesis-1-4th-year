@@ -11,6 +11,7 @@ from .data_quality import (
     usable_history_bounds,
 )
 from .forecasting import moving_average
+from .forecast_evidence import forecast_evidence, index_forecast_evidence, model_comparison
 from .inventory import calculate_reorder
 
 
@@ -122,6 +123,7 @@ def dashboard(repository, business_id, *, forecast_schedule=None):
         and (item["productId"] is None or item["productId"] in product_ids)
     )
     start = min(evidence_dates, default=today)
+    saved_evidence = index_forecast_evidence(metrics, predictions)
     for product in products:
         pid = product["id"]
         rows = [
@@ -161,6 +163,7 @@ def dashboard(repository, business_id, *, forecast_schedule=None):
             for point in predictions
             if point["productId"] == pid and point["datasetSplit"] == "future"
         ]
+        saved_forecast = bool(future)
         history = contiguous_tail(prepared.targets, last_product_day) if last_product_day else []
         if not future and history:
             window = settings["movingAverageWindow"]
@@ -203,7 +206,8 @@ def dashboard(repository, business_id, *, forecast_schedule=None):
                 for point in future
                 if point["method"] in {"fallback", "moving_average"}
             ]
-            method = "fallback"
+            if selected:
+                method = "fallback"
         demand_available = bool(selected)
         if demand_available:
             daily = sum(selected, Decimal(0)) / len(selected)
@@ -233,7 +237,14 @@ def dashboard(repository, business_id, *, forecast_schedule=None):
             {
                 "productId": pid,
                 "method": method,
+                # Kept for old API consumers; the UI uses measured forecastEvidence.
                 "confidenceLevel": "low",
+                "forecastEvidence": forecast_evidence(
+                    product_id=pid, method=method, metrics=metrics, predictions=predictions,
+                    demand_available=demand_available, expired=forecast_expired, stale=stale,
+                    saved_forecast=saved_forecast,
+                    evidence_index=saved_evidence,
+                ),
                 "demandAvailable": demand_available,
                 "forecastExpired": forecast_expired,
                 "unavailableReason": (
@@ -261,6 +272,9 @@ def dashboard(repository, business_id, *, forecast_schedule=None):
             if point["datasetSplit"] != "future" or point["predictionDate"] >= today_text
         ],
         "metrics": metrics,
+        "modelComparison": model_comparison(
+            metrics, predictions, summaries, product_ids, evidence_index=saved_evidence,
+        ),
         "summaries": summaries,
         "recommendations": recommendations,
         "asOf": str(end),

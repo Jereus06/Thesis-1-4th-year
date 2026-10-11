@@ -6,8 +6,14 @@ import { buildReorderRows } from "../src/lib/inventory/reorder.ts";
 import { formatForecastDuration } from "../src/lib/forecast-timing.ts";
 
 test("saved training duration uses model fits and preserves separate total processing", () => {
-  const timing = { trainingMs: 125, preparationMs: 20, validationEvaluationMs: 40,
-    persistenceMs: 15, totalProcessingMs: 210, queueWaitMs: 1000 };
+  const timing = {
+    trainingMs: 125,
+    preparationMs: 20,
+    validationEvaluationMs: 40,
+    persistenceMs: 15,
+    totalProcessingMs: 210,
+    queueWaitMs: 1000,
+  };
   const data = dashboard({ run: { id: "timed-run", createdAt: "2026-10-04", timing } });
   const mapped = toResult(data, [product], 8, 20);
   assert.equal(mapped.trainedMs, 125);
@@ -16,7 +22,12 @@ test("saved training duration uses model fits and preserves separate total proce
 
 test("unmeasured training stays unavailable even when total processing is saved", () => {
   for (const timing of [{ totalProcessingMs: 30 }, { trainingMs: null, totalProcessingMs: 30 }]) {
-    const mapped = toResult(dashboard({ run: { id: "baseline-run", createdAt: "2026-10-04", timing } }), [product], 8, 20);
+    const mapped = toResult(
+      dashboard({ run: { id: "baseline-run", createdAt: "2026-10-04", timing } }),
+      [product],
+      8,
+      20,
+    );
     assert.ok(Number.isNaN(mapped.trainedMs));
     assert.deepEqual(mapped.processingTiming, timing);
   }
@@ -292,6 +303,14 @@ test("inactive products retain archived input records but leave current advice a
   });
   data.recommendations.push({ ...data.recommendations[0], productId: inactive.id });
   data.summaries[inactive.id] = { ...data.summaries[product.id] };
+  data.modelComparison = {
+    validation: { productIds: [], observationCount: 0, scores: {} },
+    finalTest: {
+      productIds: [product.id],
+      observationCount: 10,
+      scores: { moving_average: { mae: "2", rmse: "3" } },
+    },
+  };
   const current = toResult(data, [product, inactive], 8, 20);
   assert.equal(current.maMae, 2);
   assert.equal(current.maRmse, 3);
@@ -324,4 +343,128 @@ test("an entirely inactive catalog has no current forecast scores or restock rec
   assert.deepEqual(current.byProduct, {});
   assert.deepEqual(toReorderRows(data, [inactive]), []);
   assert.deepEqual(buildReorderRows([inactive], current, { coverDays: 10 }), []);
+});
+
+test("Python fallback is displayed as Moving Average and preserves its selected-method test count", () => {
+  const data = dashboard({
+    summary: { operatingMethod: "fallback", interval: savedInterval },
+    metrics: [
+      {
+        productId: product.id,
+        method: "moving_average",
+        datasetSplit: "final_test",
+        mae: "1",
+        rmse: "2",
+        observationCount: 7,
+      },
+    ],
+  });
+  assert.equal(result(data).method, "ma");
+  assert.equal(toReorderRows(data, [product])[0].winnerModel, "ma");
+  assert.equal(result(data).interval.finalTestObservations, 7);
+});
+
+test("evidence states preserve past errors but downgrade stale, expired and invalid current advice", () => {
+  const forecastEvidence = { status: "tested", testObservations: 14, mae: "1.5", rmse: "2" };
+  const data = dashboard({
+    recommendation: { demandAvailable: true, daily_demand: "3", forecastEvidence },
+  });
+  assert.deepEqual(result(data).forecastEvidence, forecastEvidence);
+  assert.deepEqual(toReorderRows(data, [product])[0].forecastEvidence, forecastEvidence);
+  data.stale = true;
+  assert.equal(result(data).forecastEvidence.status, "needs_refresh");
+  data.recommendations[0].forecastExpired = true;
+  assert.equal(toReorderRows(data, [product])[0].forecastEvidence.status, "expired");
+  data.recommendations[0].forecastExpired = false;
+  data.recommendations[0].daily_demand = "NaN";
+  assert.equal(toReorderRows(data, [product])[0].forecastEvidence.status, "unavailable");
+  assert.equal(result(data).forecastEvidence.testObservations, 14);
+});
+
+test("cached tested labels are withheld at business midnight even if polling fails", () => {
+  const data = dashboard({
+    forecastThrough: "2026-10-10",
+    recommendation: {
+      demandAvailable: true,
+      daily_demand: "3",
+      forecastEvidence: { status: "tested", testObservations: 7, mae: "1", rmse: "2" },
+    },
+    predictions: [
+      {
+        productId: product.id,
+        predictionDate: "2026-10-10",
+        datasetSplit: "future",
+        method: "fallback",
+        predictedQuantity: "3",
+        actualQuantity: null,
+        lowerBound: null,
+        upperBound: null,
+      },
+    ],
+  });
+  const changed = currentForecastDashboard(data, new Date("2026-10-04T16:01:00Z"));
+  assert.equal(result(changed).forecastEvidence.status, "unavailable");
+  assert.equal(result(changed).demandAvailable, false);
+  assert.equal(data.recommendations[0].forecastEvidence.status, "tested");
+});
+
+test("history counters count actual positive and zero-sale days rather than ML exclusions", () => {
+  const other = { ...product, id: "other", sku: "OTHER" };
+  const data = dashboard({ summary: { historyDays: 200, nonzeroDays: 200, eligible: false } });
+  data.summaries[other.id] = { ...data.summaries[product.id], historyDays: 40, nonzeroDays: 20 };
+  const mapped = toResult(data, [product, other], 8, 20);
+  assert.equal(mapped.diagnostics.lowConfidenceCount, 1);
+  assert.equal(mapped.diagnostics.sparseProductCount, 1);
+  assert.equal(mapped.diagnostics.trainedProductCount, 0);
+});
+
+test("comparison scores come from aligned Python cohorts and validation alone selects the displayed winner", () => {
+  const data = dashboard({ summary: { eligible: true, operatingMethod: "xgboost" } });
+  data.modelComparison = {
+    validation: {
+      productIds: [product.id],
+      observationCount: 20,
+      scores: {
+        moving_average: { mae: "5", rmse: "6" },
+        xgboost: { mae: "1", rmse: "2" },
+        ensemble: { mae: "3", rmse: "4" },
+      },
+    },
+    finalTest: {
+      productIds: [product.id],
+      observationCount: 14,
+      scores: {
+        moving_average: { mae: "0.1", rmse: "0.2" },
+        xgboost: { mae: "9", rmse: "10" },
+        ensemble: { mae: "3", rmse: "4" },
+      },
+    },
+  };
+  const mapped = toResult(data, [product], 8, 20);
+  assert.equal(mapped.winner, "xgb");
+  assert.equal(mapped.maMae, 0.1);
+  assert.equal(mapped.xgbMae, 9);
+  assert.equal(mapped.diagnostics.comparisonWinnerAvailable, true);
+  assert.equal(mapped.diagnostics.comparisonProductCount, 1);
+  assert.equal(mapped.diagnostics.comparisonObservationCount, 14);
+  data.modelComparison.finalTest.productIds.push("now-inactive");
+  assert.ok(Number.isNaN(toResult(data, [product], 8, 20).xgbMae));
+});
+
+test("missing comparison evidence never manufactures a selected model or comparable score", () => {
+  const data = dashboard({
+    metrics: [
+      {
+        productId: product.id,
+        method: "xgboost",
+        datasetSplit: "final_test",
+        mae: "1",
+        rmse: "2",
+        observationCount: 14,
+      },
+    ],
+  });
+  const mapped = toResult(data, [product], 8, 20);
+  assert.equal(mapped.diagnostics.comparisonWinnerAvailable, false);
+  assert.ok(Number.isNaN(mapped.xgbMae));
 });

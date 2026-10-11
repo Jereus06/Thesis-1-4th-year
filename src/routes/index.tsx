@@ -253,19 +253,28 @@ function Overview() {
                   label="Ensemble"
                   mae={result.ensembleMae}
                   rmse={result.ensembleRmse}
-                  active={result.winner === "ensemble"}
+                  active={
+                    result.diagnostics.comparisonWinnerAvailable !== false &&
+                    result.winner === "ensemble"
+                  }
                 />
                 <MetricBar
                   label="XGBoost"
                   mae={result.xgbMae}
                   rmse={result.xgbRmse}
-                  active={result.winner === "xgb"}
+                  active={
+                    result.diagnostics.comparisonWinnerAvailable !== false &&
+                    result.winner === "xgb"
+                  }
                 />
                 <MetricBar
                   label="Moving Average"
                   mae={result.maMae}
                   rmse={result.maRmse}
-                  active={result.winner === "ma" || result.winner === "rule"}
+                  active={
+                    result.diagnostics.comparisonWinnerAvailable !== false &&
+                    (result.winner === "ma" || result.winner === "rule")
+                  }
                 />
                 <p className="text-xs text-muted">{result?.diagnostics.disclaimer ?? DISCLAIMER}</p>
               </>

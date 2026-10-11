@@ -62,6 +62,15 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Verify guided inventory and 100,000-row sales imports through the real browser and PostgreSQL
         run: node scripts/verify-guided-csv-browser.mjs http://localhost:8080
+      - name: Verify forecast evidence labels through the real browser and PostgreSQL
+        run: node scripts/verify-forecast-evidence-browser.mjs http://localhost:8080
+      - name: Upload forecast evidence verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forecast-evidence-verification
+          path: benchmarks/forecast-evidence/
+          if-no-files-found: ignore
       - name: Upload guided import verification evidence
         if: always()
         uses: actions/upload-artifact@v4

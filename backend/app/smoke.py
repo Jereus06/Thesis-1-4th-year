@@ -116,6 +116,14 @@ def main():
         assert summary["eligible"] and summary["nonzeroDays"] >= 100
         assert (settings.artifact_dir / summary["artifact"]).is_file()
         recommendation = dashboard["recommendations"][0]
+        evidence = recommendation["forecastEvidence"]
+        assert evidence["status"] == "tested"
+        assert evidence["testObservations"] == metrics[0]["observationCount"]
+        comparison = dashboard["modelComparison"]
+        assert comparison["finalTest"]["productIds"] == [created["id"]]
+        assert comparison["finalTest"]["observationCount"] == evidence["testObservations"]
+        assert set(comparison["finalTest"]["scores"]) == {"moving_average", "xgboost", "ensemble"}
+        assert comparison["validation"]["observationCount"] > 0
         daily = Decimal(recommendation["daily_demand"])
         assert Decimal(recommendation["reorder_point"]) == daily * 2 + 2
         assert client.post("/api/v1/auth/sign-out").status_code == 200

@@ -278,3 +278,32 @@ def test_no_usable_history_is_unavailable_without_inventing_an_expired_forecast(
     assert result["predictions"] == []
     assert result["recommendations"][0]["forecastExpired"] is False
     assert_unavailable(result["recommendations"][0])
+
+
+def test_dashboard_evidence_changes_with_saved_testing_staleness_and_expiration():
+    repository = FakeRepository(predictions=[prediction("2026-10-01", 3, "final_test"), prediction("2026-10-02", 8)])
+    result = dashboard(repository, "business")
+    evidence = result["recommendations"][0]["forecastEvidence"]
+    assert evidence == {"status": "tested", "testObservations": 1, "mae": "1", "rmse": "1"}
+    assert result["modelComparison"]["finalTest"]["observationCount"] == 1
+    repository.changed = True
+    assert dashboard(repository, "business")["recommendations"][0]["forecastEvidence"]["status"] == "needs_refresh"
+    repository.today = date(2026, 10, 4)
+    expired = dashboard(repository, "business")["recommendations"][0]["forecastEvidence"]
+    assert expired["status"] == "expired" and expired["testObservations"] == 1
+
+
+def test_expiration_does_not_change_a_saved_xgboost_operating_method_to_fallback():
+    repository = FakeRepository(today=date(2026, 10, 4))
+    for point in repository.predictions:
+        point["method"] = "xgboost"
+    repository.completed["configuration"]["products"][PRODUCT_ID]["operatingMethod"] = "xgboost"
+    advice = dashboard(repository, "business")["recommendations"][0]
+    assert advice["forecastExpired"] and advice["method"] == "xgboost"
+
+
+def test_untrained_preview_cannot_inherit_old_saved_test_scores():
+    repository = FakeRepository(predictions=[prediction("2026-10-01", 3, "final_test")])
+    advice = dashboard(repository, "business")["recommendations"][0]
+    assert advice["demandAvailable"]
+    assert advice["forecastEvidence"] == {"status": "basic", "testObservations": 0, "mae": None, "rmse": None}

@@ -1,6 +1,8 @@
-import type { ApiDashboard } from "./api";
+import type { ApiDashboard, ApiModelComparison } from "./api";
+import { LOW_CONFIDENCE_OBS, SPARSE_ZERO_SHARE } from "./forecast/constants.ts";
 import type {
   ForecastMethod,
+  ForecastEvidence,
   ForecastPoint,
   PipelineResult,
   Product,
@@ -13,9 +15,32 @@ const methodName = (method: string): ForecastMethod =>
     ? "xgb"
     : method === "ensemble"
       ? "ensemble"
-      : method === "movingAverage" || method === "moving_average"
+      : method === "movingAverage" || method === "moving_average" || method === "fallback"
         ? "ma"
         : "rule";
+
+function currentEvidence(
+  data: ApiDashboard,
+  row: ApiDashboard["recommendations"][number] | undefined,
+  demandAvailable: boolean,
+): ForecastEvidence {
+  const evidence = row?.forecastEvidence ?? {
+    status: "untested",
+    testObservations: 0,
+    mae: null,
+    rmse: null,
+  };
+  return {
+    ...evidence,
+    status: row?.forecastExpired
+      ? "expired"
+      : !demandAvailable
+        ? "unavailable"
+        : data.stale
+          ? "needs_refresh"
+          : evidence.status,
+  };
+}
 
 export function toReorderRows(data: ApiDashboard, products: Product[]): ReorderRow[] {
   return data.recommendations.flatMap((row): ReorderRow[] => {
@@ -53,6 +78,7 @@ export function toReorderRows(data: ApiDashboard, products: Product[]): ReorderR
         status: row.status,
         winnerModel: methodName(row.method),
         confidence: row.confidenceLevel,
+        forecastEvidence: currentEvidence(data, row, demandAvailable),
       },
     ];
   });
@@ -68,25 +94,23 @@ export function toResult(
   const productIds = new Set(products.map((product) => product.id));
   const byProduct: Record<string, ProductForecast> = {};
   const mlIds = products.filter((p) => data.summaries[p.id]?.eligible).map((p) => p.id);
-  const aggregate = (method: string, field: "mae" | "rmse", split = "final_test") => {
-    const metrics = data.metrics.filter(
-      (m) =>
-        m.method === method &&
-        m.datasetSplit === split &&
-        productIds.has(m.productId) &&
-        (mlIds.length ? mlIds.includes(m.productId) : method === "moving_average"),
-    );
-    const count = metrics.reduce((sum, metric) => sum + metric.observationCount, 0);
-    if (!count) return NaN;
-    const mean =
-      metrics.reduce(
-        (sum, metric) =>
-          sum +
-          metric.observationCount *
-            (field === "rmse" ? Number(metric[field]) ** 2 : Number(metric[field])),
-        0,
-      ) / count;
-    return field === "rmse" ? Math.sqrt(mean) : mean;
+  const comparisonFor = (split: "validation" | "final_test") => {
+    const comparison = data.modelComparison?.[split === "validation" ? "validation" : "finalTest"];
+    // A catalog change can arrive before the next dashboard read. Do not reuse a
+    // pooled score that still includes a now-inactive product.
+    return comparison?.productIds.length && comparison.productIds.every((id) => productIds.has(id))
+      ? comparison
+      : undefined;
+  };
+  const aggregate = (
+    method: string,
+    field: "mae" | "rmse",
+    split: "validation" | "final_test" = "final_test",
+  ) => {
+    const comparison = comparisonFor(split);
+    const score = comparison?.scores[method as keyof ApiModelComparison["scores"]]?.[field];
+    const value = score === undefined ? NaN : Number(score);
+    return Number.isFinite(value) && value >= 0 ? value : NaN;
   };
   for (const product of products) {
     const summary = data.summaries[product.id];
@@ -124,12 +148,14 @@ export function toResult(
       return value ? Number(value[field]) : NaN;
     };
     const recommendation = data.recommendations.find((r) => r.productId === product.id);
-    const method = methodName(summary?.operatingMethod ?? "fallback");
     const weight = summary?.xgbWeight ?? 0;
     const dailyDemand =
       recommendation?.daily_demand == null ? NaN : Number(recommendation.daily_demand);
     const demandAvailable =
       recommendation?.demandAvailable === true && Number.isFinite(dailyDemand) && dailyDemand >= 0;
+    const method = methodName(
+      (demandAvailable ? recommendation?.method : summary?.operatingMethod) ?? "fallback",
+    );
     byProduct[product.id] = {
       productId: product.id,
       maMae: metric("moving_average", "mae"),
@@ -146,8 +172,9 @@ export function toResult(
       future: points("future"),
       dailyDemand: demandAvailable ? dailyDemand : NaN,
       seriesMean: demandAvailable ? dailyDemand : NaN,
-      confidence: "low",
+      confidence: recommendation?.confidenceLevel ?? "low",
       confidenceScore: NaN,
+      forecastEvidence: currentEvidence(data, recommendation, demandAvailable),
       observationCount: summary?.historyDays ?? 0,
       nonzeroCount: summary?.nonzeroDays ?? 0,
       grain: "daily",
@@ -212,7 +239,9 @@ export function toResult(
       meetsMinimum: maxDays >= minWeeks * 7,
       reliableRange: maxDays >= 180 && maxDays <= 366,
       usedFallbackDataset: false,
-      sparseProductCount: products.length - mlIds.length,
+      sparseProductCount: summaries.filter(
+        (s) => s.historyDays > 0 && 1 - s.nonzeroDays / s.historyDays > SPARSE_ZERO_SHARE,
+      ).length,
       weeklyProductCount: 0,
       dailyProductCount: products.length,
       mlProductIds: mlIds,
@@ -229,8 +258,16 @@ export function toResult(
       earlyStopping: summaries.some((s) => Boolean(s.earlyStoppingUsed)),
       chronologicalSplit: Boolean(data.run),
       ensembleUsedCount: summaries.filter((s) => s.operatingMethod === "ensemble").length,
-      xgbUnstableCount: 0,
-      lowConfidenceCount: products.length,
+      xgbUnstableCount: NaN,
+      lowConfidenceCount: summaries.filter(
+        (s) =>
+          Number.isInteger(s.nonzeroDays) &&
+          s.nonzeroDays >= 0 &&
+          s.nonzeroDays < LOW_CONFIDENCE_OBS,
+      ).length,
+      comparisonWinnerAvailable: validation.length > 0,
+      comparisonProductCount: comparisonFor("final_test")?.productIds.length ?? 0,
+      comparisonObservationCount: comparisonFor("final_test")?.observationCount ?? 0,
       disclaimer: data.message,
       topN,
       trainedProductCount: mlIds.length,
