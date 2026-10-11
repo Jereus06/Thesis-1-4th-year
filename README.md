@@ -28,8 +28,19 @@ initial owner account. The first start creates a private `.env` file and prints 
 - Email: `owner@example.com`
 - Password: read `OWNER_PASSWORD` from your private, locally generated `.env` file. There is no shared default password.
 
+Downloading another ZIP on the same laptop reuses this Docker installation. After a successful
+start, StockCast saves a private configuration copy in your user profile and restores it when a
+newly extracted folder has no `.env`. Your local `.env` takes precedence; run `npm start` after
+editing it to update the saved copy. Different laptops keep separate installations and records.
+
+Startup checks actual PostgreSQL password authentication before applying migrations. For an older
+**local development** installation whose generated passwords do not match its retained database,
+startup repairs the database connection passwords transactionally. Existing records and users'
+sign-in password hashes are preserved. Hosted/public-domain and remote Docker installations require
+their matching configuration; startup never changes their database passwords automatically.
+
 Keep `.env` private and keep a copy of it. To choose your account details before first startup,
-run `npm run setup`, edit `.env`, then run `npm start`. Owner creation runs once per account;
+run `npm run setup`, edit `.env`, then run `npm start`. The initial owner is created only for a store without an owner;
 restarting the app preserves its existing password.
 
 To change an existing owner password, sign in, open **Inventory > Account & settings >

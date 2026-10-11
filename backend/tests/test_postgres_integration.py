@@ -1809,3 +1809,35 @@ def test_members_frontend_reads_and_owner_management_stay_tenant_scoped(pg_clien
         json={"isActive": False},
         headers={**staff_headers, "X-CSRF-Token": staff_csrf},
     ).status_code == 403
+
+
+def test_zip_bootstrap_does_not_add_owner_for_a_changed_seed_email(pg_client, monkeypatch):
+    _client, business, dsn = pg_client
+    from app.bootstrap_owner import bootstrap
+    from app.config import get_settings
+
+    with psycopg.connect(dsn) as conn:
+        before = conn.execute("SELECT id,email,password_hash FROM users ORDER BY id").fetchall()
+    monkeypatch.setenv("OWNER_EMAIL", "new-zip-owner@example.com")
+    monkeypatch.setenv("OWNER_PASSWORD", "new-zip-owner-password")
+    get_settings.cache_clear()
+    assert bootstrap() == business
+    with psycopg.connect(dsn) as conn:
+        assert conn.execute("SELECT id,email,password_hash FROM users ORDER BY id").fetchall() == before
+
+
+def test_bootstrap_still_creates_the_first_owner_for_a_new_business(pg_client, monkeypatch):
+    _client, old_business, dsn = pg_client
+    from app.bootstrap_owner import bootstrap
+    from app.config import get_settings
+
+    new_business = str(uuid4())
+    monkeypatch.setenv("OWNER_BUSINESS_ID", new_business)
+    monkeypatch.setenv("OWNER_EMAIL", "new-business-owner@example.com")
+    get_settings.cache_clear()
+    assert bootstrap() == new_business
+    with psycopg.connect(dsn) as conn:
+        assert conn.execute(
+            "SELECT email FROM users WHERE business_id=%s AND role='owner'", (new_business,)
+        ).fetchall() == [("new-business-owner@example.com",)]
+        assert conn.execute("SELECT count(*) FROM users WHERE business_id=%s", (old_business,)).fetchone()[0] == 1

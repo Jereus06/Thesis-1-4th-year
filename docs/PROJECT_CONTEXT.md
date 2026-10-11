@@ -254,9 +254,25 @@ on reimport. See [the export contract](GUIDED_CSV_IMPORTS.md#csv-exports).
 The web form reports accepted/skipped/conflicting outcomes and retains the selected file or
 pasted text when records are partially rejected.
 
+## ZIP startup and private configuration
+
+The launcher retains a private user-profile copy of `.env` per Docker context/Compose project
+and restores it into a new extraction when the local file is absent. Existing `.env` takes
+precedence. After PostgreSQL readiness it checks both database roles' actual TCP authentication
+before initializing. Mismatched legacy **local development** credentials can be aligned using a
+container-local admin transaction without removing volumes or changing application password
+hashes. Initial owner bootstrap is serialized on the business row and does not add an owner
+to an already-owned store when a new ZIP supplies a different seed email. Hosted/public-domain/remote configurations never receive automatic password repair;
+existing hosted API containers are checked before any database recreation. This changes deployment
+handling only, with no API/schema/migration or forecasting change. Configuration copies do not
+replace database backups or transfer business records. See [setup and operations](SETUP_AND_OPERATIONS.md).
+Regression checks are in `scripts/test-startup.mjs`; the system workflow exercises independent
+ZIP-like folders, actual role-password repair, record counts, and unchanged user password hashes
+through `scripts/verify-zip-startup.mjs`. A workflow definition is not a completed runtime result.
+
 ## Account and Google access contract
 
-Startup generates private owner credentials only when `.env` is absent. README contains no shared
+Startup generates private owner credentials only when both the local `.env` and its saved private copy are absent. README contains no shared
 owner password. Existing owners change their password through Inventory > Account & settings >
 Account maintenance; editing `.env` or restarting does not update an existing password hash.
 Removing a documented credential does not itself rotate any deployed credential.

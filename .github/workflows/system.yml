@@ -6,6 +6,16 @@ on:
 permissions:
   contents: read
 jobs:
+  startup-windows:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify ZIP startup on native Windows paths
+        run: node --test scripts/test-startup.mjs
   system:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -46,6 +56,8 @@ jobs:
         run: docker compose exec -T api sh -c 'STOCKCAST_TEST_DATABASE_URL="$DATABASE_URL" python -m pytest backend/tests -q --disable-warnings'
       - name: Check the website, authenticated API, stock, imports, and XGBoost worker
         run: docker compose exec -T api python -m backend.app.smoke
+      - name: Verify fresh ZIP folders and local credential recovery preserve PostgreSQL records
+        run: node scripts/verify-zip-startup.mjs
       - name: Install isolated browser for guided import verification
         run: npx playwright install --with-deps chromium
       - name: Verify guided inventory and 100,000-row sales imports through the real browser and PostgreSQL

@@ -40,6 +40,40 @@ catalog. There are no generated products or sales in the PostgreSQL application.
 Keep `.env` private and retain a protected copy. Restarting preserves an existing account's
 password; changing `OWNER_PASSWORD` in `.env` does not reset an account already in the database.
 
+## Downloading an updated ZIP on the same laptop
+
+Extract the ZIP, open that folder in VS Code, start Docker Desktop, and run `npm start`.
+The default Compose project remains `stockcast`, so its existing database/model volumes remain
+in use. The launcher restores a missing `.env` from the last successfully saved private copy for
+this user, Docker context, and Compose project. A supplied local `.env` always takes precedence.
+The saved copy includes private SMTP/Google settings; keep it protected like the original `.env`.
+
+On Windows the private copies are under `%LOCALAPPDATA%\StockCast`; on Linux they are under
+`${XDG_CONFIG_HOME:-~/.config}/stockcast`. Filenames are opaque context/project keys. Files are
+created with user-only Unix permissions; Windows copies inherit the user-profile permissions.
+`STOCKCAST_CONFIG_DIR` can override this directory for an isolated administrator/CI installation.
+The cache is outside the downloaded repository and is never part of its ZIP or Docker build.
+`npm run setup` saves an initial copy; successful `npm start` updates it. This configuration copy
+is separate from a database backup and does not transfer records between laptops.
+
+Before initialization, startup brings PostgreSQL up and tests the application and administrator
+credentials over TCP. If an older local development installation has a password mismatch,
+`deploy/check-database.sh` uses the existing container-local administrator connection to align
+only the database role passwords with the selected configuration, in one transaction. It does
+not remove volumes, change tables, or reset application users' password hashes. Initial setup
+also preserves an already-owned store: a different default email in a new ZIP does not add
+another owner to it. The launcher
+allows this recovery only for a local Unix/named-pipe Docker endpoint with development settings
+and a localhost origin. It checks existing API containers first and refuses to replace a known
+hosted configuration with a newly generated local one. Production/public-domain or remote
+installations must restore their matching private `.env`; automatic password repair is disabled.
+
+If a legacy installation's original private file is lost, local recovery can preserve its database
+records, but cannot reconstruct SMTP/Google credentials or the current users' sign-in passwords.
+Restore the original `.env` when available. Never delete database volumes to solve this mismatch.
+A new laptop starts an independent empty installation. Node.js 24+, a running Linux-container
+Docker engine, sufficient disk space, and access to dependency downloads are still required.
+
 ## How the parts work together
 
 The website sends requests to the Python API. The API checks the signed-in user's business and
@@ -197,8 +231,9 @@ business/forecast fields described earlier.
 | `GOOGLE_REDIRECT_URI`                  | Optional registered callback at the exact website origin                    |
 
 Use URL-safe generated database passwords, such as hex values. Changing environment database
-passwords after PostgreSQL's persistent volume exists does not rotate the existing role
-passwords. The database administrator must coordinate actual credential changes.
+passwords after PostgreSQL's persistent volume exists does not by itself rotate existing role
+passwords. The local-development launcher can repair a detected mismatch as described above.
+Hosted/remote credential changes must be coordinated by the database administrator.
 
 ### Hosted installation
 
