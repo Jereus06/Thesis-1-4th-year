@@ -40,6 +40,15 @@ export function currentForecastDashboard(data: ApiDashboard, now: Date): ApiDash
         forecastEvidence: row.forecastEvidence
           ? { ...row.forecastEvidence, status: forecastExpired ? "expired" : "unavailable" }
           : undefined,
+        forecastConfidence: row.forecastConfidence
+          ? {
+              ...row.forecastConfidence,
+              level: null,
+              reason: forecastExpired
+                ? "The forecast period ended. Refresh forecasts for a current rating."
+                : "Business date changed. Waiting for current recommendations.",
+            }
+          : undefined,
         unavailableReason: forecastExpired
           ? "Forecast expired. Review recent sales and refresh forecasts."
           : "Business date changed. Waiting for current recommendations.",

@@ -333,6 +333,26 @@ Exports are useful copies of business records. Ask the person managing the insta
 
 XGBoost requires sufficient usable training history and an eligible place within the configured ML product limit. A product can use Moving Average when those requirements are not met. **0 ML SKUs** means none currently qualifies for machine learning; it does not mean your products or recorded sales disappeared.
 
+### Find the Top products
+
+The **Top products for XGBoost** panel is near the top of **Forecasts**. It lists the selected
+products, rank, product code, quantities sold during the saved training period, expected sales
+per day, and current forecast confidence. Training dates appear above the table.
+
+To use a limit of five, open **Inventory > Account & settings > Advanced forecasting settings**,
+set **ML product limit** to **Top 5 eligible products**, and choose **Save settings**. Then open
+**Forecasts** and choose **Refresh forecasts**. After it completes, the panel shows up to five
+eligible products ranked by training-period sales quantities. The limit is a maximum: a list
+of two products means only two qualified, not that three products disappeared.
+
+This is the XGBoost training selection, not a guaranteed future best-selling list. Products
+outside the selection can still have Moving Average estimates. A selected product may also
+use Moving Average as its operating method if validation supports it. Different product units
+are shown beside quantities; pieces, bottles, and packs are not converted into one counting unit.
+Changing records or the limit keeps the earlier saved selection visible with a refresh notice.
+Deactivated products are omitted from the active list. Older runs without recoverable selection
+metadata request a refresh instead of inventing ranks.
+
 ### Update after records change
 
 1. As the owner, save the new records or reviewed dates first.
@@ -351,6 +371,9 @@ The automatic refresh schedule is displayed on Overview, Restock, and Forecasts 
 | Expired                   | Update recent sales or verified zero-sale dates, then ask the owner to refresh |
 | Unavailable or an em dash | Read the reason; a value was not available, rather than measured as zero       |
 | Moving Average fallback   | Check the product's history and quality notes; it may not qualify for XGBoost  |
+| High confidence           | Past error was small on at least 14 consecutive tested days; still review the estimate |
+| Medium confidence         | Past error was moderate on at least 14 consecutive tested days                |
+| Low confidence            | Past errors were large, or there is not enough usable test evidence yet       |
 | Tested on past sales      | Read the number of tested days and average error; future sales can still differ |
 | Basic estimate            | Uses recent usable sales; no saved past test is available yet                  |
 | Not tested yet            | No usable saved test is available for this model; review its records           |
@@ -360,6 +383,21 @@ The automatic refresh schedule is displayed on Overview, Restock, and Forecasts 
 Check forecast dates before using them for today's purchasing. Unknown or excluded dates do not move old predictions forward. MAE and RMSE describe error on evaluated records, not a guaranteed accuracy percentage. Available prediction intervals show an estimated range, not a guarantee of future demand.
 
 For example, **Past test: 14 days. Average error: 2.0 units** means the saved model was checked against 14 past days and its estimates differed from actual sales by an average of 2 units. It does not mean a 98% chance of being correct. The label describes available evidence, so there is no automatic high-confidence score based only on having many rows.
+
+StockCast's confidence labels are a disclosed rating of past prediction error. The calculation
+adds the absolute errors from the saved operating method's final-test predictions, then divides
+that total by the actual units sold on those same tested days. **High** means this relative error
+is at most **20%**; **Medium** means above 20% and at most **50%**. Both require at least
+**14 consecutive tested days** with some actual sales. Larger errors, fewer tested days, gaps,
+zero total actual sales, or no usable saved test receive **Low** with a reason. These thresholds
+are StockCast display rules, not a universal statistical standard or a probability of future sales.
+An unknown rating from an older API remains unavailable until a compatible refresh.
+
+**Confidence and sales volume are different.** For example, high confidence in an estimate of
+two spark plugs per day means past tests support that small estimate; it does not mean the shop
+will sell many spark plugs. Read **Expected sales per day** for the amount. Changed records,
+expired forecasts, and unavailable current demand suppress the old confidence rating. The
+final-test rating never selects the model or recalibrates prediction intervals.
 
 Overall model comparisons use matching products and saved test records. If that evidence is incomplete, scores appear as an em dash. The model marked Selected comes from the earlier validation results; final-test scores are reported separately. A Moving Average-only test does not show an XGBoost score.
 

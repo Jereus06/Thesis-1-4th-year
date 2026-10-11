@@ -119,6 +119,14 @@ def main():
         evidence = recommendation["forecastEvidence"]
         assert evidence["status"] == "tested"
         assert evidence["testObservations"] == metrics[0]["observationCount"]
+        confidence = recommendation["forecastConfidence"]
+        assert confidence["policy"] == "past_test_wape_v1"
+        assert confidence["level"] in {"low", "medium", "high"}
+        assert confidence["testObservations"] == evidence["testObservations"]
+        scope = dashboard["trainingScope"]
+        assert scope["products"][0]["productId"] == created["id"]
+        assert scope["products"][0]["rank"] == 1
+        assert scope == dashboard["run"]["configuration"]["trainingScope"]
         comparison = dashboard["modelComparison"]
         assert comparison["finalTest"]["productIds"] == [created["id"]]
         assert comparison["finalTest"]["observationCount"] == evidence["testObservations"]

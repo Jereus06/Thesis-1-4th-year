@@ -26,6 +26,7 @@ from .forecasting import (
     train_verified_xgboost,
 )
 from .repository import Repository
+from .forecast_evidence import training_scope
 
 logger = logging.getLogger(__name__)
 
@@ -326,6 +327,12 @@ def process_run(conn: Connection, run: dict[str, Any]) -> None:
                 future_predictions, interval_method, future_lower, future_upper, reason,
                 forecast_origin,
             ))
+
+    with phases.measure("preparationMs"):
+        configuration["trainingScope"] = training_scope({
+            **run, "configuration": configuration,
+            "data_snapshot": {**snapshot, "preparedProducts": prepared_products},
+        })
 
     # Model computation is complete before this transaction. Its measured scope
     # includes artifact writes, result SQL, and the result transaction's commit.

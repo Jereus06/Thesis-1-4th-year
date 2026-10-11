@@ -20,6 +20,88 @@ test("saved training duration uses model fits and preserves separate total proce
   assert.deepEqual(mapped.processingTiming, timing);
 });
 
+test("Python confidence and frozen training scope reach forecasts and restock unchanged", () => {
+  const forecastConfidence = {
+    level: "high",
+    reason: "Low past error across 14 consecutive tested days.",
+    testObservations: 14,
+    relativeError: "0.10",
+    policy: "past_test_wape_v1",
+  };
+  const trainingScope = {
+    limit: 5,
+    trainingStart: "2026-01-01",
+    trainingEnd: "2026-05-01",
+    ranking: "training_sales_volume_v1",
+    products: [{ productId: product.id, rank: 1, trainingQuantity: "500" }],
+  };
+  const data = dashboard({
+    trainingScope,
+    recommendation: {
+      demandAvailable: true,
+      daily_demand: "2",
+      forecastConfidence,
+      forecastEvidence: { status: "tested", testObservations: 14, mae: "0.2", rmse: "0.3" },
+    },
+  });
+  assert.deepEqual(result(data).forecastConfidence, forecastConfidence);
+  assert.deepEqual(toReorderRows(data, [product])[0].forecastConfidence, forecastConfidence);
+  const mapped = toResult(data, [product], 8, 20);
+  assert.deepEqual(mapped.diagnostics.trainingScope, trainingScope);
+  assert.equal(mapped.diagnostics.topN, 20);
+  assert.equal(mapped.diagnostics.trainingScope.limit, 5);
+});
+
+test("stale expired unavailable and midnight advice never retain a high confidence rating", () => {
+  const confidence = {
+    level: "high",
+    reason: "Past test.",
+    testObservations: 14,
+    relativeError: "0.1",
+    policy: "past_test_wape_v1",
+  };
+  for (const patch of [
+    { stale: true, recommendation: { demandAvailable: true, daily_demand: "2" } },
+    { recommendation: { demandAvailable: false } },
+    { recommendation: { demandAvailable: true, daily_demand: "2", forecastExpired: true } },
+  ]) {
+    const data = dashboard({
+      ...patch,
+      recommendation: {
+        ...patch.recommendation,
+        forecastConfidence: confidence,
+        forecastEvidence: { status: "tested", testObservations: 14, mae: "0.2", rmse: "0.3" },
+      },
+    });
+    assert.equal(result(data).forecastConfidence.level, null);
+    assert.equal(toReorderRows(data, [product])[0].forecastConfidence.level, null);
+  }
+  const data = dashboard({
+    recommendation: {
+      demandAvailable: true,
+      daily_demand: "2",
+      forecastConfidence: confidence,
+    },
+  });
+  const midnight = currentForecastDashboard(data, new Date("2026-10-04T16:01:00Z"));
+  assert.equal(midnight.recommendations[0].forecastConfidence.level, null);
+  assert.equal(data.recommendations[0].forecastConfidence.level, "high");
+});
+
+test("legacy and unfamiliar confidence policies cannot manufacture high confidence", () => {
+  assert.equal(result(dashboard()).forecastConfidence, undefined);
+  assert.equal(
+    result(
+      dashboard({
+        recommendation: {
+          forecastConfidence: { level: "high", policy: "unknown", reason: "Unsupported" },
+        },
+      }),
+    ).forecastConfidence,
+    undefined,
+  );
+});
+
 test("unmeasured training stays unavailable even when total processing is saved", () => {
   for (const timing of [{ totalProcessingMs: 30 }, { trainingMs: null, totalProcessingMs: 30 }]) {
     const mapped = toResult(

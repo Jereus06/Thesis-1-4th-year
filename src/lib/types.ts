@@ -143,6 +143,23 @@ export type ForecastEvidence = {
   rmse: string | null;
 };
 
+/** Disclosed past-test error rating, separate from future sales volume. */
+export type ForecastConfidence = {
+  level: ConfidenceLevel | null;
+  reason: string;
+  testObservations: number;
+  relativeError: string | null;
+  policy: "past_test_wape_v1";
+};
+
+export type ForecastTrainingScope = {
+  limit: number;
+  trainingStart: string;
+  trainingEnd: string;
+  ranking: "training_sales_volume_v1";
+  products: { productId: string; rank: number; trainingQuantity: string }[];
+};
+
 export type ProductForecast = {
   productId: string;
   maMae: number;
@@ -162,6 +179,7 @@ export type ProductForecast = {
   confidence: ConfidenceLevel;
   confidenceScore: number;
   forecastEvidence?: ForecastEvidence;
+  forecastConfidence?: ForecastConfidence;
   observationCount: number;
   nonzeroCount: number;
   grain: Grain;
@@ -207,6 +225,8 @@ export type PipelineDiagnostics = {
   comparisonWinnerAvailable?: boolean;
   comparisonProductCount?: number;
   comparisonObservationCount?: number;
+  trainingScope?: ForecastTrainingScope | null;
+  trainingScopeStale?: boolean;
   disclaimer: string;
   topN: number;
   trainedProductCount: number;
@@ -268,6 +288,7 @@ export type ReorderRow = {
   winnerModel: ForecastMethod;
   confidence: ConfidenceLevel;
   forecastEvidence?: ForecastEvidence;
+  forecastConfidence?: ForecastConfidence;
 };
 
 export type TrainProgress = {

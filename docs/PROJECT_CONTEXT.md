@@ -413,17 +413,34 @@ See [backend authentication details](../backend/README.md#authentication-contrac
   small time-ordered samples and later model refits do not guarantee future coverage. Missing
   legacy metadata is reported as unknown, and expired runs retain archived calibration evidence.
   Browser-demo bands are illustrative. No certified accuracy is claimed; `xgboost_verified`
-  remains false. Operational pages use Python `forecastEvidence`, replacing a forced
-  "Low confidence" display with Tested on past sales, Basic estimate, Not tested yet,
-  Refresh needed, No current estimate, or Expired forecast. Tested means saved final-test
-  evidence exists for the operating method, not high accuracy or a probability of correctness.
-  The UI shows the actual test-day count and average quantity error; stale labels refer to the
-  older saved run, and cached labels are withheld at business midnight with the advice itself.
-  New previews cannot inherit older model test results. `confidenceLevel` remains a deprecated
-  compatibility field; no operational badge uses it or the illustrative demo score. Demo badges
+  remains false. Operational pages use Python `forecastEvidence` and `forecastConfidence`.
+  The `past_test_wape_v1` app rating recomputes absolute error from the operating method's matching
+  saved final-test predictions and divides its sum by total actual sales. High (at most 20%)
+  and Medium (at most 50%) require at least 14 consecutive tested days with positive total actual
+  sales. Larger errors, shorter/gapped tests, all-zero tests, and untested previews receive Low
+  with explicit reasons. These are disclosed display thresholds, not probability estimates,
+  universally established statistical minima, or new model-selection criteria. Confidence
+  describes past support for the estimate, separately from expected sales volume.
+  Refresh needed, No current estimate, and Expired forecast override confidence; cached ratings
+  are withheld at business midnight with advice itself. The UI shows actual test-day counts,
+  average quantity errors, and the relative past error; older API metadata retains neutral
+  evidence labels instead of inventing grades. `confidenceLevel` retains its required enum for
+  compatibility, but the operational badge uses the structured policy/level/reason.
+  New previews cannot inherit older model test results. Demo badges
   say Demonstration. The legacy `lowConfidenceCount` diagnostic counts products with fewer than
   30 nonzero training sales days; it does not classify measured forecast accuracy. Sparse counts
   use observed zero-day share rather than assuming every product excluded from ML is sparse.
+- Forecasts includes a Top products for XGBoost panel. The worker persists `trainingScope`
+  in its existing configuration JSON, and the read-only dashboard can reconstruct older
+  selections from frozen prepared targets, saved eligibility, and the captured ML limit.
+  Selected products use training-period quantity ranking and the worker's product-ID tie break;
+  validation/final-test sales and current live sales never influence the saved list. The panel
+  shows rank, active product name/code/unit, training quantities/dates, expected sales per day,
+  and the structured confidence rating. A limit of five means at most five qualified products,
+  not five guaranteed future best sellers. Changing a limit preserves the saved limit/list
+  until a new completed refresh; deactivated products leave the active view without rewriting
+  the saved selection. Missing legacy inputs produce an unavailable list, not inferred ranks.
+  No SQL migration, training algorithm replacement, or extra frontend/backend runtime is needed.
 - Normal Refresh reserves up to 14 final-test days and expands validation to 20–28 calendar days
   when training can retain the configured eligibility/CV minimum. Default complete daily histories
   reach a 100/20/14 split at 134 days and 100/28/14 at 142 days. Shorter histories keep compact

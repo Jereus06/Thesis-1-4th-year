@@ -226,6 +226,7 @@ function RestockCard({
             {(available || mode === "browser-demo") && (
               <ForecastEvidenceBadge
                 evidence={row.forecastEvidence}
+                confidence={row.forecastConfidence}
                 demonstration={mode === "browser-demo"}
               />
             )}
@@ -243,6 +244,7 @@ function RestockCard({
           <DemandEvidence
             forecast={forecast}
             forecastEvidence={row.forecastEvidence}
+            forecastConfidence={row.forecastConfidence}
             unavailableReason={
               !available
                 ? (row.unavailableReason ??

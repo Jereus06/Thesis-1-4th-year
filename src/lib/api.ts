@@ -1,5 +1,7 @@
 import type {
   ForecastEvidence,
+  ForecastConfidence,
+  ForecastTrainingScope,
   ForecastTiming,
   InventoryImportRow,
   InventoryMovement,
@@ -366,6 +368,7 @@ export type ApiForecastRun = {
   configuration: Record<string, unknown>;
 };
 export type ApiDashboard = {
+  trainingScope?: ForecastTrainingScope | null;
   modelComparison?: {
     validation: ApiModelComparison;
     finalTest: ApiModelComparison;
@@ -431,6 +434,7 @@ export type ApiDashboard = {
     method: string;
     confidenceLevel: "low" | "medium" | "high";
     forecastEvidence?: ForecastEvidence;
+    forecastConfidence?: ForecastConfidence;
     demandAvailable: boolean;
     forecastExpired: boolean;
     unavailableReason: string | null;
