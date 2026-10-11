@@ -260,7 +260,9 @@ The launcher retains a private user-profile copy of `.env` per Docker context/Co
 and restores it into a new extraction when the local file is absent. Existing `.env` takes
 precedence. API/worker/web processes stop before database recreation, avoiding stale connections
 when extraction paths change. After PostgreSQL readiness it checks both database roles' actual TCP authentication
-before initializing. Mismatched legacy **local development** credentials can be aligned using a
+before initializing. Password checks use the API's Docker-network hostname rather than
+PostgreSQL's localhost trust path; CI independently rejects a wrong application or administrator
+password. Mismatched legacy **local development** credentials can be aligned using a
 container-local admin transaction without removing volumes or changing application password
 hashes. Initial owner bootstrap is serialized on the business row and does not add an owner
 to an already-owned store when a new ZIP supplies a different seed email. Hosted/public-domain/remote configurations never receive automatic password repair;

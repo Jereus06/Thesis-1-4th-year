@@ -11,20 +11,22 @@ assert.equal(process.env.CI, "true", "Run this verification only in a disposable
 const projectDir = fileURLToPath(new URL("..", import.meta.url));
 const temporary = mkdtempSync(join(tmpdir(), "StockCast extracted ZIP "));
 const original = readFileSync(join(projectDir, ".env"), "utf8");
-const ignored = new Set([
-  ".git",
-  ".env",
-  "node_modules",
-  ".venv",
-  "__pycache__",
-  ".pytest_cache",
-]);
+const ignored = new Set([".git", ".env", "node_modules", ".venv", "__pycache__", ".pytest_cache"]);
 const runtimeRoots = new Set(["dist", "backups", "data", "benchmarks"]);
 function command(program, args, cwd = projectDir) {
   const result = spawnSync(program, args, { cwd, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
   // On failure, print only a short diagnostic with disposable secrets removed.
   if (result.status !== 0) {
-    let diagnostics = `${result.stdout || ""}\n${result.stderr || ""}`;
+    const services = spawnSync(
+      "docker",
+      ["compose", "logs", "--no-color", "--tail", "30", "initialize", "api", "worker"],
+      {
+        cwd,
+        encoding: "utf8",
+        maxBuffer: 1024 * 1024,
+      },
+    );
+    let diagnostics = `${result.stdout || ""}\n${result.stderr || ""}\n${services.stdout || ""}\n${services.stderr || ""}`;
     const privateFiles = [original, readFileSync(join(cwd, ".env"), "utf8")];
     for (const file of privateFiles)
       for (const [key, value] of Object.entries(parseEnv(file)))
@@ -62,6 +64,31 @@ const evidence = () =>
   'movements', (SELECT count(*) FROM inventory_movements),
   'users', (SELECT json_agg(json_build_array(id,password_hash) ORDER BY id) FROM users),
   'sentinel', (SELECT count(*) FROM products WHERE sku='SMOKE-PERSIST'))::text`);
+// Independently reject each wrong role password through the actual Docker network.
+// A localhost/trust probe would incorrectly succeed and miss the original ZIP bug.
+const checker = readFileSync(join(projectDir, "deploy/check-database.sh"), "utf8");
+for (const key of ["APP_DB_PASSWORD", "POSTGRES_PASSWORD"]) {
+  const probe = spawnSync(
+    "docker",
+    [
+      "compose",
+      "exec",
+      "-T",
+      "-e",
+      `${key}=deliberately-wrong-ci-password`,
+      "database",
+      "sh",
+      "-s",
+      "--",
+    ],
+    {
+      cwd: projectDir,
+      input: checker,
+      encoding: "utf8",
+    },
+  );
+  assert.equal(probe.status, 10, `${key} must be validated, not bypassed by localhost trust`);
+}
 const before = evidence();
 assert.equal(JSON.parse(before).sentinel, 1, "Run the normal application smoke check first");
 let failure;

@@ -59,7 +59,8 @@ is separate from a database backup and does not transfer records between laptops
 Before initialization, startup stops the API, worker, and web processes before bringing PostgreSQL
 up, so a changed extraction path cannot leave them using connections to a replaced database
 container. It then tests the application and administrator
-credentials over TCP. If an older local development installation has a password mismatch,
+credentials through the same Docker-network hostname used by the API; localhost trust rules
+are not used to validate passwords. If an older local development installation has a password mismatch,
 `deploy/check-database.sh` uses the existing container-local administrator connection to align
 only the database role passwords with the selected configuration, in one transaction. It does
 not remove volumes, change tables, or reset application users' password hashes. Initial setup

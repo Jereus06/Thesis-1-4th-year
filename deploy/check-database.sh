@@ -2,10 +2,12 @@
 # Executed inside the database container; this never drops data or resets user accounts.
 set -eu
 
+# Use the same Docker-network hostname as the API. PostgreSQL's localhost
+# trust rules can accept an incorrect password, so loopback is not an auth check.
 check_login() {
-  PGPASSWORD="$APP_DB_PASSWORD" psql -X -w -h 127.0.0.1 -U stockcast \
+  PGPASSWORD="$APP_DB_PASSWORD" psql -X -w -h database -U stockcast \
     -d stockcast -Atqc 'SELECT 1' >/dev/null 2>&1 &&
-  PGPASSWORD="$POSTGRES_PASSWORD" psql -X -w -h 127.0.0.1 -U stockcast_admin \
+  PGPASSWORD="$POSTGRES_PASSWORD" psql -X -w -h database -U stockcast_admin \
     -d stockcast -Atqc 'SELECT 1' >/dev/null 2>&1
 }
 
