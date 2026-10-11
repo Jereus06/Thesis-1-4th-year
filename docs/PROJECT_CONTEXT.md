@@ -259,7 +259,8 @@ pasted text when records are partially rejected.
 The launcher retains a private user-profile copy of `.env` per Docker context/Compose project
 and restores it into a new extraction when the local file is absent. Existing `.env` takes
 precedence. API/worker/web processes stop before database recreation, avoiding stale connections
-when extraction paths change. After PostgreSQL readiness it checks both database roles' actual TCP authentication
+when extraction paths change. PostgreSQL health waits for the final TCP listener rather than
+the socket-only initialization server. After readiness, startup checks both database roles' actual TCP authentication
 before initializing. Password checks use the API's Docker-network hostname rather than
 PostgreSQL's localhost trust path; CI independently rejects a wrong application or administrator
 password. Mismatched legacy **local development** credentials can be aligned using a

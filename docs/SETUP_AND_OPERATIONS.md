@@ -58,7 +58,8 @@ is separate from a database backup and does not transfer records between laptops
 
 Before initialization, startup stops the API, worker, and web processes before bringing PostgreSQL
 up, so a changed extraction path cannot leave them using connections to a replaced database
-container. It then tests the application and administrator
+container. Database health waits for its TCP listener, so the temporary socket-only setup server
+does not report the application ready early. The launcher then tests the application and administrator
 credentials through the same Docker-network hostname used by the API; localhost trust rules
 are not used to validate passwords. If an older local development installation has a password mismatch,
 `deploy/check-database.sh` uses the existing container-local administrator connection to align
