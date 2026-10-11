@@ -258,7 +258,8 @@ pasted text when records are partially rejected.
 
 The launcher retains a private user-profile copy of `.env` per Docker context/Compose project
 and restores it into a new extraction when the local file is absent. Existing `.env` takes
-precedence. After PostgreSQL readiness it checks both database roles' actual TCP authentication
+precedence. API/worker/web processes stop before database recreation, avoiding stale connections
+when extraction paths change. After PostgreSQL readiness it checks both database roles' actual TCP authentication
 before initializing. Mismatched legacy **local development** credentials can be aligned using a
 container-local admin transaction without removing volumes or changing application password
 hashes. Initial owner bootstrap is serialized on the business row and does not add an owner

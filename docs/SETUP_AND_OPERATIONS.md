@@ -56,7 +56,9 @@ The cache is outside the downloaded repository and is never part of its ZIP or D
 `npm run setup` saves an initial copy; successful `npm start` updates it. This configuration copy
 is separate from a database backup and does not transfer records between laptops.
 
-Before initialization, startup brings PostgreSQL up and tests the application and administrator
+Before initialization, startup stops the API, worker, and web processes before bringing PostgreSQL
+up, so a changed extraction path cannot leave them using connections to a replaced database
+container. It then tests the application and administrator
 credentials over TCP. If an older local development installation has a password mismatch,
 `deploy/check-database.sh` uses the existing container-local administrator connection to align
 only the database role passwords with the selected configuration, in one transaction. It does

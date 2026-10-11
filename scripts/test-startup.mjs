@@ -43,6 +43,7 @@ function installation(t, overrides = {}) {
     startFails: false,
     checkStatus: null,
     repairFails: false,
+    stopFails: false,
   };
   const success = (stdout = "") => ({ status: 0, stdout, stderr: "" });
   const run = (_command, args, options) => {
@@ -56,6 +57,7 @@ function installation(t, overrides = {}) {
     if (args[0] === "context") return success(JSON.stringify(state.endpoint));
     if (args[0] === "ps") return success(state.containers.length ? "synthetic-container" : "");
     if (args[0] === "inspect") return success(JSON.stringify(state.containers));
+    if (args[1] === "stop") return { ...success(), status: state.stopFails ? 1 : 0 };
     if (args[1] === "config") {
       if (state.composeInvalid)
         return { status: 1, stderr: "synthetic-private-secret", stdout: "" };
@@ -347,4 +349,24 @@ test("Docker Desktop named pipes support local recovery", (t) => {
   f.state.password = "original-private-password";
   assert.equal(f.start(), 0);
   assert.equal(repairCalls(f).length, 1);
+});
+
+test("existing application processes stop before a ZIP changes the database container", (t) => {
+  const f = installation(t);
+  assert.equal(f.start(), 0);
+  const stopped = f.calls.findIndex(({ args }) => args[1] === "stop");
+  const database = f.calls.findIndex(({ args }) => args.at(-1) === "database" && args[1] === "up");
+  assert.ok(stopped >= 0 && stopped < database);
+  assert.deepEqual(f.calls[stopped].args.slice(2), ["api", "worker", "web"]);
+});
+
+test("failed service shutdown leaves the database untouched", (t) => {
+  const f = installation(t);
+  f.state.stopFails = true;
+  assert.equal(f.start(), 1);
+  assert.equal(
+    f.calls.some(({ args }) => args[1] === "up"),
+    false,
+  );
+  assert.equal(repairCalls(f).length, 0);
 });

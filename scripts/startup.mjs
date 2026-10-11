@@ -158,6 +158,16 @@ export function startStockCast({
       return failure(
         "This Docker project contains a hosted installation. Restore its original private .env before starting this ZIP.",
       );
+    // A different extraction changes the database's bind-mount source. Close API/worker
+    // connections BEFORE Compose recreates that database, then start fresh processes below.
+    const stopped = docker(["compose", "stop", "api", "worker", "web"], {
+      stdio: "inherit",
+      timeout: 0,
+    });
+    if (!ok(stopped))
+      return failure(
+        "Could not stop application services for startup. Retry npm start; database records were left unchanged.",
+      );
     const database = docker(
       ["compose", "up", "--detach", "--wait", "--wait-timeout", "180", "database"],
       { stdio: "inherit", timeout: 0 },

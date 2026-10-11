@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
 
 // CI only: exercise the real Compose application and PostgreSQL from ZIP-like folders.
+assert.equal(process.env.CI, "true", "Run this verification only in a disposable CI installation.");
 const projectDir = fileURLToPath(new URL("..", import.meta.url));
 const temporary = mkdtempSync(join(tmpdir(), "StockCast extracted ZIP "));
 const original = readFileSync(join(projectDir, ".env"), "utf8");
@@ -25,6 +26,19 @@ const ignored = new Set([
 function command(program, args, cwd = projectDir) {
   const result = spawnSync(program, args, { cwd, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
   // Never print captured startup/configuration output: this runner uses disposable secrets.
+  if (result.status !== 0) {
+    let diagnostics = `${result.stdout || ""}\n${result.stderr || ""}`;
+    const privateFiles = [original, readFileSync(join(cwd, ".env"), "utf8")];
+    for (const file of privateFiles)
+      for (const [key, value] of Object.entries(parseEnv(file)))
+        if (/PASSWORD|SECRET|TOKEN/i.test(key) && value) {
+          diagnostics = diagnostics
+            .replaceAll(value, "[private]")
+            .replaceAll(encodeURIComponent(value), "[private]");
+        }
+    diagnostics = diagnostics.replace(/postgres(?:ql)?:\/\/[^\s]+/g, "[private database URL]");
+    console.error(diagnostics.slice(-5000));
+  }
   assert.equal(result.status, 0, `${program} ${args.slice(0, 3).join(" ")} failed`);
   return result.stdout.trim();
 }
@@ -66,9 +80,8 @@ try {
     // cpSync deliberately excludes private configuration and includes its public template.
     writeFileSync(join(copied, ".env.example"), readFileSync(join(projectDir, ".env.example")));
     command(process.execPath, ["scripts/start.mjs"], copied);
-    assert.equal(
-      readFileSync(join(copied, ".env"), "utf8"),
-      original,
+    assert.ok(
+      readFileSync(join(copied, ".env"), "utf8") === original,
       "A fresh ZIP must reuse the installation configuration",
     );
     if (name.startsWith("Another")) {
@@ -78,15 +91,13 @@ try {
         .replace(/^OWNER_EMAIL=.*$/m, "OWNER_EMAIL=new-zip-owner@example.com");
       writeFileSync(join(copied, ".env"), broken);
       command(process.execPath, ["scripts/start.mjs"], copied);
-      assert.equal(
-        readFileSync(join(copied, ".env"), "utf8"),
-        broken,
+      assert.ok(
+        readFileSync(join(copied, ".env"), "utf8") === broken,
         "Local recovery must not replace the selected configuration",
       );
     }
-    assert.equal(
-      evidence(),
-      before,
+    assert.ok(
+      evidence() === before,
       "Products, sales, stock audits and user password hashes must survive ZIP startup/recovery",
     );
   }
