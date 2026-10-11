@@ -52,7 +52,10 @@ try {
     unitCost: "10",
   });
   await page.goto(base + "/restock", { waitUntil: "domcontentloaded" });
-  await page.getByText("Demand unavailable", { exact: true }).waitFor();
+  await page
+    .locator("main span")
+    .filter({ hasText: /^Demand unavailable$/ })
+    .waitFor();
   assert.doesNotMatch(await page.locator("main").innerText(), /Low confidence|High confidence/);
   checks.push("Empty history shows unavailable advice without a confidence score.");
 
