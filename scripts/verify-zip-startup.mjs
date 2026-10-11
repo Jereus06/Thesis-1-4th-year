@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
 
@@ -16,16 +16,13 @@ const ignored = new Set([
   ".env",
   "node_modules",
   ".venv",
-  "dist",
-  "backups",
-  "data",
-  "benchmarks",
   "__pycache__",
   ".pytest_cache",
 ]);
+const runtimeRoots = new Set(["dist", "backups", "data", "benchmarks"]);
 function command(program, args, cwd = projectDir) {
   const result = spawnSync(program, args, { cwd, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
-  // Never print captured startup/configuration output: this runner uses disposable secrets.
+  // On failure, print only a short diagnostic with disposable secrets removed.
   if (result.status !== 0) {
     let diagnostics = `${result.stdout || ""}\n${result.stderr || ""}`;
     const privateFiles = [original, readFileSync(join(cwd, ".env"), "utf8")];
@@ -73,9 +70,16 @@ try {
     const copied = join(temporary, name);
     cpSync(projectDir, copied, {
       recursive: true,
-      filter: (path) =>
-        path === projectDir ||
-        (!ignored.has(basename(path)) && !basename(path).startsWith(".env.")),
+      filter: (path) => {
+        const local = relative(projectDir, path);
+        // Root data/ is runtime storage; src/lib/data/ contains required source files.
+        return (
+          !local ||
+          (!runtimeRoots.has(local.split(sep)[0]) &&
+            !ignored.has(basename(path)) &&
+            !basename(path).startsWith(".env."))
+        );
+      },
     });
     // cpSync deliberately excludes private configuration and includes its public template.
     writeFileSync(join(copied, ".env.example"), readFileSync(join(projectDir, ".env.example")));

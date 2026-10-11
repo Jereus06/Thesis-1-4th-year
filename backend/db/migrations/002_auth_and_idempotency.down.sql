@@ -1,6 +1,0 @@
-BEGIN;
-DROP TABLE IF EXISTS idempotency_keys;
-DROP TABLE IF EXISTS sessions;
-ALTER TABLE users DROP COLUMN IF EXISTS password_changed_at;
-ALTER TABLE users DROP COLUMN IF EXISTS password_hash;
-COMMIT;

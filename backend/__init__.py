@@ -1,1 +1,0 @@
-"""StockCast backend package root."""

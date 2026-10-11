@@ -1,1 +1,0 @@
-"""StockCast FastAPI backend."""
