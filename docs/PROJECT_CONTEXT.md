@@ -396,7 +396,15 @@ See [backend authentication details](../backend/README.md#authentication-contrac
   while archived run predictions and evaluation metrics remain available. Old baselines are not
   shifted to today. The frontend displays Expired and withholds cached advice across business
   midnight until the API recalculates it, including when polling fails.
-- Dashboard ML comparisons use matching eligible products/date observations.
+- The Python dashboard supplies `modelComparison` for validation and final testing. Each split
+  pools only matching active products with valid, positive, equal per-method observation counts.
+  Final-test comparisons also require identical saved product/date actuals, unique dates, and
+  prediction counts matching each metric. Incomplete cohorts are withheld. With no ML products,
+  a separately identified Moving Average-only score is available when its saved test is valid.
+  Missing legacy comparison metadata is unavailable rather than recomputed from unequal cohorts.
+  The displayed selected model uses validation scores only; no selection badge appears without
+  valid validation evidence. Python fallback demand is labelled Moving Average, including its
+  selected-method final-test denominator; expiration retains the saved operating method.
 - Python intervals are available only when validation contains at least 20 usable observations:
   the later segment reserves at least 10 residual observations after method selection. Fixed
   10th/90th residual quantiles give a nominal 80% band for the operating method, clipped at zero.
@@ -404,8 +412,18 @@ See [backend authentication details](../backend/README.md#authentication-contrac
   and untouched final-test coverage. The UI displays this evidence and the final-test denominator;
   small time-ordered samples and later model refits do not guarantee future coverage. Missing
   legacy metadata is reported as unknown, and expired runs retain archived calibration evidence.
-  Browser-demo bands are illustrative. No certified accuracy is claimed; operational confidence
-  labels remain low pending research validation; `xgboost_verified` remains false.
+  Browser-demo bands are illustrative. No certified accuracy is claimed; `xgboost_verified`
+  remains false. Operational pages use Python `forecastEvidence`, replacing a forced
+  "Low confidence" display with Tested on past sales, Basic estimate, Not tested yet,
+  Refresh needed, No current estimate, or Expired forecast. Tested means saved final-test
+  evidence exists for the operating method, not high accuracy or a probability of correctness.
+  The UI shows the actual test-day count and average quantity error; stale labels refer to the
+  older saved run, and cached labels are withheld at business midnight with the advice itself.
+  New previews cannot inherit older model test results. `confidenceLevel` remains a deprecated
+  compatibility field; no operational badge uses it or the illustrative demo score. Demo badges
+  say Demonstration. The legacy `lowConfidenceCount` diagnostic counts products with fewer than
+  30 nonzero training sales days; it does not classify measured forecast accuracy. Sparse counts
+  use observed zero-day share rather than assuming every product excluded from ML is sparse.
 - Normal Refresh reserves up to 14 final-test days and expands validation to 20–28 calendar days
   when training can retain the configured eligibility/CV minimum. Default complete daily histories
   reach a 100/20/14 split at 134 days and 100/28/14 at 142 days. Shorter histories keep compact

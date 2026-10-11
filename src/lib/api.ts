@@ -1,4 +1,5 @@
 import type {
+  ForecastEvidence,
   ForecastTiming,
   InventoryImportRow,
   InventoryMovement,
@@ -171,7 +172,11 @@ export const api = {
   ) =>
     request<SalesImportResult>(`/businesses/${businessId}/data-imports`, {
       method: "POST",
-      body: { source: "csv", rows, ...(originalFilename === undefined ? {} : { originalFilename }) },
+      body: {
+        source: "csv",
+        rows,
+        ...(originalFilename === undefined ? {} : { originalFilename }),
+      },
     }),
   dataQuality: (businessId: string) =>
     request<DataQualityEntry[]>(`/businesses/${businessId}/data-quality`),
@@ -361,6 +366,10 @@ export type ApiForecastRun = {
   configuration: Record<string, unknown>;
 };
 export type ApiDashboard = {
+  modelComparison?: {
+    validation: ApiModelComparison;
+    finalTest: ApiModelComparison;
+  };
   forecastSchedule?: ForecastSchedule;
   stale: boolean;
   expired: boolean;
@@ -421,6 +430,7 @@ export type ApiDashboard = {
     productId: string;
     method: string;
     confidenceLevel: "low" | "medium" | "high";
+    forecastEvidence?: ForecastEvidence;
     demandAvailable: boolean;
     forecastExpired: boolean;
     unavailableReason: string | null;
@@ -432,6 +442,12 @@ export type ApiDashboard = {
     days_of_cover: string | null;
     status: "stockout" | "reorder" | "watch" | "healthy";
   }[];
+};
+
+export type ApiModelComparison = {
+  productIds: string[];
+  observationCount: number;
+  scores: Partial<Record<"moving_average" | "xgboost" | "ensemble", { mae: string; rmse: string }>>;
 };
 
 export type DataQualityClassification =

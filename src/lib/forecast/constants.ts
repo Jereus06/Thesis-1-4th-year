@@ -23,14 +23,3 @@ export function modelLabel(method: "xgb" | "ma" | "ensemble" | "rule"): string {
       return "Reorder rule";
   }
 }
-
-export function confidenceLabel(level: "high" | "medium" | "low"): string {
-  switch (level) {
-    case "high":
-      return "High confidence";
-    case "medium":
-      return "Medium confidence";
-    case "low":
-      return "Low confidence";
-  }
-}

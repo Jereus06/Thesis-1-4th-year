@@ -44,10 +44,10 @@ export const LEVELS = [
   {
     id: 5,
     title: "Uncertainty-level fixes",
-    purpose: "Show how much the forecast can be trusted.",
+    purpose: "Explain the available history and uncertainty without claiming guaranteed accuracy.",
     bullets: [
-      "Confidence score from the number of non-zero observations",
-      "Products with fewer than 30 observations flagged as low confidence",
+      "Show observed history without treating row counts as accuracy probabilities",
+      "Identify products with fewer than 30 nonzero observations as having limited history",
       "Illustrative 10th–90th bands in the browser demonstration; coverage is not validated",
       "On-screen disclaimer: decision support only, not a guarantee",
     ],

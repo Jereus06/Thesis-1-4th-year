@@ -56,6 +56,9 @@ after(async () => {
   await server.close();
 });
 const { DemandEvidence } = await server.ssrLoadModule("/src/components/demand-evidence.tsx");
+const { ForecastEvidenceBadge } = await server.ssrLoadModule(
+  "/src/components/forecast-evidence-badge.tsx",
+);
 const { Route: overviewRoute } = await server.ssrLoadModule("/src/routes/index.tsx");
 const { Route: restockRoute } = await server.ssrLoadModule("/src/routes/restock.tsx");
 const { Route: forecastsRoute } = await server.ssrLoadModule("/src/routes/forecasts.tsx");
@@ -99,6 +102,7 @@ function renderPage(
     schedule,
     status = expired ? "expired" : "ready",
     message = "Synthetic fixture",
+    diagnostics = {},
   } = {},
 ) {
   setTestState({
@@ -136,7 +140,12 @@ function renderPage(
           xgbRmse: NaN,
           ensembleRmse: NaN,
           byProduct: { [product.id]: forecast },
-          diagnostics: { trainedProductCount: 0, topN: 8, disclaimer: "Synthetic test fixture" },
+          diagnostics: {
+            trainedProductCount: 0,
+            topN: 8,
+            disclaimer: "Synthetic test fixture",
+            ...diagnostics,
+          },
         }
       : null,
   });
@@ -390,4 +399,70 @@ test("expired restock advice suppresses cached quantities while retaining delive
   assert.match(markup, /saved forecast period has ended/);
   assert.doesNotMatch(markup, />99<|>Healthy<\/span>/);
   assertDeliveryEnabled(markup);
+});
+
+test("operational badges describe evidence without fixed low or fabricated high confidence", () => {
+  for (const [status, label] of [
+    ["tested", "Tested on past sales"],
+    ["basic", "Basic estimate"],
+    ["untested", "Not tested yet"],
+    ["needs_refresh", "Refresh needed"],
+    ["unavailable", "No current estimate"],
+    ["expired", "Expired forecast"],
+  ]) {
+    const markup = renderToStaticMarkup(
+      createElement(ForecastEvidenceBadge, {
+        evidence: {
+          status,
+          testObservations: status === "tested" ? 1000 : 0,
+          mae: "500",
+          rmse: "600",
+        },
+      }),
+    );
+    assert.ok(markup.includes(label));
+    assert.doesNotMatch(
+      markup,
+      /Low confidence|High confidence|Medium confidence|100%|bg-danger|bg-primary/,
+    );
+  }
+  assert.match(renderToStaticMarkup(createElement(ForecastEvidenceBadge)), /Evidence unavailable/);
+});
+
+test("restock shows recorded test days and quantity error, including poor results without success styling", () => {
+  const markup = renderPage(restockRoute, {
+    rows: [
+      {
+        ...baseRow,
+        forecastEvidence: { status: "tested", testObservations: 14, mae: "20", rmse: "25" },
+      },
+    ],
+  });
+  assert.match(markup, /Tested on past sales/);
+  assert.match(markup, /Past test: 14 days\..*Average error: 20\.0 units\./);
+  assert.doesNotMatch(markup, /Low confidence|High confidence/);
+  const stale = renderEvidence({
+    forecastEvidence: { status: "needs_refresh", testObservations: 1, mae: "2", rmse: "3" },
+  });
+  assert.match(stale, /Past test: 1 day\..*older saved run/);
+});
+
+test("browser demonstration does not present its heuristic confidence as real accuracy evidence", () => {
+  const markup = renderPage(restockRoute, {
+    mode: "browser-demo",
+    rows: [{ ...baseRow, confidence: "high" }],
+  });
+  assert.match(markup, />Demonstration<\/span>/);
+  assert.doesNotMatch(markup, /High confidence|Low confidence/);
+});
+
+test("a ready page without validation evidence does not mark any model selected", () => {
+  const options = {
+    forecast: { holdout: [], future: [] },
+    diagnostics: { comparisonWinnerAvailable: false },
+  };
+  for (const route of [overviewRoute, forecastsRoute]) {
+    const markup = renderPage(route, options);
+    assert.doesNotMatch(markup, />Selected</);
+  }
 });

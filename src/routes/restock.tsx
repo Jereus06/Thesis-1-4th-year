@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
-import { ConfidenceBadge } from "@/components/confidence-badge";
+import { ForecastEvidenceBadge } from "@/components/forecast-evidence-badge";
 import { DemandEvidence } from "@/components/demand-evidence";
 import { useForecast } from "@/components/forecast-context";
 import { ReceiveStockDialog } from "@/components/receive-stock-dialog";
@@ -199,6 +199,7 @@ function RestockCard({
   refreshAdvice: string;
 }) {
   const p = row.product;
+  const mode = useAppStore((s) => s.dataMode);
   const available = hasCurrentDemand(row);
   const zeroDemand = available && row.dailyDemand === 0;
   return (
@@ -222,7 +223,12 @@ function RestockCard({
                 {zeroDemand && <Badge variant="outline">Zero usable demand</Badge>}
               </>
             )}
-            <ConfidenceBadge level={row.confidence} />
+            {(available || mode === "browser-demo") && (
+              <ForecastEvidenceBadge
+                evidence={row.forecastEvidence}
+                demonstration={mode === "browser-demo"}
+              />
+            )}
           </div>
           <p className="text-sm text-muted">
             {p.sku} · {p.category} · lead {p.leadTimeDays}d · safety {num(p.safetyStock)}
@@ -236,6 +242,7 @@ function RestockCard({
           )}
           <DemandEvidence
             forecast={forecast}
+            forecastEvidence={row.forecastEvidence}
             unavailableReason={
               !available
                 ? (row.unavailableReason ??
