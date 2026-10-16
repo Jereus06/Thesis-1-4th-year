@@ -1,0 +1,49 @@
+{
+  "provenance": "Synthetic demo-origin records in a new temporary PostgreSQL schema; no client data.",
+  "transport": "Authenticated FastAPI TestClient, in-process ASGI plus real PostgreSQL; excludes real network and frontend rendering.",
+  "python": "3.12.14",
+  "products": 100,
+  "dailySalesRows": 36500,
+  "historyStart": "2025-10-17",
+  "historyEnd": "2026-10-16",
+  "savedForecastRuns": 0,
+  "warmupRequestsPerEndpoint": 1,
+  "timing": {
+    "forecast-dashboard": {
+      "milliseconds": [
+        1379.294441001548,
+        1537.244630002533,
+        4004.9957200026256,
+        1338.45933900011,
+        1079.0829489997122
+      ],
+      "medianMs": 1379.294441001548,
+      "responseBytes": [
+        477100,
+        477100,
+        477100,
+        477100,
+        477100
+      ]
+    },
+    "forecast-status": {
+      "milliseconds": [
+        39.153155994426925,
+        39.07156700006453,
+        41.08872899814742,
+        36.17948500323109,
+        32.92275600688299
+      ],
+      "medianMs": 39.07156700006453,
+      "responseBytes": [
+        88,
+        88,
+        88,
+        88,
+        88
+      ]
+    }
+  },
+  "measuredOn": "2026-10-16",
+  "isolation": "Separate stockcast_fixes_test database; fixture-created random schema was dropped on completion."
+}

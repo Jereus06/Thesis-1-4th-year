@@ -1,0 +1,303 @@
+import {
+  csvDataRecordCount,
+  csvFileEncoding,
+  decodeCsvFile,
+  parseCsvRecords,
+  parseInventoryRecords,
+  parseSalesRecords,
+  type CsvRecord,
+} from "./import-csv";
+import type { InventoryImportRow, Product, Sale } from "./types";
+import { extractCsvTable } from "./csv-extraction";
+import {
+  CSV_ISSUE_PREVIEW_LIMIT,
+  analyzeCsvOptions,
+  validateGuidedCsv,
+  type CsvImportIssue,
+  type CsvImportOptions,
+  type CsvProductResolution,
+} from "./guided-csv";
+
+export type CsvImportKind = "inventory" | "sales";
+export type CsvImportSource = { type: "file"; file: File } | { type: "text"; text: string };
+export type CsvPreparationPhase = "reading" | "decoding" | "parsing" | "validating";
+// Existing Python request limits (backend/app/schemas.py), not batch-splitting targets.
+export const CSV_API_ROW_LIMITS = { inventory: 5_000, sales: 100_000 } as const;
+export const CSV_PREVIEW_RECORD_LIMIT = 50;
+export const CSV_MAX_SOURCE_BYTES = 25 * 1024 * 1024;
+
+export type CsvPreparationTimings = {
+  readMs: number;
+  decodeMs: number;
+  parseMs: number;
+  validateMs: number;
+  totalMs: number;
+};
+
+export type CsvPreparationSummary = {
+  filename: string | null;
+  byteSize: number;
+  encoding: string;
+  preview: CsvRecord[];
+  logicalRecordCount: number;
+  rowCount: number;
+  ignoredRowCount: number;
+  previewTruncated: boolean;
+  previewValuesTruncated: boolean;
+  error: string | null;
+  limitExceeded: boolean;
+  rowLimit: number | null;
+  timings: CsvPreparationTimings;
+  guided: {
+    options: CsvImportOptions;
+    columns: string[];
+    columnIndices: number[];
+    sourceColumnCount: number;
+    configurationErrors: string[];
+    issuePreview: CsvImportIssue[];
+    issueCount: number;
+    validRowCount: number;
+    invalidRowCount: number;
+    convertedPreview: CsvRecord[];
+    convertedHeaders: string[];
+    unresolvedProducts: CsvProductResolution[];
+    unresolvedProductCount: number;
+    reusedInventoryRows: number;
+  } | null;
+};
+
+export type CsvPreparedRows =
+  { kind: "inventory"; rows: InventoryImportRow[] } | { kind: "sales"; rows: Sale[] };
+
+export type CsvPrepareRequest = {
+  type: "prepare";
+  requestId: number;
+  kind: CsvImportKind;
+  source: CsvImportSource;
+  products: Product[];
+  rowLimit: number | null;
+  guided?: boolean;
+  options?: CsvImportOptions;
+};
+export type CsvWorkerRequest = CsvPrepareRequest | { type: "rows" | "issues"; requestId: number };
+export type CsvWorkerResponse =
+  | { type: "phase"; requestId: number; phase: CsvPreparationPhase }
+  | { type: "prepared"; requestId: number; summary: CsvPreparationSummary }
+  | ({ type: "rows"; requestId: number } & CsvPreparedRows)
+  | { type: "issues"; requestId: number; report: Blob }
+  | { type: "error"; requestId: number; message: string };
+
+export type PreparedCsv = {
+  summary: CsvPreparationSummary;
+  data: CsvPreparedRows | null;
+  // The exact complete decoded source stays in the worker, independently of preview limits.
+  sourceText: string;
+  issues: CsvImportIssue[];
+};
+
+let salesSubmissionSequence = 0;
+
+/** Reuse validated values, while giving each attempted sale its own browser ledger ID. */
+export function csvRowsForSubmission(data: CsvPreparedRows): CsvPreparedRows {
+  if (data.kind === "inventory") return data;
+  // Source Record Keys remain the duplicate-import identity. Unkeyed rows intentionally
+  // remain separate transactions on retry, so their ephemeral Sale IDs must be fresh.
+  // A sequence separates requests within one millisecond; randomness separates workers.
+  const random = crypto.getRandomValues(new Uint32Array(4)).join("-");
+  const submission = `${Date.now()}-${++salesSubmissionSequence}-${random}`;
+  return {
+    kind: "sales",
+    rows: data.rows.map((row, index) => ({
+      ...row,
+      id: `imp-${row.productId}-${row.date}-${index}-${submission}`,
+    })),
+  };
+}
+
+function boundedPreview(records: CsvRecord[]): {
+  preview: CsvRecord[];
+  previewValuesTruncated: boolean;
+} {
+  let remainingCharacters = 24_000;
+  let previewValuesTruncated = false;
+  const preview = records.slice(0, CSV_PREVIEW_RECORD_LIMIT).map((record) => {
+    if (record.fields.length > 12) previewValuesTruncated = true;
+    return {
+      record: record.record,
+      line: record.line,
+      fields: record.fields.slice(0, 12).map((field) => {
+        const limit = Math.min(500, remainingCharacters);
+        const shortened = field.length > limit;
+        const value = shortened ? `${field.slice(0, limit)}\u2026` : field;
+        remainingCharacters -= Math.min(field.length, limit);
+        if (shortened) previewValuesTruncated = true;
+        return value;
+      }),
+    };
+  });
+  return { preview, previewValuesTruncated };
+}
+
+/** Count pasted UTF-8 without allocating an encoded copy; stop at the source limit. */
+function pastedByteSize(text: string): number {
+  let bytes = 0;
+  for (let index = 0; index < text.length; index++) {
+    const unit = text.charCodeAt(index);
+    if (unit < 0x80) bytes++;
+    else if (unit < 0x800) bytes += 2;
+    else if (
+      unit >= 0xd800 &&
+      unit <= 0xdbff &&
+      text.charCodeAt(index + 1) >= 0xdc00 &&
+      text.charCodeAt(index + 1) <= 0xdfff
+    ) {
+      bytes += 4;
+      index++;
+    } else bytes += 3;
+    if (bytes > CSV_MAX_SOURCE_BYTES) break;
+  }
+  return bytes;
+}
+
+/** Runs inside a worker in the browser; exported for data-correctness regression checks. */
+export async function prepareCsv(
+  request: CsvPrepareRequest,
+  onPhase: (phase: CsvPreparationPhase) => void = () => {},
+): Promise<PreparedCsv> {
+  const started = performance.now();
+  const timings: CsvPreparationTimings = {
+    readMs: 0,
+    decodeMs: 0,
+    parseMs: 0,
+    validateMs: 0,
+    totalMs: 0,
+  };
+  const summary: CsvPreparationSummary = {
+    filename: request.source.type === "file" ? request.source.file.name : null,
+    byteSize: request.source.type === "file" ? request.source.file.size : 0,
+    encoding: request.source.type === "file" ? "unknown" : "pasted Unicode text",
+    preview: [],
+    logicalRecordCount: 0,
+    rowCount: 0,
+    ignoredRowCount: 0,
+    previewTruncated: false,
+    previewValuesTruncated: false,
+    error: null,
+    limitExceeded: false,
+    rowLimit: request.rowLimit,
+    timings,
+    guided: null,
+  };
+  let sourceText = "";
+  let data: CsvPreparedRows | null = null;
+  let issues: CsvImportIssue[] = [];
+  let limitMessage: string | null = null;
+  const measure = <T>(phase: CsvPreparationPhase, operation: () => T): T => {
+    onPhase(phase);
+    const phaseStarted = performance.now();
+    try {
+      return operation();
+    } finally {
+      const duration = performance.now() - phaseStarted;
+      if (phase === "decoding") timings.decodeMs = duration;
+      else if (phase === "parsing") timings.parseMs = duration;
+      else if (phase === "validating") timings.validateMs = duration;
+    }
+  };
+  try {
+    const sourceLimitError = () =>
+      new Error(
+        "CSV source exceeds the 25 MiB limit. Choose a smaller source file; no rows have been submitted.",
+      );
+    if (request.source.type === "file") {
+      if (request.source.file.size > CSV_MAX_SOURCE_BYTES) throw sourceLimitError();
+      onPhase("reading");
+      const readStarted = performance.now();
+      let buffer: ArrayBuffer;
+      try {
+        buffer = await request.source.file.arrayBuffer();
+      } finally {
+        timings.readMs = performance.now() - readStarted;
+      }
+      if (buffer.byteLength > CSV_MAX_SOURCE_BYTES) throw sourceLimitError();
+      sourceText = measure("decoding", () => {
+        summary.encoding = csvFileEncoding(buffer);
+        return decodeCsvFile(buffer);
+      });
+    } else {
+      if (request.source.text.length > CSV_MAX_SOURCE_BYTES) throw sourceLimitError();
+      summary.byteSize = pastedByteSize(request.source.text);
+      if (summary.byteSize > CSV_MAX_SOURCE_BYTES) throw sourceLimitError();
+      sourceText = request.source.text;
+    }
+    const records = measure("parsing", () =>
+      parseCsvRecords(
+        sourceText,
+        request.options?.delimiter === "auto" ? undefined : request.options?.delimiter,
+      ),
+    );
+    summary.logicalRecordCount = records.length;
+    summary.previewTruncated = records.length > CSV_PREVIEW_RECORD_LIMIT;
+    Object.assign(summary, boundedPreview(records));
+    data = measure("validating", () => {
+      const extracted = request.guided
+        ? extractCsvTable(records, request.kind, request.products, request.options)
+        : { records, ignoredRowCount: 0 };
+      summary.ignoredRowCount = extracted.ignoredRowCount;
+      const analysis = request.guided
+        ? analyzeCsvOptions(extracted.records, request.kind, request.products, request.options)
+        : null;
+      const guided = analysis
+        ? validateGuidedCsv(extracted.records, request.kind, request.products, analysis.options)
+        : null;
+      summary.rowCount = guided?.rowCount ?? csvDataRecordCount(records, request.kind);
+      if (guided) {
+        issues = guided.issues;
+        summary.guided = {
+          options: guided.options,
+          columns: guided.columns,
+          columnIndices: guided.columnIndices,
+          sourceColumnCount: guided.sourceColumnCount,
+          configurationErrors: guided.configurationErrors,
+          issuePreview: guided.issues.slice(0, CSV_ISSUE_PREVIEW_LIMIT),
+          issueCount: guided.issues.length,
+          validRowCount: guided.validRowCount,
+          invalidRowCount: guided.invalidRowCount,
+          convertedPreview: guided.convertedPreview,
+          convertedHeaders: guided.convertedHeaders,
+          unresolvedProducts: guided.unresolvedProducts,
+          unresolvedProductCount: guided.unresolvedProductCount,
+          reusedInventoryRows: guided.reusedInventoryRows,
+        };
+      }
+      if (request.rowLimit !== null && summary.rowCount > request.rowLimit) {
+        summary.limitExceeded = true;
+        limitMessage =
+          `This CSV contains ${summary.rowCount.toLocaleString("en-US")} ${request.kind} rows. ` +
+          `The existing import limit is ${request.rowLimit.toLocaleString("en-US")} rows per request. ` +
+          "Choose a smaller source file; no rows have been submitted.";
+      }
+      if (guided) {
+        if (guided.configurationErrors.length) throw new Error(guided.configurationErrors[0]);
+        if (guided.issues.length)
+          throw new Error(
+            `${guided.invalidRowCount.toLocaleString("en-US")} rows need correction (${guided.issues.length.toLocaleString("en-US")} problems). Review the error report; no rows have been submitted.`,
+          );
+        return guided.data;
+      }
+      const preparedData: CsvPreparedRows =
+        request.kind === "inventory"
+          ? { kind: "inventory", rows: parseInventoryRecords(records) }
+          : { kind: "sales", rows: parseSalesRecords(records, request.products) };
+      if (!summary.rowCount) throw new Error("CSV contains no data records to import.");
+      return preparedData;
+    });
+    summary.error = limitMessage;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not prepare this CSV.";
+    summary.error = limitMessage ? `${message} ${limitMessage}` : message;
+  } finally {
+    timings.totalMs = performance.now() - started;
+  }
+  return { summary, data, sourceText, issues };
+}

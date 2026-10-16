@@ -1,0 +1,37 @@
+{
+  "provenance": "Isolated software verification fixtures; no actual client respondents or findings",
+  "checkedAt": "2026-10-05T09:24:14.754Z",
+  "outcome": "passed",
+  "checks": [
+    {
+      "name": "owner-product-create-edit-deactivate-reactivate",
+      "passed": true
+    },
+    {
+      "name": "owner-actual-return-writeoff-forms-and-audits",
+      "passed": true
+    },
+    {
+      "name": "owner-browser-draft-is-not-submitted",
+      "passed": true
+    },
+    {
+      "name": "owner-survey-submission-and-reload",
+      "passed": true
+    },
+    {
+      "name": "staff-permitted-returns-and-hidden-owner-controls",
+      "passed": true
+    },
+    {
+      "name": "staff-browser-draft-is-not-submitted",
+      "passed": true
+    },
+    {
+      "name": "staff-survey-submission-and-reload",
+      "passed": true
+    }
+  ],
+  "stage": "staff:client-survey",
+  "finishedAt": "2026-10-05T09:25:13.902Z"
+}
