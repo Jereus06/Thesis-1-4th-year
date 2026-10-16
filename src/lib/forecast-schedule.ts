@@ -20,7 +20,7 @@ export function forecastScheduleMessage(
     !schedule.timezone?.trim()
   )
     return null;
-  return `Automatic forecast refresh is scheduled daily at ${schedule.localTime} (${schedule.timezone}).`;
+  return `Forecasts update daily at ${schedule.localTime} (${schedule.timezone}).`;
 }
 
 export function forecastRefreshAdvice(
@@ -45,15 +45,15 @@ export function forecastProgressMessage(
     error?: string;
   },
 ): string {
-  if (options.requesting) return "Requesting a forecast refresh…";
+  if (options.requesting) return "Starting forecast update…";
   if (data?.latestRun?.status === "queued" || data?.latestRun?.status === "running")
-    return `Forecast refresh is ${data.latestRun.status}.${data.run ? " The last completed forecast remains visible." : ""}`;
+    return `${data.latestRun.status === "queued" ? "Waiting to update forecasts." : "Updating forecasts…"}${data.run ? " Your previous forecast is shown for now." : ""}`;
   if (options.error) return options.error;
   const advice = forecastRefreshAdvice("api", options.canRefreshForecast, data?.forecastSchedule);
   if (data?.expired)
     return `Forecast expired${data.forecastThrough ? ` after ${data.forecastThrough}` : ""}; review recent sales and ${advice}.`;
-  if (options.dateChanged) return "Business date changed. Waiting for current recommendations.";
+  if (options.dateChanged) return "A new day has started. Waiting for today's recommendations.";
   if (data?.run)
-    return `Saved Python forecast through ${data.forecastThrough ?? data.run.finalTestEnd}${data.stale ? `. New records or settings detected; ${advice}.` : ""}`;
-  return `Python Moving Average baseline. Record sales, then ${advice} to evaluate models.`;
+    return `Forecast saved through ${data.forecastThrough ?? data.run.finalTestEnd}${data.stale ? `. Sales records or settings changed; ${advice}.` : ""}`;
+  return `Using a basic sales estimate. Record sales, then ${advice}.`;
 }

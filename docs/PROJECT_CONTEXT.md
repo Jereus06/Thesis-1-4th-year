@@ -1,6 +1,6 @@
 # StockCast project context
 
-CSV importer, account access, and sales deletion source reviewed against this workspace: 2026-10-09. Read alongside [AGENTS.md](../AGENTS.md) and source.
+CSV importer, account access, and imported-sale deletion source reviewed against this workspace: 2026-10-09. Recorded-sale correction updated and verified on 2026-10-15. Read alongside [AGENTS.md](../AGENTS.md) and source.
 
 ## Purpose and confirmed research context
 
@@ -55,8 +55,17 @@ storage key so it does not overwrite the existing `stockcast-v5` demonstration.
 Inventory has Products, Sales ledger, Stock movements, and Account & settings tabs (Account for
 staff). Owners can maintain SKU, name, category, unit, lead time, safety stock, and unit cost;
 verified stock-count corrections are a separate action using the existing audited product PATCH.
+Cover days after delivery accepts a typed nonnegative whole number and retains the 3/7/10/14-day
+suggestions. Moving Average window offers 3, 7, 14, 28, and 30 days using the existing settings API.
+The desktop sidebar stays at the viewport's top while the main content scrolls; its own contents
+remain scrollable on short screens.
 Owners can activate/deactivate products without deleting their stock balance or historical
-records. Active/Inactive/All filters keep the complete catalog accessible. New sales, deliveries,
+records. A separate owner-only Delete action confirms permanent removal of a product with zero
+stock and no saved history. The business-scoped, CSRF-protected product DELETE preserves sales,
+stock movements, saved forecasts/snapshots, reorder records, and quality reviews/audits by rejecting
+deletion when any reference exists; no SQL migration is needed. Retrying an already deleted product
+returns zero deleted rows. Browser-demo protects its stock, sales, and movement history as well.
+Active/Inactive/All filters keep the complete catalog accessible. New sales, deliveries,
 returns, write-offs, and operational forecast/restock displays use active products. Changing a unit
 label does not convert existing quantities. Inventory snapshots retain the backend's existing
 reactivation behavior, including in the browser demonstration.
@@ -65,16 +74,21 @@ preserve both current stock and activation status. Importing earlier history doe
 a discontinued product or make it available for new operational transactions.
 
 Sales ledger pages through the complete history in 40-row pages. Owners can delete an individual
-imported sale or all imported sales after reviewing a confirmation dialog; recorded sales remain
-protected. Owner-only, CSRF-protected, business-scoped DELETE routes at `sales/{sale_id}` and
-`sales/imported` remove imported records without changing stock or movement audits. Import audit
+recorded or imported sale, or all imported sales, after reviewing a confirmation dialog.
+Owner-only, CSRF-protected, business-scoped DELETE routes at `sales/{sale_id}` and
+`sales/imported` remove imported records without changing stock or movement audits. Recorded-sale
+deletion instead marks the sale voided, restores its quantity to current stock once, and appends an
+adjustment identifying the sale and acting owner while preserving the original sale and stock
+deduction internally. Voided sales are excluded from the ledger, sales exports, and future forecast
+inputs. The additive sales-void migration preserves the previous migration history. Import audit
 metadata remains saved. Exact-file duplicate detection permits reimport only after all accepted
 rows in that batch have been removed; partially deleted batches retain their safeguard.
 Deletion marks existing queued/running/completed forecast configurations `salesHistoryChanged`;
 worker persistence preserves concurrent invalidation and dashboard reports those runs as stale.
-Frozen forecast inputs and archived outputs remain intact. Browser-demo preserves synthetic and
-recorded rows, recognizes earlier importer IDs, and gives repeated imported IDs separate identities
-without resetting their quantities/history. New demo imports save explicit source and unique IDs.
+Frozen forecast inputs and archived outputs remain intact. Browser-demo preserves synthetic rows,
+restores stock with an adjustment when a recorded sale is deleted, recognizes earlier importer IDs,
+and gives repeated imported IDs separate identities without resetting their quantities/history.
+New demo imports save explicit source and unique IDs.
 Committed deletions stay successful if the follow-up ledger read fails, with a reload notice.
 Sales import/deletion refreshes retry a read when a sales write changes the cache during loading.
 Verification on 2026-10-09 passed typecheck, lint (three existing React Refresh warnings), build,
@@ -83,12 +97,23 @@ Verification on 2026-10-09 passed typecheck, lint (three existing React Refresh 
 The existing 20 sales-import and 22 auth-session frontend regressions also passed. Browser mocks
 are separate from the real database checks; no live business records were deleted during testing.
 
+Recorded-sale correction verification on 2026-10-15 passed typecheck, lint (the same three React
+Refresh warnings), production and Docker builds, 21 frontend deletion regressions, 52 related
+authentication/import/stock regressions, and nine isolated browser flows with intercepted API
+transport. The full Python suite passed 469 tests and 14 subtests against a separate disposable
+PostgreSQL 16 database, with no skips; all 24 deletion/SQLite cases also passed in the freshly built
+image. These checks used synthetic test records and did not delete live business records.
+
 Stock movements offers returns for owners/staff and owner-only write-offs. Returns increase usable
 stock; write-offs decrease it and the form requires a reason. Both use the existing movement POST,
 CSRF, and idempotency contract, with movement date, decimal quantity, and note validation. A saved
 movement's server balance updates the catalog immediately; its audit entry includes the existing
 note, provenance, and recorded user ID. The searchable/filterable ledger loads all movement pages
 on opening or Refresh and supports the existing authenticated CSV export.
+CSV downloads in Sales ledger and Stock movements use outlined button controls. Products no
+longer duplicates the stock-movement export; use Stock movements > Export CSV instead.
+The existing authenticated download URLs and permissions are preserved. Quality and submitted
+evaluation exports also retain their existing button controls.
 Refresh reads again when a stock/catalog write happens during loading, so an older read cannot
 replace the newly saved balance, audit entry, or product status. The existing response
 does not include a creation timestamp or other users' display names; the UI does not invent them.
@@ -101,8 +126,8 @@ and password controls remain available to staff. Backend authorization remains a
 
 Browser-demo keeps the existing storage key and records new movement audits separately from its
 synthetic sales; previous history is not assigned invented audits. Explicit Reset demo clears these
-new audits along with the existing demonstration reset. Stock-movement and product maintenance
-required no database schema, migration, endpoint, or backend permission changes.
+new audits along with the existing demonstration reset. Stock-movement and product-detail
+maintenance retain the existing database schema, migration history, and backend permissions.
 
 ## CSV and historical-import contract
 
@@ -441,11 +466,37 @@ See [backend authentication details](../backend/README.md#authentication-contrac
   until a new completed refresh; deactivated products leave the active view without rewriting
   the saved selection. Missing legacy inputs produce an unavailable list, not inferred ranks.
   No SQL migration, training algorithm replacement, or extra frontend/backend runtime is needed.
-- Normal Refresh reserves up to 14 final-test days and expands validation to 20–28 calendar days
-  when training can retain the configured eligibility/CV minimum. Default complete daily histories
-  reach a 100/20/14 split at 134 days and 100/28/14 at 142 days. Shorter histories keep compact
-  splits and explicit unavailable interval evidence. Planned counts do not replace per-product
-  usable observations or nonzero-day gates, and final-test actuals never calibrate intervals.
+- Forecasts defaults to Overall results. The shared results dropdown switches the MAE/RMSE
+  cards to a product's saved final-test metrics and opens its forecast chart
+  and evidence. Choosing Overall results restores the existing pooled comparison. Products
+  outside the ML selection retain Moving Average results and unavailable ML scores; switching
+  products does not select models from final-test errors or change saved forecasts.
+- Client page headers omit the introductory sentences on Overview, Restock, Forecasts, Inventory,
+  and Strategies. The shared forecast banner omits the repeated daily schedule sentence, while
+  retaining update progress, saved forecast status, expiration, and errors. Strategies contains
+  only User guide and Evaluation in both API and browser-demo modes; removed or unsupported tab
+  queries open User guide. Methodology/thesis documents remain in the repository outside the
+  client interface. Existing guide links and the `/methodology` route remain compatible.
+- Forecasts, Restock, and Quality use short retail wording within the original frontend layout.
+  Wording-only requests must preserve the existing cards, positions, styling, and visible data;
+  do not add disclosures or move/hide sections without the user's request. The original visible
+  processing panel, inline MAE/RMSE cards, all-product table, selection summary, range evidence,
+  Restock metadata, and flat evidence paragraphs are restored after the owner's correction.
+  The explicitly requested Product/Overall selector, removed forecast copy control, and CSV
+  export buttons are retained. The chosen-method badge still uses earlier validation.
+  Shared evidence retains test errors and missing/excluded-day counts. Quality labels describe what
+  happened that day while retaining the existing classification values, override rules, audit
+  export, and permissions; an empty review list makes no claim that the store has no records.
+  This is a presentation change with no API, database, forecasting, or inventory policy change.
+- Normal Refresh grows the final test to the configured forecast horizon when history can retain
+  the configured training eligibility/CV reserve and at least 20 separate validation days. With
+  default training requirements and a 30-day horizon, 140 complete daily observations allow a
+  100/20/20 split, 150 allow 100/20/30, and 158 allow 100/28/30. Less history automatically uses
+  a shorter test; the existing compact split remains for short histories, with unavailable
+  intervals when validation is too small. The same plan applies to scheduled refreshes. Existing
+  saved runs retain their original test periods until a new refresh. Planned calendar counts do
+  not replace per-product usable observations or nonzero-day gates, and final-test actuals never
+  select the model or calibrate intervals.
 - Absent dates are not zero-filled. Audited `confirmed_zero` dates are eligible observations; closures, incomplete records, and full/partial stockouts are excluded. XGBoost conservatively requires a complete observed-or-confirmed-zero daily training sequence so calendar lag spacing is preserved. Confirm this policy with the partner before research evaluation.
 - The Data quality screen records store-wide or product-specific classifications with an immutable
   audit log and CSV export. Classification upserts and deletes acquire the existing business row
@@ -454,7 +505,9 @@ See [backend authentication details](../backend/README.md#authentication-contrac
   timestamp captured after the lock for the classification and audit entry; forecast snapshots
   capture their database timestamp after the same lock. Migration history and API fields are unchanged.
 - Overview, Restock, and Forecasts distinguish unavailable history/current advice from usable
-  zero demand. They show saved fallback reasons, unknown/excluded-day counts, and quality warnings;
+  zero demand. Overview omits the Demand evidence section at the owner's request; its restock
+  queue and summary notices remain. Restock and Forecasts show saved fallback reasons,
+  unknown/excluded-day counts, and quality warnings;
   absent legacy counts are shown as not saved rather than zero. Delivery recording stays available.
   Forecast-run snapshots retain the classifications used by the worker.
 - The Python worker automatically queues the most recent due daily forecast slot, by default at

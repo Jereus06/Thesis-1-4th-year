@@ -148,12 +148,9 @@ export function StockMovementsPanel() {
             </div>
             <div className="flex flex-wrap items-center gap-3">
               {session && (
-                <a
-                  className="text-sm text-primary underline"
-                  href={api.exportUrl(session.businessId, "inventory-movements")}
-                >
-                  Export CSV
-                </a>
+                <Button asChild variant="outline" size="sm">
+                  <a href={api.exportUrl(session.businessId, "inventory-movements")}>Export CSV</a>
+                </Button>
               )}
               <Button
                 variant="outline"

@@ -47,26 +47,28 @@ def decimal_text(value: Decimal | str) -> str:
 def refresh_split_plan(history_days: int, settings: dict[str, Any]) -> dict[str, Any]:
     """Plan calendar periods without inspecting validation or final-test values.
 
-    Keep the existing compact split for short histories. Longer histories can
-    reserve separate method-selection/calibration days without consuming the
-    training length required by configured eligibility or chronological CV.
+    Keep the compact split for short histories. With enough history, reserve
+    training and separate validation, then grow testing to the forecast horizon.
     Calendar lengths are plans; worker metadata records actual usable counts.
     """
     if history_days < 3:
         raise ValueError("A chronological split requires at least three calendar days")
-    test_days = max(1, min(14, history_days // 5))
+    horizon = settings["forecastHorizonDays"]
+    test_days = max(1, min(horizon, 14, history_days // 5))
     training_reserve = max(
         31,
         settings["minimumHistoryWeeks"] * 7,
         settings["minimumNonzeroDays"],
         45 + settings.get("cvFolds", 3) * 14,
     )
-    validation_days = min(28, history_days - training_reserve - test_days)
-    if validation_days < 20:
+    if history_days >= training_reserve + 20 + test_days:
+        test_days = min(horizon, history_days - training_reserve - 20)
+        validation_days = min(28, history_days - training_reserve - test_days)
+    else:
         validation_days = test_days
     calibration_days = max(10, validation_days // 3) if validation_days >= 20 else 0
     return {
-        "policy": "training_reserved_selection_calibration_v1",
+        "policy": "horizon_matched_selection_calibration_v2",
         "trainingCalendarDays": history_days - validation_days - test_days,
         "validationCalendarDays": validation_days,
         "finalTestCalendarDays": test_days,
@@ -157,6 +159,20 @@ class Repository:
                     raise HTTPException(409, "Idempotency key was already used for another request")
                 if existing["response_body"] is None:
                     raise HTTPException(409, "An identical request is still being processed")
+                if operation == "record_sale":
+                    sale = self.conn.execute(
+                        "SELECT voided_at FROM sales WHERE business_id=%s AND id=%s FOR SHARE",
+                        (principal.business_id, existing["response_body"]["id"]),
+                    ).fetchone()
+                    if not sale or sale["voided_at"] is not None:
+                        raise HTTPException(409, "This recorded sale was deleted; record a new sale with a new idempotency key")
+                if operation == "create_product":
+                    product = self.conn.execute(
+                        "SELECT id FROM products WHERE business_id=%s AND id=%s FOR SHARE",
+                        (principal.business_id, existing["response_body"]["id"]),
+                    ).fetchone()
+                    if not product:
+                        raise HTTPException(409, "This product was deleted; create a new product with a new idempotency key")
                 return existing["response_body"]
             result = callback()
             self.conn.execute(
@@ -371,6 +387,62 @@ class Repository:
                 )
         return product_row(row)
 
+    def delete_product(self, principal: Principal, product_id: UUID):
+        """Remove an unused empty catalog entry without deleting its history."""
+        if principal.role != "owner":
+            raise HTTPException(403, "Owner role required")
+        with self.conn.transaction():
+            # Share the import/snapshot lock, then block new product references
+            # and stock writes until the history check and deletion finish.
+            self.conn.execute(
+                "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE",
+                (principal.business_id,),
+            )
+            product = self.conn.execute(
+                "SELECT current_stock FROM products WHERE business_id=%s AND id=%s FOR UPDATE",
+                (principal.business_id, product_id),
+            ).fetchone()
+            if not product:
+                return {"deletedRows": 0}
+            if product["current_stock"] != 0:
+                raise HTTPException(409, "This product still has stock and cannot be deleted. Use Deactivate to keep its records.")
+            history_tables = (
+                "sales", "inventory_movements", "forecast_predictions", "forecast_metrics",
+                "reorder_recommendations", "sales_day_quality", "sales_day_quality_audit",
+            )
+            history_queries = [
+                f"SELECT 1 FROM {table} WHERE business_id=%s AND product_id=%s"
+                for table in history_tables
+            ]
+            history_parameters = tuple(
+                value for _ in history_tables for value in (principal.business_id, product_id)
+            )
+            # Frozen JSON inputs are not foreign keys. Protect them even before
+            # a worker writes predictions, and retain archived identities too.
+            history_queries.append(
+                """SELECT 1 FROM forecast_runs WHERE business_id=%s AND (
+                     data_snapshot->'products' ? %s
+                     OR data_snapshot->'preparedProducts' ? %s
+                     OR data_snapshot->'dailySales' @> %s::jsonb
+                     OR data_snapshot->'dataQuality' @> %s::jsonb)"""
+            )
+            snapshot_reference = Jsonb([{"productId": str(product_id)}])
+            history_parameters += (
+                principal.business_id, str(product_id), str(product_id),
+                snapshot_reference, snapshot_reference,
+            )
+            history = self.conn.execute(
+                "SELECT EXISTS(" + " UNION ALL ".join(history_queries) + ") AS present",
+                history_parameters,
+            ).fetchone()
+            if history["present"]:
+                raise HTTPException(409, "This product has saved records and cannot be deleted. Use Deactivate to keep its history.")
+            deleted = self.conn.execute(
+                "DELETE FROM products WHERE business_id=%s AND id=%s",
+                (principal.business_id, product_id),
+            ).rowcount
+        return {"deletedRows": deleted}
+
     def update_product(self, principal: Principal, product_id: UUID, data: ProductUpdate):
         fields = data.model_dump(exclude_none=True)
         if not fields:
@@ -564,13 +636,13 @@ class Repository:
             # Seek through the existing (business_id, sale_date, id) index instead of
             # repeatedly walking all earlier rows after a large historical import.
             rows = self.conn.execute(
-                """SELECT * FROM sales WHERE business_id=%s AND (sale_date,id)<(%s,%s)
+                """SELECT * FROM sales WHERE business_id=%s AND voided_at IS NULL AND (sale_date,id)<(%s,%s)
                    ORDER BY sale_date DESC,id DESC LIMIT %s""",
                 (business_id, before_date, before_id, limit),
             ).fetchall()
         else:
             rows = self.conn.execute(
-                "SELECT * FROM sales WHERE business_id=%s ORDER BY sale_date DESC,id DESC LIMIT %s OFFSET %s",
+                "SELECT * FROM sales WHERE business_id=%s AND voided_at IS NULL ORDER BY sale_date DESC,id DESC LIMIT %s OFFSET %s",
                 (business_id, limit, offset),
             ).fetchall()
         return [
@@ -585,6 +657,70 @@ class Repository:
             }
             for r in rows
         ]
+
+    def delete_sale(self, principal: Principal, sale_id: UUID):
+        """Void recorded sales with a stock correction; remove unlinked imports."""
+        if principal.role != "owner":
+            raise HTTPException(403, "Owner role required")
+        with self.conn.transaction():
+            # Share the import/forecast business lock and serialize repeated
+            # deletion before testing the saved void state.
+            self.conn.execute(
+                "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE",
+                (principal.business_id,),
+            )
+            sale = self.conn.execute(
+                "SELECT * FROM sales WHERE business_id=%s AND id=%s FOR UPDATE",
+                (principal.business_id, sale_id),
+            ).fetchone()
+            if not sale or sale["voided_at"] is not None:
+                return {"deletedRows": 0}
+            if sale["source"] != "manual":
+                return self.delete_imported_sales(principal, sale_id)
+            product = self.conn.execute(
+                "SELECT current_stock FROM products WHERE business_id=%s AND id=%s FOR UPDATE",
+                (principal.business_id, sale["product_id"]),
+            ).fetchone()
+            movement = self.conn.execute(
+                "SELECT * FROM inventory_movements WHERE business_id=%s AND sale_id=%s",
+                (principal.business_id, sale_id),
+            ).fetchone()
+            # Restore only a verified original deduction, including for products
+            # made inactive since the sale. Inconsistent legacy rows need review.
+            if (not product or not movement or movement["movement_type"] != "sale"
+                    or movement["product_id"] != sale["product_id"]
+                    or movement["quantity_delta"] != -sale["quantity"]):
+                raise HTTPException(409, "Recorded sale stock audit is inconsistent; review it before deletion")
+            balance = product["current_stock"] + sale["quantity"]
+            self.conn.execute(
+                "UPDATE products SET current_stock=%s WHERE business_id=%s AND id=%s",
+                (balance, principal.business_id, sale["product_id"]),
+            )
+            self.conn.execute(
+                """INSERT INTO inventory_movements
+                   (business_id,product_id,movement_date,movement_type,quantity_delta,
+                    balance_after,data_origin,note,recorded_by)
+                   VALUES(%s,%s,%s,'adjustment',%s,%s,%s,%s,%s)""",
+                (principal.business_id, sale["product_id"], self.business_day(principal.business_id),
+                 sale["quantity"], balance, sale["data_origin"],
+                 f"Recorded sale deleted: {sale_id}", principal.user_id),
+            )
+            self.conn.execute(
+                "UPDATE sales SET voided_at=clock_timestamp() WHERE business_id=%s AND id=%s",
+                (principal.business_id, sale_id),
+            )
+            self._invalidate_sales_forecasts(principal.business_id)
+        return {"deletedRows": 1}
+
+    def _invalidate_sales_forecasts(self, business_id: str):
+        # Frozen inputs and archived predictions stay intact, including for
+        # running jobs whose in-memory configuration predates the correction.
+        self.conn.execute(
+            """UPDATE forecast_runs
+               SET configuration=configuration || '{"salesHistoryChanged":true}'::jsonb
+               WHERE business_id=%s AND status IN ('queued','running','completed')""",
+            (business_id,),
+        )
 
     def delete_imported_sales(self, principal: Principal, sale_id: UUID | None = None):
         """Remove imported history without reversing stock or rewriting import evidence."""
@@ -628,21 +764,14 @@ class Repository:
                 f"DELETE FROM sales s WHERE {selection}", parameters,
             ).rowcount
             if deleted:
-                # Frozen inputs and archived predictions stay intact. Mark even
-                # running jobs so their eventual result cannot appear current.
-                self.conn.execute(
-                    """UPDATE forecast_runs
-                       SET configuration=configuration || '{"salesHistoryChanged":true}'::jsonb
-                       WHERE business_id=%s AND status IN ('queued','running','completed')""",
-                    (principal.business_id,),
-                )
+                self._invalidate_sales_forecasts(principal.business_id)
         return {"deletedRows": deleted}
 
     def export_sales(self, business_id: str):
         return self.conn.execute(
             """SELECT s.id,p.sku,s.sale_date,s.quantity,s.source,s.data_origin,s.source_record_key
                FROM sales s JOIN products p ON p.business_id=s.business_id AND p.id=s.product_id
-               WHERE s.business_id=%s ORDER BY s.sale_date,s.id""",
+               WHERE s.business_id=%s AND s.voided_at IS NULL ORDER BY s.sale_date,s.id""",
             (business_id,),
         ).fetchall()
 
@@ -757,6 +886,7 @@ class Repository:
                    WHERE d.business_id=%s AND d.content_sha256=ANY(%s)
                      AND (d.accepted_rows=0 OR EXISTS(
                          SELECT 1 FROM sales s WHERE s.business_id=d.business_id AND s.import_id=d.id
+                           AND s.voided_at IS NULL
                      ))
                    ORDER BY d.rejected_rows,d.id""",
                 (principal.business_id, [digest, legacy_digest]),
@@ -774,7 +904,7 @@ class Repository:
                 # Normalize them without modifying previously imported records.
                 keyed_sales = self.conn.execute(
                     """SELECT source_record_key,product_id,sale_date,quantity FROM sales
-                       WHERE business_id=%s AND source_record_key IS NOT NULL""",
+                       WHERE business_id=%s AND voided_at IS NULL AND source_record_key IS NOT NULL""",
                     (principal.business_id,),
                 ).fetchall()
                 for sale in keyed_sales:
@@ -894,13 +1024,13 @@ class Repository:
             raise HTTPException(409, "A forecast run is already queued or running")
         snapshot = self.conn.execute(
             """SELECT count(*) AS sales_count,min(sale_date) AS first_sale_date,
-               max(sale_date) AS last_sale_date FROM sales WHERE business_id=%s
+               max(sale_date) AS last_sale_date FROM sales WHERE business_id=%s AND voided_at IS NULL
                AND sale_date<=%s""",
             (business_id, data.final_test_end),
         ).fetchone()
         daily_rows = self.conn.execute(
             """SELECT product_id,sale_date,sum(quantity) AS quantity FROM sales
-               WHERE business_id=%s AND sale_date BETWEEN %s AND %s
+               WHERE business_id=%s AND voided_at IS NULL AND sale_date BETWEEN %s AND %s
                GROUP BY product_id,sale_date ORDER BY product_id,sale_date""",
             (business_id, data.training_start, data.final_test_end),
         ).fetchall()
@@ -1025,7 +1155,7 @@ class Repository:
         active_ids = set(product_ids)
         sales = self.conn.execute(
             """SELECT product_id,sale_date,sum(quantity) AS quantity FROM sales
-               WHERE business_id=%s GROUP BY product_id,sale_date ORDER BY product_id,sale_date""",
+               WHERE business_id=%s AND voided_at IS NULL GROUP BY product_id,sale_date ORDER BY product_id,sale_date""",
             (business_id,),
         ).fetchall()
         if any(str(row["product_id"]) in active_ids and row["sale_date"] > today for row in sales):
@@ -1191,7 +1321,7 @@ class Repository:
         ).fetchall()
         sales = self.conn.execute(
             """SELECT product_id,sale_date,sum(quantity) AS quantity FROM sales
-               WHERE business_id=%s AND sale_date BETWEEN %s AND %s
+               WHERE business_id=%s AND voided_at IS NULL AND sale_date BETWEEN %s AND %s
                GROUP BY product_id,sale_date ORDER BY product_id,sale_date""",
             (principal.business_id, start, data.recommendation_date),
         ).fetchall()

@@ -13,11 +13,11 @@ import { Select } from "@/components/ui/select";
 
 export const Route = createFileRoute("/data-quality")({ component: DataQualityPage });
 const LABELS: Record<DataQualityClassification, string> = {
-  confirmed_zero: "Confirmed zero sales",
-  business_closed: "Business closed",
-  full_stockout: "Full stockout",
-  partial_stockout: "Partial stockout",
-  incomplete: "Missing / incomplete records",
+  confirmed_zero: "No sales (confirmed)",
+  business_closed: "Store closed",
+  full_stockout: "Out of stock all day",
+  partial_stockout: "Out of stock part of the day",
+  incomplete: "Missing or incomplete records",
 };
 
 function DataQualityPage() {
@@ -36,13 +36,7 @@ function DataQualityPage() {
         .then(setRows)
         .catch((e: Error) => toast.error(e.message));
   }, [dataMode, session]);
-  if (dataMode !== "api")
-    return (
-      <p>
-        Data-quality corrections are available in the PostgreSQL application. Browser demonstration
-        records remain isolated.
-      </p>
-    );
+  if (dataMode !== "api") return <p>Sales record review is unavailable in demo mode.</p>;
   if (!session) return null;
   const save = async () => {
     if (!canReviewDataQuality) return;
@@ -52,26 +46,23 @@ function DataQualityPage() {
       classification,
       note: note.trim() || null,
     });
-    toast.success("Classification saved with an audit entry.");
+    toast.success("Review saved.");
     setNote("");
     await load();
   };
   return (
     <div className="mx-auto grid max-w-5xl gap-6">
       <header>
-        <h1 className="font-display text-3xl">Data quality</h1>
-        <p className="mt-2 text-muted">
-          Classify dates before forecasting. An absent transaction is not automatically a zero-sale
-          day.
-        </p>
+        <h1 className="font-display text-3xl">Sales record review</h1>
+        <p className="mt-2 text-muted">Tell us what happened on days with missing sales records.</p>
       </header>
       <Card>
         <CardHeader>
-          <CardTitle>Record a classification</CardTitle>
+          <CardTitle>Review a date</CardTitle>
           <CardDescription>
-            Choose “all products” for a closure or store-wide incomplete ledger. Product-specific
-            classifications take precedence during review. Every change is retained in the audit
-            export.
+            Choose a product, or select “All products” if this applies to the whole store. A
+            product's review takes priority for that date. Every change is saved in the change
+            history.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -102,7 +93,7 @@ function DataQualityPage() {
             </Select>
           </div>
           <div>
-            <Label htmlFor="quality-kind">Classification</Label>
+            <Label htmlFor="quality-kind">What happened?</Label>
             <Select
               id="quality-kind"
               value={classification}
@@ -116,19 +107,19 @@ function DataQualityPage() {
             </Select>
           </div>
           <div>
-            <Label htmlFor="quality-note">Evidence / note</Label>
+            <Label htmlFor="quality-note">Note (optional)</Label>
             <Input
               id="quality-note"
               value={note}
               maxLength={1000}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="Optional source or correction reason"
+              placeholder="For example: store closed for a holiday"
             />
           </div>
           <div className="flex gap-2 sm:col-span-2">
             {canReviewDataQuality && (
               <Button onClick={() => void save().catch((e: Error) => toast.error(e.message))}>
-                Save classification
+                Save review
               </Button>
             )}
             <Button
@@ -137,7 +128,7 @@ function DataQualityPage() {
                 window.location.assign(api.exportUrl(session.businessId, "data-quality"))
               }
             >
-              Export audit CSV
+              Export change history
             </Button>
           </div>
         </CardContent>
@@ -147,8 +138,8 @@ function DataQualityPage() {
           <CardTitle>Reviewed dates</CardTitle>
           <CardDescription>
             {rows.length
-              ? `${rows.length} current classifications. Stockouts and incomplete dates should not be interpreted as observed zero demand.`
-              : "No dates have been classified. The account remains empty until you add records."}
+              ? `${rows.length} saved ${rows.length === 1 ? "review" : "reviews"}.`
+              : "No dates have been reviewed yet."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -190,12 +181,10 @@ function DataQualityPage() {
           </div>
         </CardContent>
       </Card>
-      <p className="text-sm text-muted">
-        Confirmed zeros are explicit observations. Closures, incomplete records, and full or partial
-        stockouts are excluded from demand targets because recorded sales may understate demand.
-        Eligible forecasts can show prediction intervals from at least ten separate late-validation
-        residuals. The Forecast evaluation page shows each product's calibration evidence and
-        interval availability; nominal coverage is a target, not a guarantee.
+      <p className="text-xs text-muted">
+        Confirm “no sales” only after checking the records. Closed days, missing records, and stock
+        shortages are left out of forecasting history, rather than counted as no sales. Changes
+        apply to the next forecast refresh.
       </p>
     </div>
   );

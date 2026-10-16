@@ -104,6 +104,236 @@ test("single imported sale deletion uses authenticated DELETE and preserves manu
   unchangedStock(store);
 });
 
+test("recorded sale deletion refreshes the authoritative stock balance and preserved movement audit", async (t) => {
+  const { store } = await isolatedStore(t);
+  const removed = sale("manual-sale", "manual");
+  const retained = sale("csv-sale");
+  const savedProduct = { ...product, currentStock: "24.75" };
+  const originalMovement = { ...movement, saleId: removed.id, quantityDelta: "-2.125" };
+  const reversal = {
+    ...movement,
+    id: "synthetic-reversal",
+    saleId: null,
+    quantityDelta: "2.125",
+    balanceAfter: savedProduct.currentStock,
+    movementType: "adjustment",
+    note: `Recorded sale deleted: ${removed.id}`,
+  };
+  seed(store, [removed, retained]);
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options });
+    if (options.method === "DELETE") return envelope({ deletedRows: 1 });
+    if (url.includes("inventory-movements")) return envelope([reversal, originalMovement]);
+    if (url.endsWith("/products")) return envelope([savedProduct]);
+    return envelope([apiSale(retained)]);
+  };
+  assert.deepEqual(await store.getState().deleteSale(removed.id), { deletedRows: 1 });
+  const write = requests.find(({ options }) => options.method === "DELETE");
+  assert.equal(write.url, `/api/v1/businesses/${owner.businessId}/sales/${removed.id}`);
+  assert.equal(write.options.credentials, "include");
+  assert.equal(write.options.headers["x-csrf-token"], "synthetic-token");
+  assert.deepEqual(
+    store.getState().sales.map((row) => row.id),
+    [retained.id],
+  );
+  assert.equal(store.getState().products[0].currentStock, 24.75);
+  assert.equal(store.getState().inventoryMovements.length, 2);
+  assert.equal(store.getState().inventoryMovements[1].saleId, removed.id);
+  assert.equal(store.getState().inventoryMovements[0].quantityDelta, removed.qty);
+  assert.equal(store.getState().movementsStatus, "ready");
+  assert.equal(store.getState().importRefreshWarning, null);
+});
+
+test("single-sale action keeps imported deletion independent of inventory", async (t) => {
+  const { store } = await isolatedStore(t);
+  seed(store, [sale("csv-sale")]);
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    requests.push(url);
+    return options.method === "DELETE" ? envelope({ deletedRows: 1 }) : envelope([]);
+  };
+  assert.deepEqual(await store.getState().deleteSale("csv-sale"), { deletedRows: 1 });
+  assert.equal(
+    requests.some((url) => /products|inventory-movements/.test(url)),
+    false,
+  );
+  unchangedStock(store);
+});
+
+test("a recorded sale already deleted elsewhere still clears the stale row and reloads stock", async (t) => {
+  const { store } = await isolatedStore(t);
+  seed(store, [sale("manual-sale", "manual")]);
+  globalThis.fetch = async (url, options) => {
+    if (options.method === "DELETE") return envelope({ deletedRows: 0 });
+    if (url.endsWith("/products")) return envelope([{ ...product, currentStock: "19.25" }]);
+    return envelope([]);
+  };
+  assert.deepEqual(await store.getState().deleteSale("manual-sale"), { deletedRows: 0 });
+  assert.deepEqual(store.getState().sales, []);
+  assert.equal(store.getState().products[0].currentStock, 19.25);
+  assert.equal(store.getState().movementsStatus, "ready");
+});
+
+test("failed recorded deletion preserves the sale, balance, and audit", async (t) => {
+  const { store } = await isolatedStore(t);
+  const sales = [sale("manual-sale", "manual")];
+  seed(store, sales);
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ detail: "Synthetic reversal failed" }), { status: 409 });
+  await assert.rejects(store.getState().deleteSale("manual-sale"), /Synthetic reversal failed/);
+  assert.deepEqual(store.getState().sales, sales);
+  unchangedStock(store);
+});
+
+test("committed recorded deletion succeeds when inventory reload fails and warns against retrying", async (t) => {
+  const { store } = await isolatedStore(t);
+  seed(store, [sale("manual-sale", "manual")]);
+  let writes = 0;
+  globalThis.fetch = async (url, options) => {
+    if (options.method === "DELETE") {
+      writes++;
+      return envelope({ deletedRows: 1 });
+    }
+    if (url.includes("/sales")) return envelope([]);
+    return new Response(JSON.stringify({ detail: "Synthetic inventory read failed" }), {
+      status: 503,
+    });
+  };
+  assert.deepEqual(await store.getState().deleteSale("manual-sale"), { deletedRows: 1 });
+  assert.equal(writes, 1);
+  assert.deepEqual(store.getState().sales, []);
+  assert.match(
+    store.getState().importRefreshWarning,
+    /Sale deleted and stock restored.*Reload.*do not repeat/i,
+  );
+  assert.equal(store.getState().movementsStatus, "error");
+  unchangedStock(store);
+});
+
+test("staff and synthetic rows cannot invoke the recorded-sale deletion request", async (t) => {
+  const { store } = await isolatedStore(t);
+  let requests = 0;
+  globalThis.fetch = () => {
+    requests++;
+    throw new Error("Unexpected request");
+  };
+  seed(store, [sale("manual-sale", "manual")], { session: { ...owner, role: "staff" } });
+  await assert.rejects(store.getState().deleteSale("manual-sale"), /owner/i);
+  seed(store, [sale("demo-sale", "demo")]);
+  await assert.rejects(store.getState().deleteSale("demo-sale"), /Only imported or recorded/i);
+  assert.equal(requests, 0);
+  unchangedStock(store);
+});
+
+test("late recorded deletion results leave another account's ledger and inventory intact", async (t) => {
+  const { store } = await isolatedStore(t);
+  seed(store, [sale("manual-sale", "manual")]);
+  let complete;
+  const write = new Promise((resolve) => {
+    complete = resolve;
+  });
+  let reads = 0;
+  globalThis.fetch = async (_url, options) => {
+    if (options.method === "DELETE") return write;
+    reads++;
+    return envelope([]);
+  };
+  const pending = store.getState().deleteSale("manual-sale");
+  await new Promise((resolve) => setImmediate(resolve));
+  const otherSales = [sale("other-sale", "manual")];
+  const otherProducts = [{ ...product, currentStock: 98 }];
+  const otherMovements = [{ ...movement, id: "other-audit" }];
+  const otherSession = { ...owner, businessId: "other-business", userId: "other-owner" };
+  store.setState({
+    session: otherSession,
+    sales: otherSales,
+    products: otherProducts,
+    inventoryMovements: otherMovements,
+    importRefreshWarning: "Other account notice",
+  });
+  complete(envelope({ deletedRows: 1 }));
+  await pending;
+  assert.equal(store.getState().session, otherSession);
+  assert.deepEqual(store.getState().sales, otherSales);
+  assert.deepEqual(store.getState().products, otherProducts);
+  assert.deepEqual(store.getState().inventoryMovements, otherMovements);
+  assert.equal(store.getState().importRefreshWarning, "Other account notice");
+  assert.equal(reads, 0);
+});
+
+test("a pending pre-deletion product refresh cannot replace the restored balance", async (t) => {
+  const { store } = await isolatedStore(t);
+  const removed = sale("manual-sale", "manual");
+  const added = sale("new-recorded-sale", "manual", { qty: 1 });
+  seed(store, [removed]);
+  let completeOldRead;
+  let readStarted;
+  const started = new Promise((resolve) => {
+    readStarted = resolve;
+  });
+  const staleRead = new Promise((resolve) => {
+    completeOldRead = resolve;
+  });
+  let productReads = 0;
+  globalThis.fetch = async (url, options) => {
+    if (options.method === "POST") return envelope(apiSale(added));
+    if (options.method === "DELETE") return envelope({ deletedRows: 1 });
+    if (url.endsWith("/products")) {
+      productReads++;
+      if (productReads === 1) {
+        readStarted();
+        return staleRead;
+      }
+      return envelope([{ ...product, currentStock: "18.25" }]);
+    }
+    if (url.includes("inventory-movements")) return envelope([]);
+    return envelope([apiSale(added)]);
+  };
+  const recording = store.getState().recordSale(product.id, added.date, added.qty);
+  await started;
+  await store.getState().deleteSale(removed.id);
+  completeOldRead(envelope([{ ...product, currentStock: "16.125" }]));
+  await recording;
+  assert.equal(store.getState().products[0].currentStock, 18.25);
+  assert.deepEqual(
+    store.getState().sales.map((row) => row.id),
+    [added.id],
+  );
+  assert.equal(productReads, 3, "stale catalog snapshot must be discarded and read again");
+});
+
+test("demo recorded deletion restores decimal stock once and preserves the original audit", async (t) => {
+  const { store } = await isolatedStore(t, { demo: true });
+  const removed = sale("manual-sale", "manual");
+  const originalAudit = { ...movement, saleId: removed.id, quantityDelta: -removed.qty };
+  const retained = sale("demo-sale", "demo");
+  seed(store, [removed, retained], {
+    dataMode: "browser-demo",
+    session: null,
+    products: [{ ...product, isActive: false }],
+    inventoryMovements: [originalAudit],
+  });
+  globalThis.fetch = () => {
+    throw new Error("Browser demo must not call API");
+  };
+  assert.deepEqual(await store.getState().deleteSale(removed.id), { deletedRows: 1 });
+  assert.equal(store.getState().products[0].currentStock, 19.25);
+  assert.equal(store.getState().products[0].isActive, false);
+  assert.deepEqual(store.getState().sales, [retained]);
+  const [reversal, preserved] = store.getState().inventoryMovements;
+  assert.deepEqual(preserved, originalAudit);
+  assert.equal(reversal.movementType, "adjustment");
+  assert.equal(reversal.quantityDelta, removed.qty);
+  assert.equal(reversal.balanceAfter, 19.25);
+  assert.equal(reversal.saleId, null);
+  assert.equal(reversal.note, `Recorded sale deleted: ${removed.id}`);
+  await assert.rejects(store.getState().deleteSale(removed.id), /Sale not found/i);
+  await assert.rejects(store.getState().deleteSale(retained.id), /Only imported or recorded/i);
+  assert.equal(store.getState().products[0].currentStock, 19.25);
+  assert.equal(store.getState().inventoryMovements.length, 2);
+});
+
 test("bulk deletion addresses imported history and retains protected demo/manual sales", async (t) => {
   const { store } = await isolatedStore(t);
   const retained = [sale("demo-sale", "demo"), sale("manual-sale", "manual")];

@@ -14,20 +14,22 @@ export function intervalAvailability(
     return [...forecast.holdout, ...forecast.future].some(
       (point) => chartIntervalBounds(point) !== null,
     )
-      ? "Illustrative band"
-      : "No illustrative band";
+      ? "Demo forecast range"
+      : "No demo forecast range";
   if (!forecast.interval)
-    return forecast.trainedWithMl ? "Calibration evidence unavailable" : "Intervals unavailable";
+    return forecast.trainedWithMl
+      ? "Forecast range could not be checked"
+      : "Forecast range unavailable";
   if (!forecast.interval.available)
     return forecast.interval.calibrationSplit === "late_validation_reserved_after_selection" &&
       forecast.interval.calibrationObservations !== undefined &&
       forecast.interval.calibrationObservations < 10
-      ? "Insufficient calibration observations"
-      : "Intervals unavailable";
-  if (forecast.forecastExpired) return "Expired future interval";
+      ? "Not enough records to estimate a range"
+      : "Forecast range unavailable";
+  if (forecast.forecastExpired) return "Forecast range expired";
   if (!forecast.future.some((point) => chartIntervalBounds(point) !== null))
-    return "Current interval bounds unavailable";
+    return "Current forecast range unavailable";
   return forecast.interval.calibrationSplit === "late_validation_reserved_after_selection"
-    ? "Validation-calibrated interval available"
-    : "Saved interval available";
+    ? "Forecast range available"
+    : "Saved forecast range available";
 }

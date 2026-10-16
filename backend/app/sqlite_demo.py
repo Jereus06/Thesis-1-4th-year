@@ -11,7 +11,8 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,7 +39,7 @@ CREATE TABLE IF NOT EXISTS businesses(id TEXT PRIMARY KEY,name TEXT NOT NULL,dat
 CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,business_id TEXT NOT NULL,email TEXT NOT NULL,display_name TEXT NOT NULL,role TEXT NOT NULL,password_hash TEXT NOT NULL,is_active INTEGER NOT NULL DEFAULT 1,UNIQUE(business_id,email));
 CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,csrf_token_hash TEXT NOT NULL,expires_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS products(id TEXT PRIMARY KEY,business_id TEXT NOT NULL,sku TEXT NOT NULL,name TEXT NOT NULL,category TEXT NOT NULL,unit TEXT NOT NULL,current_stock TEXT NOT NULL,lead_time_days INTEGER NOT NULL,safety_stock TEXT NOT NULL,unit_cost TEXT NOT NULL,is_active INTEGER NOT NULL DEFAULT 1,UNIQUE(business_id,sku));
-CREATE TABLE IF NOT EXISTS sales(id TEXT PRIMARY KEY,business_id TEXT NOT NULL,product_id TEXT NOT NULL,sale_date TEXT NOT NULL,quantity TEXT NOT NULL,source TEXT NOT NULL DEFAULT 'manual',data_origin TEXT NOT NULL DEFAULT 'demo',recorded_by TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sales(id TEXT PRIMARY KEY,business_id TEXT NOT NULL,product_id TEXT NOT NULL,sale_date TEXT NOT NULL,quantity TEXT NOT NULL,source TEXT NOT NULL DEFAULT 'manual',data_origin TEXT NOT NULL DEFAULT 'demo',recorded_by TEXT NOT NULL,voided_at TEXT);
 CREATE TABLE IF NOT EXISTS inventory_movements(id TEXT PRIMARY KEY,business_id TEXT NOT NULL,product_id TEXT NOT NULL,movement_date TEXT NOT NULL,movement_type TEXT NOT NULL,quantity_delta TEXT NOT NULL,balance_after TEXT NOT NULL,data_origin TEXT NOT NULL DEFAULT 'demo',sale_id TEXT,note TEXT,recorded_by TEXT NOT NULL,created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS business_settings(business_id TEXT PRIMARY KEY,moving_average_window INTEGER NOT NULL DEFAULT 7,forecast_horizon_days INTEGER NOT NULL DEFAULT 14,target_cover_days INTEGER NOT NULL DEFAULT 7,minimum_history_weeks INTEGER NOT NULL DEFAULT 8,minimum_nonzero_days INTEGER NOT NULL DEFAULT 100,top_n_products INTEGER NOT NULL DEFAULT 8,cv_folds INTEGER NOT NULL DEFAULT 3,timezone TEXT NOT NULL DEFAULT 'Asia/Manila');
 """
@@ -55,6 +56,9 @@ def connect() -> sqlite3.Connection:
 def initialize() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        # Preserve files created by earlier explicit SQLite demonstrations.
+        if "voided_at" not in {row["name"] for row in conn.execute("PRAGMA table_info(sales)")}:
+            conn.execute("ALTER TABLE sales ADD COLUMN voided_at TEXT")
         conn.execute(
             "INSERT OR IGNORE INTO businesses VALUES(?,?,?)",
             (DEMO_BUSINESS_ID, "StockCast SQLite Demo", "demo"),
@@ -336,7 +340,7 @@ def record_sale(
             raise HTTPException(409, "Sale quantity exceeds current stock")
         sale_id = str(uuid4())
         conn.execute(
-            "INSERT INTO sales VALUES(?,?,?,?,?,?,?,?)",
+            "INSERT INTO sales(id,business_id,product_id,sale_date,quantity,source,data_origin,recorded_by) VALUES(?,?,?,?,?,?,?,?)",
             (
                 sale_id,
                 business_id,
@@ -396,7 +400,7 @@ def sales(
 ):
     member(business_id, session[0])
     rows = conn.execute(
-        "SELECT * FROM sales WHERE business_id=? ORDER BY sale_date DESC,id DESC LIMIT ? OFFSET ?",
+        "SELECT * FROM sales WHERE business_id=? AND voided_at IS NULL ORDER BY sale_date DESC,id DESC LIMIT ? OFFSET ?",
         (business_id, limit, offset),
     )
     return {
@@ -412,6 +416,65 @@ def sales(
             for r in rows
         ]
     }
+
+
+@app.delete("/api/v1/businesses/{business_id}/sales/{sale_id}")
+def delete_sale(
+    business_id: str,
+    sale_id: UUID,
+    conn: sqlite3.Connection = Depends(db),
+    user: Principal = Depends(csrf),
+):
+    member(business_id, user)
+    if user.role != "owner":
+        raise HTTPException(403, "Owner role required")
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        sale = conn.execute(
+            "SELECT * FROM sales WHERE business_id=? AND id=?", (business_id, str(sale_id)),
+        ).fetchone()
+        if not sale or sale["voided_at"] is not None:
+            conn.execute("COMMIT")
+            return {"data": {"deletedRows": 0}}
+        if sale["source"] != "manual":
+            raise HTTPException(409, "Only manually recorded sales can be deleted in the SQLite demo")
+        item = conn.execute(
+            "SELECT current_stock FROM products WHERE business_id=? AND id=?",
+            (business_id, sale["product_id"]),
+        ).fetchone()
+        audits = conn.execute(
+            "SELECT * FROM inventory_movements WHERE business_id=? AND sale_id=?",
+            (business_id, str(sale_id)),
+        ).fetchall()
+        quantity = Decimal(sale["quantity"])
+        if (not item or len(audits) != 1 or audits[0]["movement_type"] != "sale"
+                or audits[0]["product_id"] != sale["product_id"]
+                or Decimal(audits[0]["quantity_delta"]) != -quantity):
+            raise HTTPException(409, "Recorded sale stock audit is inconsistent; review it before deletion")
+        balance = Decimal(item["current_stock"]) + quantity
+        timezone = conn.execute(
+            "SELECT timezone FROM business_settings WHERE business_id=?", (business_id,),
+        ).fetchone()["timezone"]
+        conn.execute(
+            "UPDATE products SET current_stock=? WHERE business_id=? AND id=?",
+            (decimal_text(balance), business_id, sale["product_id"]),
+        )
+        conn.execute(
+            "INSERT INTO inventory_movements VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            (str(uuid4()), business_id, sale["product_id"],
+             str(datetime.now(ZoneInfo(timezone)).date()), "adjustment", decimal_text(quantity),
+             decimal_text(balance), sale["data_origin"], None,
+             f"Recorded sale deleted: {sale_id}", user.user_id, datetime.now(UTC).isoformat()),
+        )
+        conn.execute(
+            "UPDATE sales SET voided_at=? WHERE business_id=? AND id=?",
+            (datetime.now(UTC).isoformat(), business_id, str(sale_id)),
+        )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    return {"data": {"deletedRows": 1}}
 
 
 @app.post("/api/v1/businesses/{business_id}/inventory-movements", status_code=201)

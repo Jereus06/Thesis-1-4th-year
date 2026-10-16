@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState, type FormEvent } from "react";
+import { memo, useCallback, useMemo, useRef, useState, type FormEvent } from "react";
 import { Search } from "lucide-react";
 import { toast } from "sonner";
 import { ReceiveStockDialog } from "@/components/receive-stock-dialog";
@@ -17,14 +17,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { api } from "@/lib/api";
 import { num, peso } from "@/lib/format";
 import { CSV_API_ROW_LIMITS } from "@/lib/csv-preparation";
 import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
 import type { InventoryImportRow, Product } from "@/lib/types";
 
-type ProductAction = { productId: string; kind: "edit" | "count" | "status" };
+type ProductAction = { productId: string; kind: "edit" | "count" | "status" | "delete" };
 const InventoryCsvImporter = memo(CsvImporter);
 
 export function ProductsPanel() {
@@ -116,14 +115,6 @@ export function ProductsPanel() {
           <option value="all">All products ({products.length})</option>
         </Select>
         <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
-          {session && (
-            <a
-              className="text-sm text-primary underline"
-              href={api.exportUrl(session.businessId, "inventory-movements")}
-            >
-              Export stock movements
-            </a>
-          )}
           {canImportRecords && (
             <Button
               variant="outline"
@@ -196,9 +187,11 @@ export function ProductsPanel() {
                   ? "Edit product details"
                   : action?.kind === "count"
                     ? "Correct stock count"
-                    : selectedProduct?.isActive === false
-                      ? "Activate product"
-                      : "Deactivate product"}
+                    : action?.kind === "delete"
+                      ? "Delete product"
+                      : selectedProduct?.isActive === false
+                        ? "Activate product"
+                        : "Deactivate product"}
             </DialogTitle>
             <DialogDescription>
               {adding
@@ -207,9 +200,11 @@ export function ProductsPanel() {
                   ? "Maintain the product details used in your catalog and restocking decisions."
                   : action?.kind === "count"
                     ? "Enter the verified on-hand balance. Changes are recorded as stock-count adjustments."
-                    : selectedProduct?.isActive === false
-                      ? "Make this product available for new sales and stock movements."
-                      : "Inactive products are excluded from new sales, stock movements, and restocking advice. Existing records and the stock balance are retained."}
+                    : action?.kind === "delete"
+                      ? "Permanently remove this product. Products with stock or saved history cannot be deleted."
+                      : selectedProduct?.isActive === false
+                        ? "Make this product available for new sales and stock movements."
+                        : "Inactive products are excluded from new sales, stock movements, and restocking advice. Existing records and the stock balance are retained."}
             </DialogDescription>
           </DialogHeader>
           {canManageProducts && adding && (
@@ -237,6 +232,14 @@ export function ProductsPanel() {
           )}
           {canManageProducts && selectedProduct && action?.kind === "status" && (
             <ProductStatusForm
+              key={selectedProduct.id}
+              product={selectedProduct}
+              onDone={() => setAction(null)}
+              onPendingChange={setSaving}
+            />
+          )}
+          {canManageProducts && selectedProduct && action?.kind === "delete" && (
+            <ProductDeleteForm
               key={selectedProduct.id}
               product={selectedProduct}
               onDone={() => setAction(null)}
@@ -376,6 +379,14 @@ const ProductCard = memo(function ProductCard({
                 onClick={() => onAction({ productId: product.id, kind: "status" })}
               >
                 {product.isActive === false ? "Activate" : "Deactivate"}
+              </Button>
+              <Button
+                variant="outline"
+                className="text-danger"
+                disabled={busy}
+                onClick={() => onAction({ productId: product.id, kind: "delete" })}
+              >
+                Delete
               </Button>
             </>
           )}
@@ -613,6 +624,66 @@ function StockCountForm({
       <div className="flex gap-2">
         <Button type="submit" disabled={saving || !canManageProducts}>
           {saving ? "Saving…" : "Save count correction"}
+        </Button>
+        <Button type="button" variant="outline" disabled={saving} onClick={onDone}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function ProductDeleteForm({
+  product,
+  onDone,
+  onPendingChange,
+}: FormCallbacks & { product: Product }) {
+  const deleteProduct = useAppStore((state) => state.deleteProduct);
+  const { canManageProducts } = usePermissions();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submitting = useRef(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (submitting.current || !canManageProducts) return;
+    submitting.current = true;
+    setSaving(true);
+    onPendingChange(true);
+    setError(null);
+    try {
+      const result = await deleteProduct(product.id);
+      toast.success(
+        result.deletedRows ? `Deleted ${product.name}.` : "Product is no longer in the catalog.",
+      );
+      onDone();
+    } catch (failure) {
+      const message =
+        failure instanceof Error ? failure.message : "The product could not be deleted.";
+      setError(message);
+      toast.error(message);
+    } finally {
+      submitting.current = false;
+      setSaving(false);
+      onPendingChange(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="grid gap-4">
+      <p className="text-sm">
+        <span className="font-medium">{product.name}</span> · {product.sku} · On hand{" "}
+        {num(product.currentStock, 3)} {product.unit}
+      </p>
+      <p className="text-sm text-muted">This cannot be undone.</p>
+      {error && (
+        <p className="text-sm text-danger" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <Button type="submit" variant="danger" disabled={saving || !canManageProducts}>
+          {saving ? "Deleting…" : "Delete product"}
         </Button>
         <Button type="button" variant="outline" disabled={saving} onClick={onDone}>
           Cancel

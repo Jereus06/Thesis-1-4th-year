@@ -57,7 +57,7 @@ try {
   await page.goto(base + "/restock", { waitUntil: "domcontentloaded" });
   await page
     .locator("main span")
-    .filter({ hasText: /^Demand unavailable$/ })
+    .filter({ hasText: /^Sales estimate unavailable$/ })
     .waitFor();
   assert.doesNotMatch(await page.locator("main").innerText(), /Low confidence|High confidence/);
   checks.push("Empty history shows unavailable advice without a confidence score.");
@@ -73,7 +73,7 @@ try {
   assert.equal(imported.acceptedRows, rows.length);
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.getByText("Low confidence", { exact: true }).waitFor();
-  await page.getByText(/No usable saved past test yet/).waitFor();
+  await page.getByText(/Not tested on past sales yet/).waitFor();
   checks.push("Usable untrained history shows Low confidence with an explicit no-test reason.");
 
   const settings = await request("/settings");
@@ -157,7 +157,7 @@ try {
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.getByText("High confidence", { exact: true }).first().waitFor();
   await page
-    .getByText(new RegExp(`Past test: ${evidence.testObservations} days\\.`))
+    .getByText(new RegExp(`Tested on ${evidence.testObservations} past days\\.`))
     .first()
     .waitFor();
   await page.screenshot({
@@ -171,7 +171,7 @@ try {
 
   await page.goto(base + "/forecasts", { waitUntil: "domcontentloaded" });
   const topProducts = page.getByRole("region", { name: "Top products for XGBoost" });
-  await topProducts.getByText(/5 selected in the saved run/).waitFor();
+  await topProducts.getByText(/5 selected/).waitFor();
   const rankedRows = await topProducts.locator("tbody tr").allTextContents();
   assert.equal(rankedRows.length, 5);
   for (let index = 0; index < 5; index++)
@@ -181,7 +181,7 @@ try {
     /Synthetic high-volume short history|Synthetic test product/,
   );
   await page.getByText("High confidence", { exact: true }).first().waitFor();
-  await page.getByText(/Saved test scores cover/).waitFor();
+  await page.getByText(/Past tests cover/).waitFor();
   await page.screenshot({
     path: `${output}/tested-forecasts.png`,
     fullPage: true,
@@ -193,7 +193,7 @@ try {
 
   await request("/settings", "PUT", { ...settings, topNProducts: 8 });
   await page.reload({ waitUntil: "domcontentloaded" });
-  await topProducts.getByText(/The current limit is 8/).waitFor();
+  await topProducts.getByText(/The maximum changed to 8/).waitFor();
   assert.equal(await topProducts.locator("tbody tr").count(), 5);
   assert.equal((await request("/forecast-dashboard")).trainingScope.limit, 5);
   assert.equal(await topProducts.getByText("High confidence", { exact: true }).count(), 0);
@@ -205,7 +205,7 @@ try {
   await page.goto(base + "/restock", { waitUntil: "domcontentloaded" });
   await page.getByText("Refresh needed", { exact: true }).first().waitFor();
   await page
-    .getByText(/These results belong to the older saved run/)
+    .getByText(/Results are from an older forecast/)
     .first()
     .waitFor();
   assert.equal(await page.getByText("High confidence", { exact: true }).count(), 0);

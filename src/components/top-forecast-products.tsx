@@ -30,34 +30,32 @@ export function TopForecastProducts({
       <CardHeader>
         <CardTitle>Top products for XGBoost</CardTitle>
         <CardDescription>
-          Up to {num(limit)} eligible products, ranked by quantities sold during the saved training
-          period. This list shows the machine-learning selection, not guaranteed future best
-          sellers.
+          Up to {num(limit)} products, ranked by past sales used to prepare the saved forecast. This
+          does not guarantee future best sellers.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {!scope ? (
           <p className="text-sm text-muted">
-            No saved product selection is available yet. Refresh forecasts to see which products
-            qualify for XGBoost. Current limit: {num(configuredLimit)} products.
+            Refresh forecasts to see the selected products. Maximum: {num(configuredLimit)}{" "}
+            products.
           </p>
         ) : (
           <>
             <p className="text-sm text-muted">
-              {num(selected.length)} active products shown · {num(scope.products.length)} selected
-              in the saved run · limit {num(scope.limit)}. Training period: {scope.trainingStart} to{" "}
-              {scope.trainingEnd}.
+              {num(selected.length)} {selected.length === 1 ? "product" : "products"} shown ·{" "}
+              {num(scope.products.length)} selected · maximum {num(scope.limit)}. Sales used:{" "}
+              {scope.trainingStart} to {scope.trainingEnd}.
             </p>
             {configuredLimit !== scope.limit && (
               <p className="text-sm text-warning">
-                The current limit is {num(configuredLimit)}. Refresh forecasts to apply it; this
-                list belongs to the earlier saved run.
+                The maximum changed to {num(configuredLimit)} products. Refresh forecasts to update
+                this list.
               </p>
             )}
             {stale && (
               <p className="text-sm text-warning">
-                Records or settings changed. This is the previous saved selection; refresh
-                forecasts.
+                Records or settings changed. Refresh forecasts to update this list.
               </p>
             )}
             {selected.length ? (
@@ -67,9 +65,9 @@ export function TopForecastProducts({
                     <tr>
                       <th className="pb-2 pr-3 font-medium">Rank</th>
                       <th className="pb-2 pr-3 font-medium">Product</th>
-                      <th className="pb-2 pr-3 font-medium">Past training sales</th>
-                      <th className="pb-2 pr-3 font-medium">Expected sales per day</th>
-                      <th className="pb-2 font-medium">Forecast confidence</th>
+                      <th className="pb-2 pr-3 font-medium">Past sales</th>
+                      <th className="pb-2 pr-3 font-medium">Expected daily sales</th>
+                      <th className="pb-2 font-medium">Confidence</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -106,20 +104,20 @@ export function TopForecastProducts({
               </div>
             ) : (
               <p className="text-sm text-muted">
-                No active products in this saved run qualify for XGBoost.
+                No active products were selected for this saved forecast.
               </p>
             )}
             {scope.products.length < scope.limit && (
               <p className="text-sm text-muted">
-                The limit is a maximum. Fewer products are selected when there are fewer eligible
-                products with enough usable history. Other products can still use Moving Average.
+                Fewer products appear when fewer have enough usable history. Other products can
+                still use Moving Average.
               </p>
             )}
           </>
         )}
         <p className="text-xs text-muted">
-          Confidence describes support for the estimate from past tests. Expected sales shows how
-          much may sell; high confidence does not automatically mean high sales.
+          Confidence shows how well an estimate performed in past checks. High confidence does not
+          mean high sales.
         </p>
       </CardContent>
     </Card>

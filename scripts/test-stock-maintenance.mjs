@@ -16,6 +16,9 @@ const serverOptions = {
 };
 const storeServer = await createServer(serverOptions);
 const { useAppStore } = await storeServer.ssrLoadModule("/src/lib/store.ts");
+const { invalidatePipelineCache, peekStalePipeline, putPipeline } = await storeServer.ssrLoadModule(
+  "/src/lib/forecast/cache.ts",
+);
 const storePath = fileURLToPath(new URL("../src/lib/store.ts", import.meta.url)).replaceAll(
   "\\",
   "/",
@@ -193,6 +196,7 @@ test("staff can record returns and receipts while owner management calls are rej
     () => state.recordStockMovement({ ...input, movementType: "write_off", quantityDelta: -1 }),
     () => state.recordStockMovement({ ...input, movementType: "adjustment" }),
     () => state.updateProduct(product.id, { name: "Changed" }),
+    () => state.deleteProduct(product.id),
     () => state.addProduct(product),
     () => state.importInventory([product]),
     () => state.importSales([]),
@@ -367,6 +371,194 @@ test("product API edits send supported details and active status without rewriti
   assert.equal(useAppStore.getState().inventoryMovements.length, 0);
 });
 
+test("permanent product deletion waits for authenticated DELETE, preserves other records and clears forecasts", async () => {
+  const removed = { ...product, id: "draft / café", currentStock: 0 };
+  const products = [removed, { ...product }];
+  const sales = [{ id: "retained-sale", productId: product.id, date: input.movementDate, qty: 1 }];
+  const inventoryMovements = [{ ...movement, quantityDelta: 1.25, balanceAfter: 11.25 }];
+  useAppStore.setState({ products, sales, inventoryMovements });
+  const cachedForecast = { id: "synthetic-cached-forecast" };
+  putPipeline(products, sales, useAppStore.getState().settings, cachedForecast);
+  let finish;
+  const requests = [];
+  globalThis.fetch = (url, options) => {
+    requests.push({ url, options });
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  };
+  const deletion = useAppStore.getState().deleteProduct(removed.id);
+  assert.equal(
+    useAppStore.getState().products,
+    products,
+    "pending deletion keeps the catalog intact",
+  );
+  assert.equal(peekStalePipeline(), cachedForecast);
+  finish(envelope({ deletedRows: 1 }));
+  assert.deepEqual(await deletion, { deletedRows: 1 });
+  assert.equal(requests.length, 1, "a committed deletion does not require another read");
+  assert.equal(
+    requests[0].url,
+    `/api/v1/businesses/${session.businessId}/products/${encodeURIComponent(removed.id)}`,
+  );
+  assert.equal(requests[0].options.method, "DELETE");
+  assert.equal(requests[0].options.credentials, "include");
+  assert.equal(requests[0].options.headers["x-csrf-token"], "synthetic-csrf");
+  assert.equal(requests[0].options.body, undefined);
+  assert.deepEqual(useAppStore.getState().products, [product]);
+  assert.equal(useAppStore.getState().sales, sales);
+  assert.equal(useAppStore.getState().inventoryMovements, inventoryMovements);
+  assert.equal(peekStalePipeline(), null);
+});
+
+test("a rejected product deletion preserves the catalog, histories and cached forecast", async () => {
+  const state = useAppStore.getState();
+  const cachedForecast = { id: "synthetic-retained-forecast" };
+  putPipeline(state.products, state.sales, state.settings, cachedForecast);
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ detail: "This product has stock or saved history." }), {
+      status: 409,
+    });
+  await assert.rejects(state.deleteProduct(product.id), /stock or saved history/);
+  assert.equal(useAppStore.getState().products, state.products);
+  assert.equal(useAppStore.getState().sales, state.sales);
+  assert.equal(useAppStore.getState().inventoryMovements, state.inventoryMovements);
+  assert.equal(peekStalePipeline(), cachedForecast);
+  invalidatePipelineCache();
+});
+
+test("an anonymous session cannot send a product deletion request", async () => {
+  useAppStore.setState({ session: null });
+  const state = useAppStore.getState();
+  let requests = 0;
+  globalThis.fetch = async () => {
+    requests++;
+    return envelope({ deletedRows: 1 });
+  };
+  await assert.rejects(state.deleteProduct(product.id), /session has expired/);
+  assert.equal(requests, 0);
+  assert.equal(useAppStore.getState().products, state.products);
+});
+
+test("demo product deletion removes an unused inactive product while retaining all unrelated history", async () => {
+  const removed = { ...product, id: "unused-product", currentStock: 0, isActive: false };
+  const products = [removed, product];
+  const sales = [{ id: "retained-sale", productId: product.id, date: input.movementDate, qty: 1 }];
+  const inventoryMovements = [{ ...movement, quantityDelta: 1.25, balanceAfter: 11.25 }];
+  useAppStore.setState({
+    dataMode: "browser-demo",
+    session: null,
+    products,
+    sales,
+    inventoryMovements,
+  });
+  putPipeline(products, sales, useAppStore.getState().settings, { id: "synthetic-demo-forecast" });
+  assert.deepEqual(await useAppStore.getState().deleteProduct(removed.id), { deletedRows: 1 });
+  assert.deepEqual(useAppStore.getState().products, [product]);
+  assert.equal(useAppStore.getState().sales, sales);
+  assert.equal(useAppStore.getState().inventoryMovements, inventoryMovements);
+  assert.equal(peekStalePipeline(), null);
+  const remaining = useAppStore.getState().products;
+  assert.deepEqual(await useAppStore.getState().deleteProduct(removed.id), { deletedRows: 0 });
+  assert.equal(useAppStore.getState().products, remaining);
+});
+
+test("demo product deletion rejects stock, sales and movement history without removing any records", async () => {
+  const sale = { id: "saved-sale", productId: product.id, date: input.movementDate, qty: 1 };
+  const audit = { ...movement, quantityDelta: 1.25, balanceAfter: 0 };
+  for (const [reason, stock, sales, inventoryMovements] of [
+    ["remaining stock", 0.125, [], []],
+    ["recorded sales", 0, [{ ...sale, source: "manual" }], []],
+    ["imported sales", 0, [{ ...sale, source: "csv_import" }], []],
+    ["stock movements", 0, [], [audit]],
+  ]) {
+    const products = [{ ...product, currentStock: stock }];
+    useAppStore.setState({
+      dataMode: "browser-demo",
+      session: null,
+      products,
+      sales,
+      inventoryMovements,
+    });
+    const cachedForecast = { id: `synthetic-${reason}` };
+    putPipeline(products, sales, useAppStore.getState().settings, cachedForecast);
+    await assert.rejects(
+      useAppStore.getState().deleteProduct(product.id),
+      /stock or saved history/,
+    );
+    assert.equal(useAppStore.getState().products, products, reason);
+    assert.equal(useAppStore.getState().sales, sales, reason);
+    assert.equal(useAppStore.getState().inventoryMovements, inventoryMovements, reason);
+    assert.equal(peekStalePipeline(), cachedForecast, reason);
+  }
+  invalidatePipelineCache();
+});
+
+test("late committed product deletions cannot change another session or a fresh same-account session", async () => {
+  for (const newSession of [
+    { ...session, businessId: "other-business", userId: "other-owner" },
+    { ...session },
+  ]) {
+    useAppStore.setState({ session, products: [{ ...product, currentStock: 0 }] });
+    let finish;
+    globalThis.fetch = () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      });
+    const deletion = useAppStore.getState().deleteProduct(product.id);
+    const products = [{ ...product, name: "New session product", currentStock: 20 }];
+    const sales = [
+      { id: "new-session-sale", productId: product.id, date: input.movementDate, qty: 2 },
+    ];
+    const inventoryMovements = [{ ...movement, id: "new-session-audit" }];
+    useAppStore.setState({ session: newSession, products, sales, inventoryMovements });
+    const cachedForecast = { id: "synthetic-new-session-forecast" };
+    putPipeline(products, sales, useAppStore.getState().settings, cachedForecast);
+    finish(envelope({ deletedRows: 1 }));
+    assert.deepEqual(await deletion, { deletedRows: 1 });
+    assert.equal(useAppStore.getState().session, newSession);
+    assert.equal(useAppStore.getState().products, products);
+    assert.equal(useAppStore.getState().sales, sales);
+    assert.equal(useAppStore.getState().inventoryMovements, inventoryMovements);
+    assert.equal(peekStalePipeline(), cachedForecast);
+  }
+  invalidatePipelineCache();
+});
+
+test("a catalog refresh started before product deletion cannot restore the deleted product", async () => {
+  const removed = { ...product, currentStock: 0 };
+  const retained = { ...product, id: "retained-product", sku: "RETAINED-001" };
+  useAppStore.setState({ products: [removed, retained] });
+  const apiProduct = (row) => ({
+    ...row,
+    currentStock: String(row.currentStock),
+    safetyStock: String(row.safetyStock),
+    unitCost: String(row.unitCost),
+  });
+  const pending = [];
+  let reads = 0;
+  globalThis.fetch = async (url, options) => {
+    if (options.method === "DELETE") return envelope({ deletedRows: 1 });
+    reads++;
+    if (reads <= 2)
+      return new Promise((resolve) => {
+        pending.push(() =>
+          resolve(envelope(url.endsWith("/products") ? [removed, retained].map(apiProduct) : [])),
+        );
+      });
+    return envelope(url.endsWith("/products") ? [apiProduct(retained)] : []);
+  };
+  const refresh = useAppStore.getState().refreshInventoryMovements();
+  assert.equal(pending.length, 2);
+  await useAppStore.getState().deleteProduct(removed.id);
+  assert.deepEqual(useAppStore.getState().products, [retained]);
+  pending.forEach((resolve) => resolve());
+  await refresh;
+  assert.equal(reads, 4, "the stale catalog snapshot is fetched again after deletion commits");
+  assert.deepEqual(useAppStore.getState().products, [retained]);
+  assert.equal(useAppStore.getState().movementsStatus, "ready");
+});
+
 test("owner controls render while staff retains permitted stock actions and audit visibility", () => {
   for (const role of ["owner", "staff"]) {
     setTestState({
@@ -389,6 +581,7 @@ test("owner controls render while staff retains permitted stock actions and audi
         "Edit details",
         "Correct stock count",
         "Deactivate",
+        "Delete",
       ]) {
         assert.ok(productsMarkup.includes(action), `owner sees ${action}`);
       }
@@ -396,7 +589,7 @@ test("owner controls render while staff retains permitted stock actions and audi
     } else {
       assert.doesNotMatch(
         productsMarkup,
-        /Add product|Import inventory|Edit details|Correct stock count|>Deactivate</,
+        /Add product|Import inventory|Edit details|Correct stock count|>Deactivate<|>Delete</,
       );
       assert.doesNotMatch(movementsMarkup, /Write off stock/);
     }

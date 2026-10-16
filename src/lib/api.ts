@@ -152,8 +152,18 @@ export const api = {
         body: patch,
       }),
     ),
+  deleteProduct: (businessId: string, productId: string) =>
+    request<{ deletedRows: number }>(
+      `/businesses/${businessId}/products/${encodeURIComponent(productId)}`,
+      { method: "DELETE" },
+    ),
   sales: async (businessId: string) =>
     (await allSalesPages(`/businesses/${businessId}/sales`)).map(toSale),
+  deleteSale: (businessId: string, saleId: string) =>
+    request<{ deletedRows: number }>(
+      `/businesses/${businessId}/sales/${encodeURIComponent(saleId)}`,
+      { method: "DELETE" },
+    ),
   deleteImportedSales: (businessId: string, saleId?: string) =>
     request<{ deletedRows: number }>(
       `/businesses/${businessId}/sales/${saleId ? encodeURIComponent(saleId) : "imported"}`,

@@ -262,6 +262,19 @@ def update_product(
     return {"data": repository.update_product(user, product_id, data)}
 
 
+@app.delete("/api/v1/businesses/{business_id}/products/{product_id}")
+def delete_product(
+    business_id: str,
+    product_id: UUID,
+    repository: Repository = Depends(repo),
+    user: Principal = Depends(csrf_protected),
+):
+    business_user(business_id, user)
+    if user.role != "owner":
+        raise HTTPException(403, "Owner role required")
+    return {"data": repository.delete_product(user, product_id)}
+
+
 @app.post("/api/v1/businesses/{business_id}/inventory-imports", status_code=201)
 def import_inventory(
     business_id: str,
@@ -356,7 +369,7 @@ def delete_all_imported_sales(
 
 
 @app.delete("/api/v1/businesses/{business_id}/sales/{sale_id}")
-def delete_imported_sale(
+def delete_sale(
     business_id: str,
     sale_id: UUID,
     repository: Repository = Depends(repo),
@@ -365,7 +378,7 @@ def delete_imported_sale(
     business_user(business_id, user)
     if user.role != "owner":
         raise HTTPException(403, "Owner role required")
-    return {"data": repository.delete_imported_sales(user, sale_id)}
+    return {"data": repository.delete_sale(user, sale_id)}
 
 
 @app.get("/api/v1/businesses/{business_id}/inventory-movements")

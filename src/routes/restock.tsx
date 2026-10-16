@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DISCLAIMER, modelLabel } from "@/lib/forecast/constants";
+import { modelLabel } from "@/lib/forecast/constants";
 import { num } from "@/lib/format";
 import { forecastRefreshAdvice } from "@/lib/forecast-schedule";
 import { usePermissions } from "@/lib/permissions";
@@ -90,11 +90,6 @@ function RestockPage() {
         <h1 className="font-display text-3xl font-medium tracking-tight">
           Restocking recommendations
         </h1>
-        <p className="mt-2 max-w-2xl text-muted">
-          ROP = (average forecasted daily demand × supplier lead time) + safety stock. Suggested
-          quantities apply when stock reaches the reorder point.
-        </p>
-        <p className="mt-2 text-xs text-muted">{result?.diagnostics.disclaimer ?? DISCLAIMER}</p>
       </header>
       <TrainingBanner />
       {!ready ? (
@@ -112,10 +107,10 @@ function RestockPage() {
         <>
           {missing.length > 0 && (
             <section className="space-y-3">
-              <h2 className="font-display text-xl font-medium">Waiting for demand estimates</h2>
+              <h2 className="font-display text-xl font-medium">Waiting for sales estimates</h2>
               <p className="text-sm text-muted">
-                Current recommendations are not available for these products. Review their sales
-                history and {refreshAdvice}. Actual deliveries can still be recorded in Inventory.
+                Check these products' sales records and {refreshAdvice}. You can still record
+                deliveries in Inventory.
               </p>
               {missing.map((product) => (
                 <div key={product.id} className="rounded-xl border border-border p-3">
@@ -125,27 +120,24 @@ function RestockPage() {
               ))}
             </section>
           )}
-          <Section title="Order now" empty="No current reorder recommendations.">
+          <Section title="Order now" empty="No products are currently listed for ordering.">
             {groups.action.map(renderRow)}
           </Section>
-          <Section title="Watch list" empty="No items with positive demand in the watch band.">
+          <Section title="Watch list" empty="No products are getting low on stock.">
             {groups.watch.map(renderRow)}
           </Section>
-          <Section
-            title="Healthy stock"
-            empty="No products with positive demand are marked healthy."
-          >
+          <Section title="Enough stock" empty="No products are in this group.">
             {groups.healthy.map(renderRow)}
           </Section>
-          <Section title="Zero usable demand" empty="No current estimates show zero demand.">
+          <Section title="No sales expected" empty="No products are in this group.">
             {groups.zero.map(renderRow)}
           </Section>
           <Section
-            title="Demand unavailable"
+            title="Sales estimate unavailable"
             empty={
               missing.length
-                ? "Other products are waiting for a current demand estimate."
-                : "No products are marked as having unavailable demand."
+                ? "Other products are waiting for a sales estimate."
+                : "No products are in this group."
             }
           >
             {groups.unavailable.map(renderRow)}
@@ -211,7 +203,7 @@ function RestockCard({
             {!available ? (
               <>
                 <Badge variant="warning">
-                  {row.forecastExpired ? "Expired forecast" : "Demand unavailable"}
+                  {row.forecastExpired ? "Expired forecast" : "Sales estimate unavailable"}
                 </Badge>
                 {p.currentStock <= 0 && <StatusBadge status="stockout" />}
               </>
@@ -220,7 +212,7 @@ function RestockCard({
                 {(!zeroDemand || row.status === "stockout" || row.status === "reorder") && (
                   <StatusBadge status={row.status} />
                 )}
-                {zeroDemand && <Badge variant="outline">Zero usable demand</Badge>}
+                {zeroDemand && <Badge variant="outline">No sales expected</Badge>}
               </>
             )}
             {(available || mode === "browser-demo") && (
@@ -232,13 +224,13 @@ function RestockCard({
             )}
           </div>
           <p className="text-sm text-muted">
-            {p.sku} · {p.category} · lead {p.leadTimeDays}d · safety {num(p.safetyStock)}
-            {available && ` · ${modelLabel(row.winnerModel)} demand`}
+            {p.sku} · {p.category} · delivery {p.leadTimeDays} days · reserve stock{" "}
+            {num(p.safetyStock)}
+            {available && ` · ${modelLabel(row.winnerModel)} estimate`}
           </p>
           {zeroDemand && (
             <p className="text-sm text-muted">
-              Usable observations show zero demand. Days of cover cannot be calculated from a zero
-              estimate.
+              The current estimate is zero sales. We cannot estimate how long this stock may last.
             </p>
           )}
           <DemandEvidence
@@ -251,7 +243,7 @@ function RestockCard({
                   forecast?.unavailableReason ??
                   (row.forecastExpired
                     ? `The saved forecast period has ended. Review recent sales and ${refreshAdvice}.`
-                    : "No usable demand estimate is available. Review sales history and data quality."))
+                    : "No sales estimate yet. Check the sales records and review missing days."))
                 : undefined
             }
             fallbackReason={row.fallbackReason}
@@ -260,14 +252,14 @@ function RestockCard({
             qualityWarnings={row.qualityWarnings}
           />
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 pt-2 text-sm sm:grid-cols-4">
-            <Stat label="On hand" value={`${num(p.currentStock)} ${p.unit}`} />
-            <Stat label="Daily demand" value={available ? num(row.dailyDemand, 1) : "—"} />
+            <Stat label="Stock on hand" value={`${num(p.currentStock)} ${p.unit}`} />
+            <Stat label="Expected daily sales" value={available ? num(row.dailyDemand, 1) : "—"} />
             <Stat
-              label="Reorder point"
+              label="Order when stock reaches"
               value={available ? num(Math.ceil(row.reorderPoint)) : "—"}
             />
             <Stat
-              label="Days of cover"
+              label="Days stock may last"
               value={available && !zeroDemand ? num(row.daysOfCover, 1) : "—"}
             />
           </dl>
@@ -275,7 +267,7 @@ function RestockCard({
         <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
           <p className="text-right">
             <span className="block text-xs tracking-wide text-muted uppercase">
-              Recommended qty
+              Suggested order
             </span>
             <span className="font-display text-3xl font-medium tabular">
               {available ? num(row.reorderQty) : "—"}

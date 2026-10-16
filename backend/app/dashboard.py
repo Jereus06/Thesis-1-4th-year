@@ -49,7 +49,7 @@ def dashboard(repository, business_id, *, forecast_schedule=None):
     metrics = repository.list_metrics(business_id, completed["id"]) if completed else []
     sales = conn.execute(
         """SELECT product_id,sale_date,sum(quantity) AS quantity FROM sales
-        WHERE business_id=%s GROUP BY product_id,sale_date ORDER BY sale_date""",
+        WHERE business_id=%s AND voided_at IS NULL GROUP BY product_id,sale_date ORDER BY sale_date""",
         (business_id,),
     ).fetchall()
     quality = conn.execute(

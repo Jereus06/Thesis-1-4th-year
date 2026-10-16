@@ -23,10 +23,11 @@ const PAGE_SIZE = 40;
 type DeleteSelection = { kind: "single"; sale: Sale } | { kind: "all" };
 
 export function SalesLedgerCard() {
-  const { canRecordSales, canDeleteImportedSales } = usePermissions();
+  const { canRecordSales, canDeleteSales, canDeleteImportedSales } = usePermissions();
   const sales = useAppStore((state) => state.sales);
   const products = useAppStore((state) => state.products);
   const session = useAppStore((state) => state.session);
+  const deleteSale = useAppStore((state) => state.deleteSale);
   const deleteImportedSales = useAppStore((state) => state.deleteImportedSales);
   const [page, setPage] = useState(0);
   const [selection, setSelection] = useState<DeleteSelection | null>(null);
@@ -46,6 +47,8 @@ export function SalesLedgerCard() {
   const currentPage = Math.min(page, lastPage);
   const visibleSales = sortedSales.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
   const hasActiveProducts = products.some((product) => product.isActive !== false);
+  const recordedSelection = selection?.kind === "single" && selection.sale.source === "manual";
+  const canDeleteSelection = selection?.kind === "single" ? canDeleteSales : canDeleteImportedSales;
 
   function selectDeletion(next: DeleteSelection) {
     setError(null);
@@ -53,23 +56,26 @@ export function SalesLedgerCard() {
   }
 
   async function confirmDeletion() {
-    if (!selection || pending.current || !canDeleteImportedSales) return;
+    if (!selection || pending.current || !canDeleteSelection) return;
     pending.current = true;
     setDeleting(true);
     setError(null);
     try {
-      const result = await deleteImportedSales(
-        selection.kind === "single" ? selection.sale.id : undefined,
-      );
+      const result =
+        selection.kind === "single"
+          ? await deleteSale(selection.sale.id)
+          : await deleteImportedSales();
       if (selection.kind === "all") setPage(0);
       setSelection(null);
       toast.success(
         result.deletedRows
-          ? `Deleted ${num(result.deletedRows)} imported sale${result.deletedRows === 1 ? "" : "s"}.`
-          : "The imported sales were already deleted.",
+          ? recordedSelection
+            ? "Recorded sale deleted; stock restored."
+            : `Deleted ${num(result.deletedRows)} imported sale${result.deletedRows === 1 ? "" : "s"}.`
+          : "The selected sales were already deleted.",
       );
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "Unable to delete imported sales.");
+      setError(failure instanceof Error ? failure.message : "Unable to delete sales.");
     } finally {
       pending.current = false;
       setDeleting(false);
@@ -103,18 +109,16 @@ export function SalesLedgerCard() {
             </Button>
           )}
         </div>
-        {canDeleteImportedSales && (
+        {canDeleteSales && (
           <p className="text-sm text-muted">
-            Imported history can be deleted without changing current stock.
+            Deleting a recorded sale restores its quantity to stock. Deleting imported history
+            leaves stock unchanged.
           </p>
         )}
         {session && (
-          <a
-            className="text-sm text-primary underline"
-            href={api.exportUrl(session.businessId, "sales")}
-          >
-            Export sales CSV
-          </a>
+          <Button asChild variant="outline" size="sm" className="self-start">
+            <a href={api.exportUrl(session.businessId, "sales")}>Export sales CSV</a>
+          </Button>
         )}
       </CardHeader>
       <CardContent className="grid gap-4">
@@ -134,7 +138,7 @@ export function SalesLedgerCard() {
                 <th scope="col" className="pb-2 pl-3 font-medium">
                   Source
                 </th>
-                {canDeleteImportedSales && (
+                {canDeleteSales && (
                   <th scope="col" className="pb-2 pl-3 font-medium">
                     Action
                   </th>
@@ -156,15 +160,15 @@ export function SalesLedgerCard() {
                           ? "Demo"
                           : "Unknown"}
                   </td>
-                  {canDeleteImportedSales && (
+                  {canDeleteSales && (
                     <td className="pl-3">
-                      {isImportedSale(sale) && (
+                      {(isImportedSale(sale) || sale.source === "manual") && (
                         <Button
                           variant="ghost"
                           size="sm"
                           className="text-danger"
                           disabled={deleting}
-                          aria-label={`Delete imported sale for ${nameById[sale.productId] ?? sale.productId} on ${sale.date}, quantity ${num(sale.qty)}`}
+                          aria-label={`Delete ${isImportedSale(sale) ? "imported" : "recorded"} sale for ${nameById[sale.productId] ?? sale.productId} on ${sale.date}, quantity ${num(sale.qty)}`}
                           onClick={() => selectDeletion({ kind: "single", sale })}
                         >
                           <Trash2 aria-hidden="true" />
@@ -177,7 +181,7 @@ export function SalesLedgerCard() {
               ))}
               {!sales.length && (
                 <tr>
-                  <td colSpan={canDeleteImportedSales ? 5 : 4} className="py-6 text-muted">
+                  <td colSpan={canDeleteSales ? 5 : 4} className="py-6 text-muted">
                     No sales recorded yet.
                   </td>
                 </tr>
@@ -230,14 +234,19 @@ export function SalesLedgerCard() {
             <DialogHeader>
               <DialogTitle>
                 {selection?.kind === "single"
-                  ? "Delete imported sale?"
+                  ? recordedSelection
+                    ? "Delete recorded sale?"
+                    : "Delete imported sale?"
                   : "Delete all imported sales?"}
               </DialogTitle>
               <DialogDescription>
                 {selection?.kind === "single"
                   ? `Permanently remove ${num(selection.sale.qty)} sold for ${nameById[selection.sale.productId] ?? selection.sale.productId} on ${selection.sale.date}.`
                   : `Permanently remove all ${num(importedCount)} imported sales rows from this store, including rows on other pages.`}{" "}
-                Current stock stays the same. Refresh forecasts after deleting sales history.
+                {recordedSelection
+                  ? `This restores ${num(selection.sale.qty)} to current stock and saves an adjustment in Stock movements.`
+                  : "Current stock stays the same."}{" "}
+                Refresh forecasts after deleting sales history.
               </DialogDescription>
             </DialogHeader>
             {error && (
@@ -251,7 +260,7 @@ export function SalesLedgerCard() {
               </Button>
               <Button
                 variant="danger"
-                disabled={deleting || !canDeleteImportedSales}
+                disabled={deleting || !canDeleteSelection}
                 onClick={() => void confirmDeletion()}
               >
                 {deleting

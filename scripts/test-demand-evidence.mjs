@@ -178,18 +178,18 @@ test("enabled API schedules give staff truthful automatic status while keeping o
   const schedule = { enabled: true, localTime: "00:15", timezone: "Asia/Manila" };
   const forecast = { holdout: [], future: [] };
   for (const message of [
-    "Forecast refresh is queued. The last completed forecast remains visible.",
-    "Forecast refresh is running. The last completed forecast remains visible.",
-    "Saved Python forecast through 2026-10-15",
+    "Waiting to update forecasts. Your previous forecast is shown for now.",
+    "Updating forecasts… Your previous forecast is shown for now.",
+    "Forecast saved through 2026-10-15",
   ]) {
     const markup = renderPage(forecastsRoute, {
       role: "staff",
       forecast,
       schedule,
       message,
-      status: message.startsWith("Saved") ? "ready" : "training",
+      status: message.startsWith("Forecast saved") ? "ready" : "training",
     });
-    assert.match(markup, /Automatic forecast refresh is scheduled daily at 00:15 \(Asia\/Manila\)/);
+    assert.doesNotMatch(markup, /Forecasts update daily at 00:15 \(Asia\/Manila\)/);
     assert.ok(markup.includes(message));
     assert.doesNotMatch(
       markup,
@@ -212,7 +212,7 @@ test("disabled or missing API schedules and browser demonstration never promise 
     { mode: "browser-demo", forecast, schedule },
   ]) {
     const markup = renderPage(forecastsRoute, options);
-    assert.doesNotMatch(markup, /Automatic forecast refresh is scheduled daily/);
+    assert.doesNotMatch(markup, /Forecasts update daily/);
     if (options.mode !== "browser-demo") assert.match(markup, /The owner can refresh forecasts/);
   }
 });
@@ -244,15 +244,18 @@ test("an inactive catalog directs staff to the owner and excludes archived produ
   assert.doesNotMatch(renderPage(forecastsRoute, options), /Synthetic practice rice/);
 });
 
-test("missing saved counts remain unknown while true zero counts are shown", () => {
-  assert.match(renderEvidence(), /Unknown days: not saved.*Excluded days: not saved/);
+test("missing saved counts remain unknown while known zero counts remain visible", () => {
+  assert.match(
+    renderEvidence(),
+    /Days with missing records: not recorded.*Days left out: not recorded/,
+  );
   assert.match(
     renderEvidence({ unknownDays: 0, excludedDays: 0 }),
-    /Unknown days: 0.*Excluded days: 0/,
+    /Days with missing records: 0.*Days left out: 0/,
   );
   assert.match(
     renderEvidence({ unknownDays: NaN, excludedDays: -1 }),
-    /Unknown days: not saved.*Excluded days: not saved/,
+    /Days with missing records: not recorded.*Days left out: not recorded/,
   );
 });
 
@@ -266,13 +269,13 @@ test("saved fallback, unavailable reasons, and quality warnings remain distinct"
       qualityWarnings: ["Review missing days", "Review missing days"],
     },
   });
-  assert.match(markup, /Fallback reason: Not enough training observations/);
-  assert.match(markup, /Demand unavailable: No usable sales history/);
-  assert.match(markup, /Unknown days: 7.*Excluded days: 2/);
-  assert.equal(markup.match(/Data quality: Review missing days/g).length, 1);
+  assert.match(markup, /More complete sales history is needed/);
+  assert.match(markup, /Sales estimate unavailable: No sales history is ready to use/);
+  assert.match(markup, /Days with missing records: 7.*Days left out: 2/);
+  assert.equal(markup.match(/Check sales records: Review missing days/g).length, 1);
 });
 
-test("unavailable history on overview shows evidence and never healthy coverage", () => {
+test("unavailable history on overview omits demand evidence and never shows healthy coverage", () => {
   const markup = renderPage(overviewRoute, {
     rows: [
       {
@@ -285,18 +288,19 @@ test("unavailable history on overview shows evidence and never healthy coverage"
       },
     ],
   });
-  assert.match(markup, /Current demand is unavailable for 1 product/);
-  assert.match(markup, /No usable sales history/);
-  assert.match(markup, /Unknown days: 6.*Excluded days: 3/);
+  assert.match(markup, /1 without current demand/);
+  assert.match(markup, /Current reorder advice is unavailable/);
+  assert.doesNotMatch(markup, /Demand evidence|Days with missing records:|Days left out:/);
   assert.doesNotMatch(markup, /Healthy cover across|Stock is above reorder points/);
 });
 
 test("overview distinguishes an empty catalog and missing current recommendations", () => {
   const empty = renderPage(overviewRoute, { catalog: [], rows: [] });
-  assert.match(empty, /Add or activate products and record sales history/);
+  assert.match(empty, /Add or activate inventory and record sales history/);
   assert.match(empty, /No active products to assess/);
   const waiting = renderPage(overviewRoute, { rows: [] });
-  assert.match(waiting, /Waiting for a current demand estimate/);
+  assert.match(waiting, /1 without current demand/);
+  assert.match(waiting, /Current reorder advice is unavailable/);
   assert.doesNotMatch(waiting, /Healthy cover across|Stock is above reorder points/);
 });
 
@@ -304,9 +308,9 @@ test("zero usable demand differs from unavailable history on overview", () => {
   const markup = renderPage(overviewRoute, {
     rows: [{ ...baseRow, dailyDemand: 0, daysOfCover: Infinity }],
   });
-  assert.match(markup, /Usable observations currently show zero demand/);
+  assert.match(markup, /Usable observations show zero demand/);
   assert.match(markup, /Days of cover cannot be calculated from a zero estimate/);
-  assert.doesNotMatch(markup, /Current demand is unavailable for/);
+  assert.doesNotMatch(markup, /Current reorder advice is unavailable/);
 });
 
 test("expired overview advice never uses cached positive demand as healthy coverage", () => {
@@ -314,8 +318,8 @@ test("expired overview advice never uses cached positive demand as healthy cover
     expired: true,
     rows: [{ ...baseRow, forecastExpired: true, demandAvailable: false }],
   });
-  assert.match(markup, /Forecasts have expired/);
-  assert.match(markup, /saved forecast period has ended/);
+  assert.match(markup, /Forecast expired/);
+  assert.match(markup, /Saved predictions have expired/);
   assert.doesNotMatch(markup, /Healthy cover across|Stock is above reorder points/);
 });
 
@@ -334,9 +338,9 @@ test("unavailable restock rows retain delivery entry and suppress numerical sugg
       },
     ],
   });
-  assert.match(markup, /No usable sales history/);
-  assert.match(markup, /Calendar history is incomplete/);
-  assert.match(markup, /Unknown days: 4.*Excluded days: 2/);
+  assert.match(markup, /No sales history is ready to use/);
+  assert.match(markup, /Some dates have missing records or could not be used/);
+  assert.match(markup, /Days with missing records: 4.*Days left out: 2/);
   assertDeliveryEnabled(markup);
   assert.doesNotMatch(markup, />99<|All products have a usable demand estimate/);
 });
@@ -352,9 +356,9 @@ test("usable fallback demand shows its reason without labelling demand unavailab
       },
     ],
   });
-  assert.match(markup, /Fallback reason: Not enough nonzero training days/);
-  assert.match(markup, /Unknown days: 0.*Excluded days: 1/);
-  assert.doesNotMatch(markup, /Demand unavailable:|Demand unavailable<\/span>/);
+  assert.match(markup, /Using a basic estimate: More complete sales history is needed/);
+  assert.match(markup, /Days with missing records: 0.*Days left out: 1/);
+  assert.doesNotMatch(markup, /Sales estimate unavailable:/);
 });
 
 test("zero-demand restock rows do not imply finite stock coverage and retain delivery entry", () => {
@@ -362,8 +366,8 @@ test("zero-demand restock rows do not imply finite stock coverage and retain del
     rows: [{ ...baseRow, dailyDemand: 0, daysOfCover: 99 }],
     mode: "browser-demo",
   });
-  assert.match(markup, /Zero usable demand/);
-  assert.match(markup, /Days of cover cannot be calculated from a zero estimate/);
+  assert.match(markup, /No sales expected/);
+  assert.match(markup, /We cannot estimate how long this stock may last/);
   assertDeliveryEnabled(markup);
   assert.doesNotMatch(markup, />99\.0<|>Healthy<\/span>/);
 });
@@ -371,8 +375,8 @@ test("zero-demand restock rows do not imply finite stock coverage and retain del
 test("restock empty catalog and missing estimates make no complete-demand claim", () => {
   assert.match(renderPage(restockRoute, { catalog: [], rows: [] }), /No active products to assess/);
   const waiting = renderPage(restockRoute, { rows: [] });
-  assert.match(waiting, /Waiting for demand estimates/);
-  assert.match(waiting, /Actual deliveries can still be recorded in Inventory/);
+  assert.match(waiting, /Waiting for sales estimates/);
+  assert.match(waiting, /You can still record deliveries in Inventory/);
   assert.doesNotMatch(waiting, /All products have a usable demand estimate/);
 });
 
@@ -386,10 +390,10 @@ test("unavailable history with a placeholder zero is never presented as usable z
     },
   ];
   const overview = renderPage(overviewRoute, { rows });
-  assert.match(overview, /Current demand is unavailable/);
-  assert.doesNotMatch(overview, /Usable observations currently show zero demand/);
+  assert.match(overview, /Current reorder advice is unavailable/);
+  assert.doesNotMatch(overview, /Usable observations show zero demand/);
   const restock = renderPage(restockRoute, { rows });
-  assert.doesNotMatch(restock, /Usable observations show zero demand|>Zero usable demand<\/span>/);
+  assert.doesNotMatch(restock, /The current estimate is zero sales|>No sales expected<\/span>/);
   assertDeliveryEnabled(restock);
 });
 
@@ -429,7 +433,10 @@ test("operational badges describe evidence without fixed low or fabricated high 
       /Low confidence|High confidence|Medium confidence|100%|bg-danger|bg-primary/,
     );
   }
-  assert.match(renderToStaticMarkup(createElement(ForecastEvidenceBadge)), /Evidence unavailable/);
+  assert.match(
+    renderToStaticMarkup(createElement(ForecastEvidenceBadge)),
+    /Test results unavailable/,
+  );
 });
 
 test("restock shows recorded test days and quantity error, including poor results without success styling", () => {
@@ -442,12 +449,12 @@ test("restock shows recorded test days and quantity error, including poor result
     ],
   });
   assert.match(markup, /Tested on past sales/);
-  assert.match(markup, /Past test: 14 days\..*Average error: 20\.0 units\./);
+  assert.match(markup, /Tested on 14 past days\..*Average error: 20\.0 units\./);
   assert.doesNotMatch(markup, /Low confidence|High confidence/);
   const stale = renderEvidence({
     forecastEvidence: { status: "needs_refresh", testObservations: 1, mae: "2", rmse: "3" },
   });
-  assert.match(stale, /Past test: 1 day\..*older saved run/);
+  assert.match(stale, /Tested on 1 past day\..*older forecast/);
 });
 
 test("browser demonstration does not present its heuristic confidence as real accuracy evidence", () => {
@@ -483,7 +490,7 @@ test("operational confidence badges show Python ratings with their measured expl
     assert.match(markup, new RegExp(label));
     assert.match(markup, /Saved past error rating/);
     assert.match(markup, /Past error compared with actual sales:/);
-    assert.match(markup, /Past test: 14 days/);
+    assert.match(markup, /Tested on 14 past days/);
   }
 });
 
@@ -539,7 +546,7 @@ test("Forecasts visibly includes the saved Top products selection and dates", ()
     diagnostics: { trainingScope: testScope },
   });
   assert.match(markup, /Top products for XGBoost/);
-  assert.match(markup, /1 selected in the saved run.*limit 5/);
+  assert.match(markup, /1 selected.*maximum 5/);
   assert.match(markup, /2026-01-01 to 2026-05-01/);
   assert.match(markup, /1,234\.0.*bag/);
   assert.match(markup, /Product code: SYNTHETIC-001/);
@@ -547,24 +554,24 @@ test("Forecasts visibly includes the saved Top products selection and dates", ()
 
 test("Top products explains fewer eligible products without filling fake slots", () => {
   const markup = topPanel();
-  assert.match(markup, /1 active products shown/);
-  assert.match(markup, /The limit is a maximum/);
+  assert.match(markup, /1 product shown/);
+  assert.match(markup, /Fewer products appear when fewer have enough usable history/);
   assert.match(markup, /2\.0 bag/);
-  assert.match(topPanel({ scope: null }), /No saved product selection/);
+  assert.match(topPanel({ scope: null }), /Refresh forecasts to see the selected products/);
   assert.match(
     topPanel({ scope: { ...testScope, products: [] } }),
-    /No active products.*qualify for XGBoost/,
+    /No active products were selected/,
   );
 });
 
 test("Top products preserves old ranking limit and hides inactive or stale current advice", () => {
   const changed = topPanel({ configuredLimit: 20, stale: true });
-  assert.match(changed, /current limit is 20/);
-  assert.match(changed, /previous saved selection/);
+  assert.match(changed, /maximum changed to 20/);
+  assert.match(changed, /Records or settings changed/);
   assert.doesNotMatch(changed, /2\.0 bag/);
   const inactive = topPanel({ products: [{ ...product, isActive: false }] });
   assert.doesNotMatch(inactive, /Product code: SYNTHETIC-001/);
-  assert.match(inactive, /0 active products shown/);
+  assert.match(inactive, /0 products shown/);
   assert.equal(topPanel({ demonstration: true }), "");
 });
 
@@ -575,6 +582,6 @@ test("a ready page without validation evidence does not mark any model selected"
   };
   for (const route of [overviewRoute, forecastsRoute]) {
     const markup = renderPage(route, options);
-    assert.doesNotMatch(markup, />Selected</);
+    assert.doesNotMatch(markup, /<span\b[^>]*>(?:Selected|Chosen method)<\/span>/);
   }
 });

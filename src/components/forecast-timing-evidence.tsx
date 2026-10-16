@@ -17,9 +17,9 @@ export function ForecastTimingEvidence({ timing }: { timing?: ForecastTiming }) 
         <CardTitle>Saved processing times</CardTitle>
         <CardDescription>
           {timing?.timingVersion === "disjoint_phases_v1"
-            ? "Worker measurements for the saved run. Model training includes every model fit. Total processing ends at the result commit; queue wait and timing publication are separate."
-            : "Saved phase scopes are unavailable for this run."}
-          {" "}Unmeasured phases remain unavailable.
+            ? "Saved times for preparing and checking this forecast. Model training includes every model fit. Total processing ends when results are saved; queue wait and timing publication are separate."
+            : "How these times were measured was not saved for this forecast."}{" "}
+          Unmeasured steps show as unavailable.
         </CardDescription>
       </CardHeader>
       <CardContent>

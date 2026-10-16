@@ -30,7 +30,7 @@ const owner = {
   displayName: "Synthetic owner",
   role: "owner",
 };
-const protectedRows = [
+const nonImportedRows = [
   {
     id: "manual-sale",
     productId: "synthetic-product",
@@ -41,7 +41,7 @@ const protectedRows = [
   { id: "demo-sale", productId: "synthetic-product", date: "2026-10-08", qty: 101, source: "demo" },
 ];
 let sales = [
-  ...protectedRows,
+  ...nonImportedRows,
   ...Array.from({ length: 43 }, (_, index) => ({
     id: `synthetic-import-${index}`,
     productId: "synthetic-product",
@@ -50,6 +50,22 @@ let sales = [
     source: index % 2 ? "pos_import" : "csv_import",
   })),
 ];
+let movements = [
+  {
+    id: "synthetic-sale-movement",
+    businessId: owner.businessId,
+    productId: "synthetic-product",
+    movementDate: "2026-10-09",
+    movementType: "sale",
+    quantityDelta: -100,
+    balanceAfter: 17.125,
+    dataOrigin: "demo",
+    saleId: "manual-sale",
+    note: null,
+    recordedBy: owner.userId,
+  },
+];
+const originalMovements = structuredClone(movements);
 let product;
 let failNextDelete = false;
 let pendingGate;
@@ -97,11 +113,28 @@ try {
         return;
       }
       const id = pathname.split("/").at(-1);
-      const before = sales.length;
-      sales = sales.filter(
-        (row) => !(row.source.endsWith("_import") && (id === "imported" || row.id === id)),
+      const deleted = sales.filter(
+        (row) =>
+          (id === "imported" && row.source.endsWith("_import")) ||
+          (row.id === id && (row.source === "manual" || row.source.endsWith("_import"))),
       );
-      return json({ deletedRows: before - sales.length });
+      sales = sales.filter((row) => !deleted.includes(row));
+      for (const recorded of deleted.filter((row) => row.source === "manual")) {
+        product = { ...product, currentStock: product.currentStock + recorded.qty };
+        movements = [
+          ...movements,
+          {
+            ...originalMovements[0],
+            id: `synthetic-correction-${recorded.id}`,
+            movementType: "adjustment",
+            quantityDelta: recorded.qty,
+            balanceAfter: product.currentStock,
+            saleId: null,
+            note: `Deleted recorded sale ${recorded.id}`,
+          },
+        ];
+      }
+      return json({ deletedRows: deleted.length });
     }
     if (pathname.endsWith("/sales") && request.method() === "GET") {
       const cursor = url.searchParams.get("beforeId");
@@ -116,6 +149,14 @@ try {
     }
     if (pathname.endsWith("/products") && request.method() === "GET")
       return json(product ? [product] : []);
+    if (pathname.endsWith("/inventory-movements") && request.method() === "GET")
+      return json(
+        movements.map((movement) => ({
+          ...movement,
+          quantityDelta: String(movement.quantityDelta),
+          balanceAfter: String(movement.balanceAfter),
+        })),
+      );
     if (pathname.endsWith("/auth/options"))
       return json({ signUpEnabled: false, googleEnabled: false });
     if (pathname.endsWith("/auth/google/pending")) return json(null);
@@ -144,7 +185,7 @@ try {
   await page.goto(`${base}inventory`, { waitUntil: "domcontentloaded", timeout: 120_000 });
   await page.getByRole("tab", { name: "Sales ledger", exact: true }).waitFor();
   product = await page.evaluate(
-    async ({ owner: session, sales: records }) => {
+    async ({ owner: session, sales: records, movements: audit }) => {
       const { useAppStore } = await import("/src/lib/store.ts");
       const catalogItem = {
         ...useAppStore.getState().products[0],
@@ -160,27 +201,45 @@ try {
         apiStatus: "ready",
         products: [catalogItem],
         sales: records,
-        inventoryMovements: [],
+        inventoryMovements: audit,
         importRefreshWarning: null,
         connectApi: async () => {},
       });
       return catalogItem;
     },
-    { owner, sales },
+    { owner, sales, movements },
   );
   await page.getByRole("tab", { name: "Sales ledger", exact: true }).click();
   const rows = () => page.locator("table tbody tr");
   const dialog = () => page.getByRole("dialog");
   const bulk = () => page.getByRole("button", { name: "Delete imported sales", exact: true });
   const importedButtons = () => page.getByRole("button", { name: /^Delete imported sale for / });
+  const recordedButtons = () => page.getByRole("button", { name: /^Delete recorded sale for / });
+  const storeSnapshot = () =>
+    page.evaluate(async () => {
+      const { useAppStore } = await import("/src/lib/store.ts");
+      const state = useAppStore.getState();
+      return {
+        stock: state.products[0].currentStock,
+        sales: state.sales.map((row) => row.id),
+        movements: state.inventoryMovements,
+      };
+    });
   assert.equal(await rows().count(), 40);
-  assert.equal(await rows().filter({ hasText: "2026-10-09" }).getByRole("button").count(), 0);
+  assert.equal(await recordedButtons().count(), 1);
+  assert.equal(
+    await rows()
+      .filter({ hasText: "2026-10-09" })
+      .getByRole("button", { name: /^Delete recorded sale for / })
+      .count(),
+    1,
+  );
   assert.equal(await rows().filter({ hasText: "2026-10-08" }).getByRole("button").count(), 0);
   await page.getByRole("button", { name: "Next", exact: true }).click();
   assert.equal(await rows().count(), 5);
   assert.equal(await importedButtons().count(), 5);
   passed(
-    "Owner sees deletion only on imported rows, and pagination makes rows after the first 40 reachable.",
+    "Owner can delete recorded and imported rows while demo rows stay protected; pagination reaches rows after the first 40.",
   );
 
   await importedButtons().first().click();
@@ -247,26 +306,65 @@ try {
   await bulk().click();
   await dialog().getByRole("button", { name: "Delete imported sales", exact: true }).click();
   await dialog().waitFor({ state: "hidden" });
-  assert.deepEqual(sales, protectedRows);
+  assert.deepEqual(sales, nonImportedRows);
   assert.equal(await rows().count(), 2);
   assert.equal(await bulk().isDisabled(), true);
   assert.equal(await importedButtons().count(), 0);
-  const saved = await page.evaluate(async () => {
-    const { useAppStore } = await import("/src/lib/store.ts");
-    const state = useAppStore.getState();
-    return {
-      stock: state.products[0].currentStock,
-      sales: state.sales.map((row) => row.id),
-      movements: state.inventoryMovements,
-    };
-  });
+  const saved = await storeSnapshot();
   assert.deepEqual(saved, {
     stock: 17.125,
-    sales: protectedRows.map((row) => row.id),
-    movements: [],
+    sales: nonImportedRows.map((row) => row.id),
+    movements: originalMovements,
   });
   passed(
     "Bulk confirmation covers imported rows on every page, preserves manual/demo sales and current stock, and adjusts pagination after deletion.",
+  );
+
+  const requestsBeforeRecorded = report.requests.length;
+  await recordedButtons().click();
+  await dialog().getByRole("heading", { name: "Delete recorded sale?", exact: true }).waitFor();
+  const recordedConfirmation = await dialog().innerText();
+  assert.match(recordedConfirmation, /100/);
+  assert.match(recordedConfirmation, /restor/i);
+  await dialog().getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal(report.requests.length, requestsBeforeRecorded);
+  assert.deepEqual(await storeSnapshot(), saved);
+  passed(
+    "Recorded-sale confirmation explains stock restoration; cancelling retains the sale and stock.",
+  );
+
+  failNextDelete = true;
+  await recordedButtons().click();
+  await dialog().getByRole("button", { name: "Delete sale", exact: true }).click();
+  await dialog().getByRole("alert").waitFor();
+  assert.match(await dialog().getByRole("alert").innerText(), /Synthetic delete failed/);
+  assert.deepEqual(await storeSnapshot(), saved);
+  assert.deepEqual(sales, nonImportedRows);
+  assert.equal(product.currentStock, 17.125);
+  passed(
+    "A failed recorded-sale deletion keeps its row, stock and audit unchanged and allows retry.",
+  );
+
+  await dialog().getByRole("button", { name: "Delete sale", exact: true }).click();
+  await dialog().waitFor({ state: "hidden" });
+  assert.equal(report.requests.length, requestsBeforeRecorded + 2);
+  assert.ok(report.requests.at(-1).pathname.endsWith("/sales/manual-sale"));
+  assert.equal(await rows().count(), 1);
+  assert.equal(await recordedButtons().count(), 0);
+  assert.equal(await importedButtons().count(), 0);
+  assert.equal(await bulk().isDisabled(), true);
+  assert.deepEqual(sales, [nonImportedRows[1]]);
+  const corrected = await storeSnapshot();
+  assert.deepEqual(corrected, {
+    stock: 117.125,
+    sales: ["demo-sale"],
+    movements,
+  });
+  assert.deepEqual(corrected.movements[0], originalMovements[0]);
+  assert.equal(corrected.movements[1].movementType, "adjustment");
+  assert.equal(corrected.movements[1].quantityDelta, 100);
+  passed(
+    "Confirmed recorded-sale deletion removes its row, refreshes restored stock and a compensating audit, and leaves imported bulk deletion separate.",
   );
 
   await page.evaluate(async (session) => {
@@ -274,6 +372,13 @@ try {
     useAppStore.setState({
       session: { ...session, role: "staff" },
       sales: [
+        {
+          id: "staff-visible-recorded",
+          productId: "synthetic-product",
+          date: "2026-10-09",
+          qty: 2,
+          source: "manual",
+        },
         {
           id: "staff-visible-import",
           productId: "synthetic-product",
@@ -286,8 +391,9 @@ try {
   }, owner);
   assert.equal(await bulk().count(), 0);
   assert.equal(await importedButtons().count(), 0);
-  assert.equal(await rows().count(), 1);
-  passed("Staff can read imported sales and have no row or bulk deletion controls.");
+  assert.equal(await recordedButtons().count(), 0);
+  assert.equal(await rows().count(), 2);
+  passed("Staff can read recorded and imported sales and have no row or bulk deletion controls.");
 
   assert.ok(report.requests.every((request) => request.csrf === "synthetic-csrf"));
   assert.deepEqual(report.unexpectedRequests, []);

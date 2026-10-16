@@ -5,7 +5,7 @@ import { ProductsPanel } from "@/components/products-panel";
 import { StockMovementsPanel } from "@/components/stock-movements-panel";
 import { SalesLedgerCard } from "@/components/sales-ledger-card";
 import { CsvImporter } from "@/components/csv-importer";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,10 +28,6 @@ function InventoryPage() {
     <div className="page-enter mx-auto flex max-w-6xl flex-col gap-6">
       <header>
         <h1 className="font-display text-3xl font-medium tracking-tight">Inventory & records</h1>
-        <p className="mt-2 max-w-2xl text-muted">
-          Products, lead times, and safety stock drive reorder points. Sales history is the only
-          input the models need.
-        </p>
       </header>
       <Tabs defaultValue="products">
         <TabsList className="w-full justify-start overflow-x-auto">
@@ -160,14 +156,16 @@ function SettingsPanel() {
   const resetDemo = useAppStore((s) => s.resetDemo);
   const mode = useAppStore((s) => s.dataMode);
   const [draft, setDraft] = useState(settings);
+  const [coverDays, setCoverDays] = useState(String(settings.coverDays));
+  const coverDaysInput = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
   const edit = (patch: Partial<typeof settings>) =>
     setDraft((current) => ({ ...current, ...patch }));
   async function saveSettings() {
-    if (!canManageSettings || saving) return;
+    if (!canManageSettings || saving || !coverDaysInput.current?.reportValidity()) return;
     setSaving(true);
     try {
-      await updateSettings(draft);
+      await updateSettings({ ...draft, coverDays: Number(coverDays) });
       toast.success("Settings saved.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Save failed");
@@ -211,17 +209,23 @@ function SettingsPanel() {
           </Select>
         </div>
         <div className="grid gap-1.5">
-          <Label>Cover days after delivery</Label>
-          <Select
-            value={String(draft.coverDays)}
-            onChange={(e) => edit({ coverDays: Number(e.target.value) })}
-          >
+          <Label htmlFor="settings-cover-days">Cover days after delivery</Label>
+          <Input
+            ref={coverDaysInput}
+            id="settings-cover-days"
+            type="number"
+            min={0}
+            step={1}
+            required
+            list="settings-cover-days-options"
+            value={coverDays}
+            onChange={(e) => setCoverDays(e.target.value)}
+          />
+          <datalist id="settings-cover-days-options">
             {[3, 7, 10, 14].map((n) => (
-              <option key={n} value={n}>
-                {n} days
-              </option>
+              <option key={n} value={n} label={`${n} days`} />
             ))}
-          </Select>
+          </datalist>
         </div>
         <div className="rounded-xl border border-border bg-surface-2 p-4">
           <p className="text-sm font-medium">
@@ -263,7 +267,7 @@ function SettingsPanel() {
               value={String(draft.maWindow)}
               onChange={(e) => edit({ maWindow: Number(e.target.value) })}
             >
-              {[3, 7, 14].map((n) => (
+              {[3, 7, 14, 28, 30].map((n) => (
                 <option key={n} value={n}>
                   {n} days
                 </option>

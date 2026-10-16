@@ -46,10 +46,12 @@ type Store = {
   recordStockMovement: (input: StockMovementInput) => Promise<void>;
   refreshInventoryMovements: () => Promise<void>;
   updateProduct: (id: string, patch: ProductPatch) => Promise<void>;
+  deleteProduct: (id: string) => Promise<{ deletedRows: number }>;
   addProduct: (product: Omit<Product, "id" | "sku"> & { sku?: string }) => Promise<void>;
   importInventory: (rows: InventoryImportRow[], idempotencyKey?: string) => Promise<void>;
   updateSettings: (patch: Partial<Settings>) => Promise<void>;
   importSales: (rows: Sale[], originalFilename?: string) => Promise<SalesImportResult>;
+  deleteSale: (saleId: string) => Promise<{ deletedRows: number }>;
   deleteImportedSales: (saleId?: string) => Promise<{ deletedRows: number }>;
   resetDemo: () => void;
 };
@@ -208,8 +210,7 @@ export const useAppStore = create<Store>()(
             movementsStatus: "idle",
           });
           try {
-            const products = await api.products(session.businessId);
-            if (get().session === session) set({ products });
+            await refreshApiProducts(session, set, get);
           } catch {
             if (get().session === session)
               set({
@@ -379,6 +380,30 @@ export const useAppStore = create<Store>()(
             : get().inventoryMovements,
         });
       },
+      deleteProduct: async (id) => {
+        requireOwner(get());
+        if (get().dataMode === "api") {
+          const session = requireSession(get());
+          const result = await api.deleteProduct(session.businessId, id);
+          if (!sameSession(get().session, session)) return result;
+          invalidatePipelineCache();
+          set({ products: get().products.filter((product) => product.id !== id) });
+          return result;
+        }
+        const product = get().products.find((row) => row.id === id);
+        if (!product) return { deletedRows: 0 };
+        if (
+          product.currentStock !== 0 ||
+          get().sales.some((sale) => sale.productId === id) ||
+          get().inventoryMovements.some((movement) => movement.productId === id)
+        )
+          throw new Error(
+            "This product has stock or saved history and cannot be deleted. You can deactivate it instead.",
+          );
+        invalidatePipelineCache();
+        set({ products: get().products.filter((row) => row.id !== id) });
+        return { deletedRows: 1 };
+      },
       addProduct: async (product) => {
         requireOwner(get());
         if (get().dataMode === "api") {
@@ -434,10 +459,9 @@ export const useAppStore = create<Store>()(
           if (!sameSession(get().session, session)) return;
           set({ movementsStatus: "idle" });
           try {
-            const products = await api.products(session.businessId);
-            if (sameSession(get().session, session)) {
-              set({ products, movementsStatus: "idle", importRefreshWarning: null });
-            }
+            await refreshApiProducts(session, set, get);
+            if (sameSession(get().session, session))
+              set({ movementsStatus: "idle", importRefreshWarning: null });
           } catch {
             if (sameSession(get().session, session)) {
               set({
@@ -564,6 +588,66 @@ export const useAppStore = create<Store>()(
         });
         return result;
       },
+      deleteSale: async (saleId) => {
+        requireOwner(get());
+        const sale = get().sales.find((row) => row.id === saleId);
+        if (!sale) throw new Error("Sale not found. Reload saved records.");
+        if (isImportedSale(sale)) return get().deleteImportedSales(saleId);
+        if (sale.source !== "manual")
+          throw new Error("Only imported or recorded sales can be deleted.");
+        if (get().dataMode === "api") {
+          const session = requireSession(get());
+          const result = await api.deleteSale(session.businessId, saleId);
+          if (!sameSession(get().session, session)) return result;
+          invalidatePipelineCache();
+          // Replacing these arrays invalidates any sales/catalog/movement read that
+          // began before the committed reversal. Stock comes from the server below.
+          set({
+            sales: get().sales.filter((row) => row.id !== saleId),
+            products: [...get().products],
+            inventoryMovements: [...get().inventoryMovements],
+            movementsStatus: "idle",
+          });
+          const [, inventoryRefresh] = await Promise.allSettled([
+            refreshApiSales(
+              session,
+              set,
+              get,
+              "Sale deleted and stock restored, but the ledger could not be refreshed. Reload saved records; do not repeat the deletion.",
+            ),
+            get().refreshInventoryMovements(),
+          ]);
+          if (sameSession(get().session, session) && inventoryRefresh.status === "rejected")
+            set({
+              importRefreshWarning:
+                "Sale deleted and stock restored, but inventory could not be refreshed. Reload saved records; do not repeat the deletion.",
+            });
+          return result;
+        }
+        const product = get().products.find((row) => row.id === sale.productId);
+        if (!product)
+          throw new Error("The sale's product could not be found. Reload saved records.");
+        const balance = stockBalance(product.currentStock + sale.qty);
+        invalidatePipelineCache();
+        set({
+          sales: get().sales.filter((row) => row.id !== saleId),
+          products: get().products.map((row) =>
+            row.id === product.id ? { ...row, currentStock: balance } : row,
+          ),
+          inventoryMovements: [
+            demoMovement(
+              product.id,
+              todayISO(),
+              "adjustment",
+              sale.qty,
+              balance,
+              `Recorded sale deleted: ${saleId}`,
+            ),
+            ...get().inventoryMovements,
+          ],
+        });
+        return { deletedRows: 1 };
+      },
       deleteImportedSales: async (saleId) => {
         requireOwner(get());
         const selected = get().sales.filter(
@@ -576,6 +660,7 @@ export const useAppStore = create<Store>()(
           const session = requireSession(get());
           const result = await api.deleteImportedSales(session.businessId, saleId);
           if (!sameSession(get().session, session)) return result;
+          invalidatePipelineCache();
           set({ sales: get().sales.filter((sale) => !selectedIds.has(sale.id)) });
           await refreshApiSales(
             session,
@@ -653,6 +738,21 @@ function requireSession(store: Store): SessionUser {
 
 function sameSession(current: SessionUser | null, submitted: SessionUser): boolean {
   return current === submitted;
+}
+
+async function refreshApiProducts(
+  session: SessionUser,
+  set: (patch: Partial<Store>) => void,
+  get: () => Store,
+) {
+  for (;;) {
+    const previousProducts = get().products;
+    const products = await api.products(session.businessId);
+    if (!sameSession(get().session, session)) return;
+    if (get().products !== previousProducts) continue;
+    set({ products });
+    return;
+  }
 }
 
 async function refreshApiSales(

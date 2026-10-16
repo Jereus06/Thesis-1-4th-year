@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { DemandChart } from "@/components/demand-chart";
 import { DemandEvidence } from "@/components/demand-evidence";
@@ -37,69 +37,39 @@ function ForecastsPage() {
   const { result, status, refresh, forecastThrough, schedule } = useForecast();
   const refreshAdvice = forecastRefreshAdvice(mode, canRefreshForecast, schedule);
   const ready = Boolean(result);
-  const winnerAvailable = result?.diagnostics.comparisonWinnerAvailable !== false;
-  const mlFirst =
-    products.find((p) => result?.byProduct[p.id]?.trainedWithMl)?.id ?? products[0]?.id ?? "";
   const [productId, setProductId] = useState("");
-  useEffect(() => {
-    if (!productId && mlFirst) setProductId(mlFirst);
-  }, [mlFirst, productId]);
-  const selected =
-    products.find((p) => p.id === productId) ??
-    products.find((p) => p.id === mlFirst) ??
-    products[0];
+  const selected = products.find((p) => p.id === productId);
   const forecast = selected ? result?.byProduct[selected.id] : undefined;
+  const scores = selected ? forecast : result;
+  const winnerAvailable = selected
+    ? Boolean(
+        forecast &&
+        Number.isFinite(forecast.cvMaeMa) &&
+        (!forecast.trainedWithMl || Number.isFinite(forecast.cvMaeXgb)),
+      )
+    : result?.diagnostics.comparisonWinnerAvailable !== false;
 
   const chartPoints: ForecastPoint[] = useMemo(() => {
     if (!forecast) return [];
     return [...forecast.holdout, ...forecast.future];
   }, [forecast]);
 
-  async function copyTable() {
-    if (!result) return;
-    const header = "Forecasting Model\tMAE\tRMSE";
-    const lines = [
-      `Moving Average\t${formatFixed(result.maMae)}\t${formatFixed(result.maRmse)}`,
-      `XGBoost\t${formatFixed(result.xgbMae)}\t${formatFixed(result.xgbRmse)}`,
-      `Ensemble\t${formatFixed(result.ensembleMae)}\t${formatFixed(result.ensembleRmse)}`,
-    ];
-    try {
-      await navigator.clipboard.writeText([header, ...lines].join("\n"));
-      toast.success("Copied MAE / RMSE table.");
-    } catch {
-      toast.error("Clipboard is blocked in this preview.");
-    }
-  }
-
   return (
     <div className="page-enter mx-auto flex max-w-6xl flex-col gap-6">
       <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="font-display text-3xl font-medium tracking-tight">Forecast evaluation</h1>
-          <p className="mt-2 max-w-2xl text-muted">
-            {mode === "api"
-              ? "Python XGBoost and Moving Average use separate chronological training, validation, and final-test periods. The operating method is selected on validation."
-              : "Demonstration model evaluation using synthetic sales."}
-          </p>
+          <h1 className="font-display text-3xl font-medium tracking-tight">Sales forecasts</h1>
         </div>
-        <div className="flex items-center gap-4">
-          {canRefreshForecast && (
+        {canRefreshForecast && (
+          <div className="flex items-center gap-4">
             <Button
               disabled={status === "training"}
               onClick={() => void refresh().catch((error: Error) => toast.error(error.message))}
             >
-              {status === "training" ? "Forecast queued…" : "Refresh forecasts"}
+              {status === "training" ? "Updating forecasts…" : "Refresh forecasts"}
             </Button>
-          )}
-          <button
-            type="button"
-            onClick={copyTable}
-            disabled={!ready}
-            className="text-sm font-medium text-primary underline-offset-4 hover:underline disabled:text-muted"
-          >
-            Copy MAE / RMSE table
-          </button>
-        </div>
+          </div>
+        )}
       </header>
 
       <TrainingBanner />
@@ -117,137 +87,152 @@ function ForecastsPage() {
         demonstration={mode === "browser-demo"}
       />
 
-      <section className="grid gap-3 md:grid-cols-3">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <p className="font-medium">{selected?.name ?? "Overall results"}</p>
+        <Select
+          id="forecast-results"
+          aria-label="Forecast results"
+          className="md:max-w-xs"
+          value={selected?.id ?? ""}
+          onChange={(e) => setProductId(e.target.value)}
+        >
+          <option value="">Overall results</option>
+          {products.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </Select>
+      </div>
+
+      <section aria-label="Model scores" className="grid gap-3 md:grid-cols-3">
         <Score
           name="Ensemble"
-          mae={result?.ensembleMae}
-          rmse={result?.ensembleRmse}
-          winner={ready && winnerAvailable ? result?.winner === "ensemble" : false}
-          note="Weighted by validation MAE"
+          mae={scores?.ensembleMae}
+          rmse={scores?.ensembleRmse}
+          winner={ready && winnerAvailable ? scores?.winner === "ensemble" : false}
+          note="Combines both forecasting methods"
           ready={ready}
         />
         <Score
           name="XGBoost"
-          mae={result?.xgbMae}
-          rmse={result?.xgbRmse}
-          winner={ready && winnerAvailable ? result?.winner === "xgb" : false}
+          mae={scores?.xgbMae}
+          rmse={scores?.xgbRmse}
+          winner={ready && winnerAvailable ? scores?.winner === "xgb" : false}
           note={
-            mode === "api"
-              ? "Official Python XGBoost · saved model"
-              : "Prototype boosted-tree model"
+            mode === "api" ? "Learns patterns from past sales" : "Demonstration forecasting method"
           }
           ready={ready}
         />
         <Score
           name="Moving Average"
-          mae={result?.maMae}
-          rmse={result?.maRmse}
+          mae={scores?.maMae}
+          rmse={scores?.maRmse}
           winner={
-            ready && winnerAvailable ? result?.winner === "ma" || result?.winner === "rule" : false
+            ready && winnerAvailable ? scores?.winner === "ma" || scores?.winner === "rule" : false
           }
-          note={`${window}-day window baseline`}
+          note={`Uses the previous ${window} days of sales`}
           ready={ready}
         />
       </section>
       {mode === "api" && ready && (
         <p className="text-sm text-muted">
-          {result?.diagnostics.comparisonObservationCount
-            ? `Saved test scores cover ${num(result.diagnostics.comparisonObservationCount)} product-days across ${num(result.diagnostics.comparisonProductCount ?? 0)} products. Compared models use matching records.`
-            : "A matching saved test is not available for this comparison. Unavailable scores are shown as —."}{" "}
-          The selected model uses validation results, not final-test scores.
+          {selected
+            ? `Past test results for ${selected.name}.`
+            : result?.diagnostics.comparisonObservationCount
+              ? `Past tests cover ${num(result.diagnostics.comparisonObservationCount)} daily results across ${num(result.diagnostics.comparisonProductCount ?? 0)} products, using the same sales records.`
+              : "Matching past test results are not available. A dash means no saved score."}{" "}
+          MAE shows average error; RMSE highlights larger mistakes. Lower is better. The chosen
+          method comes from an earlier, separate check.
         </p>
       )}
 
-      <Card>
-        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <CardTitle>{selected?.name ?? "Product"}</CardTitle>
-            <CardDescription>
-              {!forecast
-                ? "No forecast yet"
-                : !Number.isFinite(forecast.dailyDemand) && forecast.fallbackReason
-                  ? forecast.fallbackReason
-                  : `${modelLabel(forecast.method)} · daily demand ${num(forecast.dailyDemand, 1)} · ${forecast.grain} grain · ${forecast.nonzeroCount} non-zero days`}
-            </CardDescription>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {forecast && (
-              <ForecastEvidenceBadge
-                evidence={forecast.forecastEvidence}
-                confidence={forecast.forecastConfidence}
-                demonstration={mode === "browser-demo"}
+      {selected ? (
+        <Card>
+          <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle>{selected?.name ?? "Product"}</CardTitle>
+              <CardDescription>
+                {!forecast
+                  ? "No forecast yet"
+                  : !Number.isFinite(forecast.dailyDemand) && forecast.fallbackReason
+                    ? "No current sales estimate. Review the sales records below."
+                    : `Expected daily sales: ${num(forecast.dailyDemand, 1)} ${selected.unit}`}
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {forecast && (
+                <ForecastEvidenceBadge
+                  evidence={forecast.forecastEvidence}
+                  confidence={forecast.forecastConfidence}
+                  demonstration={mode === "browser-demo"}
+                />
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {forecast && mode === "api" && (
+              <DemandEvidence
+                forecast={forecast}
+                unavailableReason={forecast.unavailableReason}
+                className="mb-4 space-y-1 text-sm text-muted"
               />
             )}
-            <Select
-              className="md:max-w-xs"
-              value={selected?.id}
-              onChange={(e) => setProductId(e.target.value)}
-            >
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {forecast && mode === "api" && (
-            <DemandEvidence
-              forecast={forecast}
-              unavailableReason={forecast.unavailableReason}
-              className="mb-4 space-y-1 text-sm text-muted"
-            />
-          )}
-          {ready ? (
-            <DemandChart
-              points={chartPoints}
-              intervalLabel={
-                mode === "browser-demo"
-                  ? "Illustrative demonstration band"
-                  : forecast?.interval?.nominalCoverage !== undefined
-                    ? `${num(forecast.interval.nominalCoverage * 100)}% nominal interval`
-                    : "Saved prediction interval"
-              }
-            />
-          ) : (
-            <Skeleton className="h-72 w-full" />
-          )}
-          {forecast && (
-            <IntervalEvidence
-              forecast={forecast}
-              mode={mode}
-              forecastThrough={forecastThrough}
-              refreshAdvice={refreshAdvice}
-            />
-          )}
-          <p className="mt-3 text-xs text-muted">
-            {mode === "api"
-              ? "Actuals are from the final-test period. Baseline-only products display no XGBoost score. Shading appears only for saved interval bounds."
-              : "Shaded demonstration bands are illustrative; their coverage has not been validated."}{" "}
-            {result?.diagnostics.disclaimer ?? DISCLAIMER}
-          </p>
-          {mode === "api" && (
-            <details className="mt-3 text-sm text-muted">
-              <summary className="cursor-pointer font-medium">How confidence is rated</summary>
-              <p className="mt-2">
-                High: past error is at most 20% of actual sales. Medium: at most 50%. Both need at
-                least 14 consecutive tested days with some actual sales. Low: larger errors, shorter
-                tests, gaps, no sales, or no usable saved test. The error rating uses total absolute
-                prediction error divided by total actual sales. These are StockCast display rules,
-                not a probability or a guarantee. High confidence can support a small sales estimate
-                too.
-              </p>
-            </details>
-          )}
-        </CardContent>
-      </Card>
+            {ready ? (
+              <DemandChart
+                points={chartPoints}
+                intervalLabel={
+                  mode === "browser-demo"
+                    ? "Example sales range"
+                    : forecast?.interval?.nominalCoverage !== undefined
+                      ? `Estimated sales range (${num(forecast.interval.nominalCoverage * 100)}% target)`
+                      : "Estimated sales range"
+                }
+              />
+            ) : (
+              <Skeleton className="h-72 w-full" />
+            )}
+            {forecast && (
+              <IntervalEvidence
+                forecast={forecast}
+                mode={mode}
+                forecastThrough={forecastThrough}
+                refreshAdvice={refreshAdvice}
+              />
+            )}
+            <p className="mt-3 text-xs text-muted">
+              {mode === "api"
+                ? "The chart compares past estimates with recorded sales and shows upcoming estimates."
+                : "This chart uses sample data. Its shaded range is for demonstration only."}{" "}
+              {DISCLAIMER}
+            </p>
+            {mode === "api" && (
+              <details className="mt-3 text-sm text-muted">
+                <summary className="cursor-pointer font-medium">How confidence is rated</summary>
+                <p className="mt-2">
+                  Confidence describes past forecasting results, not how much a product will sell.
+                  High means total error was at most 20% of recorded sales; Medium means at most
+                  50%. Both need at least 14 tested days in a row with some sales. Low means larger
+                  errors or too few usable test results. These ratings do not guarantee future
+                  sales. The error percentage adds up all prediction differences and divides that
+                  total by recorded sales.
+                </p>
+              </details>
+            )}
+          </CardContent>
+        </Card>
+      ) : products.length > 0 ? (
+        <p className="text-sm text-muted">
+          Choose a product above to see its own results and sales chart.
+        </p>
+      ) : null}
 
       <Card>
         <CardHeader>
-          <CardTitle>Per-product holdout errors</CardTitle>
+          <CardTitle>Past forecast errors by product</CardTitle>
           <CardDescription>
-            Lower errors are better. Each product shows its data evidence and interval availability.
+            Average differences between estimated and recorded sales. Smaller numbers mean closer
+            estimates.
           </CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto">
@@ -258,13 +243,13 @@ function ForecastsPage() {
               <thead className="text-xs tracking-wide text-muted uppercase">
                 <tr>
                   <th className="pb-2 font-medium">Product</th>
-                  <th className="pb-2 font-medium">Obs</th>
+                  <th className="pb-2 font-medium">Sales days</th>
                   <th className="pb-2 font-medium">MA MAE</th>
                   <th className="pb-2 font-medium">XGB MAE</th>
                   <th className="pb-2 font-medium">Ens MAE</th>
-                  <th className="pb-2 font-medium">Method</th>
-                  <th className="pb-2 font-medium">Data evidence</th>
-                  <th className="pb-2 font-medium">Interval</th>
+                  <th className="pb-2 font-medium">Chosen method</th>
+                  <th className="pb-2 font-medium">Past results</th>
+                  <th className="pb-2 font-medium">Sales range</th>
                 </tr>
               </thead>
               <tbody>
@@ -305,10 +290,6 @@ function ForecastsPage() {
   );
 }
 
-function formatFixed(value: number): string {
-  return Number.isFinite(value) ? value.toFixed(3) : "n/a";
-}
-
 function Score({
   name,
   mae,
@@ -340,7 +321,7 @@ function Score({
           )}
           <p className="mt-1 text-xs text-muted">{note}</p>
         </div>
-        {winner && <Badge variant="primary">Better model</Badge>}
+        {winner && <Badge variant="primary">Chosen method</Badge>}
       </CardContent>
     </Card>
   );

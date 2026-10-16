@@ -181,34 +181,36 @@ page.on("Fetch.requestPaused", async (event) => {
 async function assertNoRefresh() {
   assert.equal(
     await page.evaluate(
-      `[...document.querySelectorAll('button')].some(b => /refresh forecasts|forecast queued/i.test(b.textContent))`,
+      `[...document.querySelectorAll('button')].some(b => /refresh forecasts|updating forecasts/i.test(b.textContent))`,
     ),
     false,
+  );
+}
+async function assertNoScheduleSentence() {
+  assert.equal(
+    await page.evaluate(
+      `Boolean(document.querySelector('[data-forecast-schedule]')) || document.body.innerText.includes('Forecasts update daily at')`,
+    ),
+    false,
+    "daily schedule sentence is not displayed",
   );
 }
 try {
   await page.send("Page.navigate", { url: base + "/forecasts" });
   await page.waitFor(
-    `document.querySelector('[data-forecast-schedule]')`,
-    "staff schedule",
+    `document.body.innerText.includes('Waiting to update forecasts')`,
+    "queued status",
     120_000,
   );
-  const schedule = await page.evaluate(
-    `document.querySelector('[data-forecast-schedule]').textContent`,
-  );
-  assert.match(schedule, /00:15.*Asia\/Manila/);
-  await page.waitFor(
-    `document.body.innerText.includes('Forecast refresh is queued')`,
-    "queued status",
-  );
   await assertNoRefresh();
+  await assertNoScheduleSentence();
   report.checks.push({
-    name: "staff sees daily schedule and queued state without Refresh",
+    name: "staff sees queued state without Refresh or the daily schedule sentence",
     passed: true,
   });
   for (const [nextStage, expected] of [
-    ["running", "Forecast refresh is running"],
-    ["completed", "Saved Python forecast through"],
+    ["running", "Updating forecasts"],
+    ["completed", "Forecast saved through"],
     ["failed", "Synthetic scheduled test failure"],
     ["expired", "Forecast expired"],
   ]) {
@@ -220,6 +222,7 @@ try {
       20_000,
     );
     await assertNoRefresh();
+    await assertNoScheduleSentence();
     report.checks.push({
       name: `${stage} updates automatically through dashboard polling`,
       passed: true,
@@ -231,13 +234,20 @@ try {
     }
   }
   stage = "disabled";
+  const disabledStarted = performance.now();
   await page.waitFor(
-    `!document.querySelector('[data-forecast-schedule]')`,
-    "disabled schedule",
+    `document.body.innerText.includes('The owner can refresh forecasts after records change.')`,
+    "disabled schedule owner advice via existing poll",
     20_000,
   );
-  report.checks.push({ name: "disabled schedules do not promise daily refresh", passed: true });
-  assert.ok(report.requests.filter((r) => r.path.endsWith("/forecast-dashboard")).length >= 5);
+  await assertNoRefresh();
+  await assertNoScheduleSentence();
+  report.checks.push({
+    name: "disabled schedule updates owner advice through dashboard polling without a schedule sentence",
+    passed: true,
+    observedWaitMs: performance.now() - disabledStarted,
+  });
+  assert.ok(report.requests.filter((r) => r.path.endsWith("/forecast-dashboard")).length >= 6);
   assert.ok(
     report.requests.every((r) => r.method === "GET"),
     "staff never submits a forecast job",

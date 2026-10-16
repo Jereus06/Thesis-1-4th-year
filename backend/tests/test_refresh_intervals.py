@@ -25,6 +25,7 @@ def refresh_client(pg_client, monkeypatch):
     response = client.get(base + "/settings")
     assert response.status_code == 200, response.text
     settings = response.json()["data"]
+    assert settings["forecastHorizonDays"] == 14
     assert settings["minimumNonzeroDays"] == 100
     assert settings["minimumHistoryWeeks"] == 8
     assert settings["cvFolds"] == 3
@@ -68,8 +69,7 @@ def normal_refresh_and_process(client, base):
     return queued, completed, predictions.json()["data"], metrics.json()["data"]
 
 
-def assert_splits(queued, count, validation_days):
-    final_test_days = 14
+def assert_splits(queued, count, validation_days, final_test_days):
     training_days = count - validation_days - final_test_days
     training_start = date.fromisoformat(queued["trainingStart"])
     training_end = date.fromisoformat(queued["trainingEnd"])
@@ -83,7 +83,7 @@ def assert_splits(queued, count, validation_days):
     assert (BUSINESS_DAY - final_start).days + 1 == final_test_days
     assert queued["finalTestEnd"] == str(BUSINESS_DAY)
     planned = queued["configuration"]["refreshSplit"]
-    assert planned["policy"]
+    assert planned["policy"] == "horizon_matched_selection_calibration_v2"
     assert planned["trainingCalendarDays"] == training_days
     assert planned["validationCalendarDays"] == validation_days
     assert planned["finalTestCalendarDays"] == final_test_days
@@ -91,24 +91,33 @@ def assert_splits(queued, count, validation_days):
     return training_days, validation_start, validation_end
 
 
-def assert_metrics_use_separate_observations(metrics, selection_days):
+def assert_metrics_use_separate_observations(metrics, selection_days, final_test_days):
     selection = [metric for metric in metrics if metric["datasetSplit"] == "validation"]
     final_test = [metric for metric in metrics if metric["datasetSplit"] == "final_test"]
     assert {metric["method"] for metric in selection} == METHODS
     assert {metric["method"] for metric in final_test} == METHODS
     assert all(metric["observationCount"] == selection_days for metric in selection)
-    assert all(metric["observationCount"] == 14 for metric in final_test)
+    assert all(metric["observationCount"] == final_test_days for metric in final_test)
 
 
-@pytest.mark.parametrize("count, validation_days", [(134, 20), (180, 28)])
+@pytest.mark.parametrize(
+    "count, horizon, validation_days, final_test_days",
+    [(134, 14, 20, 14), (180, 14, 28, 14), (140, 30, 20, 20), (158, 30, 28, 30)],
+)
 def test_normal_refresh_saves_real_calibrated_bounds_and_three_training_folds(
-    refresh_client, tmp_path, count, validation_days
+    refresh_client, tmp_path, count, horizon, validation_days, final_test_days
 ):
     client, business, base, settings = refresh_client
+    saved_settings = client.put(base + "/settings", json={**settings, "forecastHorizonDays": horizon})
+    assert saved_settings.status_code == 200, saved_settings.text
+    settings = saved_settings.json()["data"]
     product, start = seed_daily_history(client, business, base, count)
     queued, completed, predictions, metrics = normal_refresh_and_process(client, base)
     assert queued["trainingStart"] == str(start)
-    training_days, validation_start, validation_end = assert_splits(queued, count, validation_days)
+    assert queued["forecastHorizonDays"] == horizon
+    training_days, validation_start, validation_end = assert_splits(
+        queued, count, validation_days, final_test_days
+    )
     summary = completed["configuration"]["products"][product["id"]]
     assert summary["eligible"] is True
     assert summary["historyDays"] == summary["nonzeroDays"] == training_days
@@ -130,15 +139,17 @@ def test_normal_refresh_saves_real_calibrated_bounds_and_three_training_folds(
     assert isfinite(interval["lowerResidual"]) and isfinite(interval["upperResidual"])
     assert interval["lowerResidual"] <= interval["upperResidual"]
     assert 0 <= interval["finalTestCoverage"] <= 1
-    assert interval["finalTestCoverage"] * 14 == pytest.approx(round(interval["finalTestCoverage"] * 14))
+    assert interval["finalTestCoverage"] * final_test_days == pytest.approx(
+        round(interval["finalTestCoverage"] * final_test_days)
+    )
     planned = queued["configuration"]["refreshSplit"]
     assert planned["validationSelectionCalendarDays"] == selection_days
     assert planned["validationCalibrationCalendarDays"] == 10
-    assert_metrics_use_separate_observations(metrics, selection_days)
+    assert_metrics_use_separate_observations(metrics, selection_days, final_test_days)
 
     final_test = [point for point in predictions if point["datasetSplit"] == "final_test"]
-    expected_test_dates = {str(BUSINESS_DAY - timedelta(days=offset)) for offset in range(14)}
-    assert len(final_test) == 14 * len(METHODS)
+    expected_test_dates = {str(BUSINESS_DAY - timedelta(days=offset)) for offset in range(final_test_days)}
+    assert len(final_test) == final_test_days * len(METHODS)
     for method in METHODS:
         method_test = [point for point in final_test if point["method"] == method]
         assert {point["predictionDate"] for point in method_test} == expected_test_dates
@@ -168,7 +179,7 @@ def test_normal_refresh_saves_real_calibrated_bounds_and_three_training_folds(
         upper = max(0, predicted + interval["upperResidual"])
         definitely_covered += lower + 0.002 < actual < upper - 0.002
         possibly_covered += lower - 0.002 <= actual <= upper + 0.002
-    assert definitely_covered / 14 <= interval["finalTestCoverage"] <= possibly_covered / 14
+    assert definitely_covered / final_test_days <= interval["finalTestCoverage"] <= possibly_covered / final_test_days
 
     artifact = tmp_path / "models" / summary["artifact"]
     model = json.loads(artifact.read_text(encoding="utf8"))
@@ -181,9 +192,13 @@ def test_normal_refresh_saves_real_calibrated_bounds_and_three_training_folds(
 
 def test_short_but_xgboost_eligible_normal_refresh_reports_unavailable_intervals(refresh_client):
     client, business, base, settings = refresh_client
+    saved_settings = client.put(base + "/settings", json={**settings, "forecastHorizonDays": 30})
+    assert saved_settings.status_code == 200, saved_settings.text
+    settings = saved_settings.json()["data"]
     product, _start = seed_daily_history(client, business, base, 128)
     queued, completed, predictions, metrics = normal_refresh_and_process(client, base)
-    assert_splits(queued, 128, 14)
+    assert queued["forecastHorizonDays"] == 30
+    assert_splits(queued, 128, 14, 14)
     summary = completed["configuration"]["products"][product["id"]]
     assert summary["eligible"] is True
     assert summary["historyDays"] == summary["nonzeroDays"] == 100
@@ -198,7 +213,7 @@ def test_short_but_xgboost_eligible_normal_refresh_reports_unavailable_intervals
     planned = queued["configuration"]["refreshSplit"]
     assert planned["validationSelectionCalendarDays"] == 14
     assert planned["validationCalibrationCalendarDays"] == 0
-    assert_metrics_use_separate_observations(metrics, 14)
+    assert_metrics_use_separate_observations(metrics, 14, 14)
     future = [point for point in predictions if point["datasetSplit"] == "future"]
     assert len(future) == settings["forecastHorizonDays"] * len(METHODS)
     assert all(point["lowerBound"] is point["upperBound"] is None for point in future)

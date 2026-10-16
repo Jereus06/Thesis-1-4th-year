@@ -7,7 +7,7 @@ export const LOW_CONFIDENCE_OBS = 30;
 export const TOP_N_DEFAULT = 8;
 export const CV_FOLDS = 3;
 export const DISCLAIMER =
-  "Forecasts are decision-support only, not guarantees. Final purchasing decisions remain the owner's.";
+  "Forecasts are estimates, not guarantees. Review your stock before ordering.";
 
 export const XGB_UNSTABLE_RATIO = 1.75;
 

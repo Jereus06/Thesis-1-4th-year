@@ -3,7 +3,6 @@ import { ArrowRight, Clock3, PackageMinus, Scale, Wallet } from "lucide-react";
 import { useMemo } from "react";
 import { useForecast } from "@/components/forecast-context";
 import { StatusBadge } from "@/components/status-badge";
-import { DemandEvidence } from "@/components/demand-evidence";
 import { TrainingBanner } from "@/components/training-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,17 +47,6 @@ function Overview() {
   const missing = products.filter((product) => !rows.some((row) => row.product.id === product.id));
   const unavailableCount = unavailable.length + missing.length;
   const zeroDemand = available.filter((row) => row.dailyDemand === 0);
-  const evidenceRows = rows.filter(
-    (row) =>
-      expired ||
-      !hasCurrentDemand(row) ||
-      row.dailyDemand === 0 ||
-      row.fallbackReason ||
-      result?.byProduct[row.product.id]?.fallbackReason ||
-      row.unknownDays ||
-      row.excludedDays ||
-      row.qualityWarnings?.length,
-  );
   const stockouts = rows.filter((r) => r.status === "stockout");
   const inventoryValue = products.reduce((sum, p) => sum + p.currentStock * p.unitCost, 0);
   const winner = result ? modelLabel(result.winner) : "—";
@@ -80,23 +68,6 @@ function Overview() {
           Morning briefing
           <span className="mt-1 block">for {storeName}</span>
         </h1>
-        <p className="max-w-2xl text-muted">
-          {!ready
-            ? "Loading current demand estimates…"
-            : products.length === 0
-              ? canManageProducts
-                ? "Add or activate products and record sales history to start planning restocks."
-                : "Ask the owner to add or activate products before recording sales."
-              : expired
-                ? `Forecasts have expired. Review recent sales and ${refreshAdvice} before planning restocks.`
-                : restock.length
-                  ? `${restock.length} product${restock.length === 1 ? "" : "s"} should be reordered before supplier lead time catches you short.${unavailableCount ? ` Current demand is unavailable for ${unavailableCount} other product${unavailableCount === 1 ? "" : "s"}.` : ""}`
-                  : unavailableCount
-                    ? `Current demand is unavailable for ${unavailableCount} product${unavailableCount === 1 ? "" : "s"}. Review sales history and data quality before planning restocks.`
-                    : zeroDemand.length === available.length && available.length > 0
-                      ? "Usable observations currently show zero demand. Review the recorded history before planning restocks."
-                      : "No products currently need reordering. Review the watch list and keep recording sales."}
-        </p>
       </header>
 
       <TrainingBanner />
@@ -186,52 +157,11 @@ function Overview() {
                   : expired
                     ? `Saved predictions have expired. Review recent sales and ${refreshAdvice} before using reorder advice.`
                     : unavailableCount
-                      ? "Current reorder advice is unavailable for part of the catalog. Review the demand evidence before planning restocks."
+                      ? "Current reorder advice is unavailable for part of the catalog. Check Forecasts before planning restocks."
                       : zeroDemand.length === available.length && available.length > 0
                         ? "Usable observations show zero demand. Days of cover cannot be calculated from a zero estimate."
                         : "No current reorder recommendations. Check the watch list before planning purchases."}
               </p>
-            )}
-            {ready && (evidenceRows.length > 0 || missing.length > 0) && (
-              <div className="mt-3 space-y-3 border-t border-border pt-3">
-                <h3 className="text-sm font-medium">Demand evidence</h3>
-                {evidenceRows.map((row) => (
-                  <div key={row.product.id} className="rounded-lg bg-surface-2 p-3">
-                    <p className="mb-1 text-sm font-medium">{row.product.name}</p>
-                    {hasCurrentDemand(row) && row.dailyDemand === 0 && (
-                      <p className="mb-1 text-xs text-muted">Zero usable demand</p>
-                    )}
-                    <DemandEvidence
-                      forecast={result?.byProduct[row.product.id]}
-                      unavailableReason={
-                        expired || !hasCurrentDemand(row)
-                          ? (row.unavailableReason ??
-                            result?.byProduct[row.product.id]?.unavailableReason ??
-                            (row.forecastExpired || expired
-                              ? `The saved forecast period has ended. Review recent sales and ${refreshAdvice}.`
-                              : "No usable demand estimate is available. Review sales history and data quality."))
-                          : undefined
-                      }
-                      fallbackReason={row.fallbackReason}
-                      unknownDays={row.unknownDays}
-                      excludedDays={row.excludedDays}
-                      qualityWarnings={row.qualityWarnings}
-                    />
-                  </div>
-                ))}
-                {missing.map((product) => (
-                  <div key={product.id} className="rounded-lg bg-surface-2 p-3">
-                    <p className="mb-1 text-sm font-medium">{product.name}</p>
-                    <DemandEvidence
-                      forecast={result?.byProduct[product.id]}
-                      unavailableReason={
-                        result?.byProduct[product.id]?.unavailableReason ??
-                        "Waiting for a current demand estimate."
-                      }
-                    />
-                  </div>
-                ))}
-              </div>
             )}
           </CardContent>
         </Card>

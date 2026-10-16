@@ -119,7 +119,7 @@ function ShellLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-dvh bg-bg text-fg">
       <div className="lg:grid lg:grid-cols-[16.5rem_1fr]">
-        <aside className="hidden min-h-dvh flex-col border-r border-border bg-sidebar lg:flex">
+        <aside className="hidden h-dvh flex-col border-r border-border bg-sidebar lg:sticky lg:top-0 lg:flex lg:self-start lg:overflow-y-auto">
           <div className="px-5 pt-8 pb-6">
             <p className="font-display text-2xl italic tracking-tight">StockCast</p>
             <p className="mt-1 text-xs tracking-wide text-muted uppercase">Demand & restock</p>

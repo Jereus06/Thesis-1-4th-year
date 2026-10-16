@@ -55,6 +55,7 @@ def check_schema() -> None:
         "validation_end < final_test_start",
         "quantity_delta numeric",
         "xgboost_verified boolean NOT NULL DEFAULT false",
+        "ALTER TABLE sales ADD COLUMN voided_at timestamptz",
     )
     for contract in required:
         if contract not in up:

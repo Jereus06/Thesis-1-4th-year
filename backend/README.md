@@ -49,6 +49,7 @@ settings, and forecast refresh require the owner role.
 - Session sign-out and current user; scrypt passwords, hashed session tokens, CSRF/Origin checks.
 - Business profile and forecasting/restock settings.
 - Product creation and editing, with audited opening balances and stock-count adjustments.
+- Owner-only deletion of unused, zero-stock products; saved history remains protected.
 - Atomic sales/stock changes and receipt, adjustment, return, and write-off movements.
 - Paginated sales and stock ledgers; idempotency keys for supported write operations.
 - Atomic inventory snapshot imports; historical SKU-mapped sales imports with row outcomes.
@@ -69,11 +70,28 @@ Business row locking serializes duplicate checks and writes; no database migrati
 Earlier exact batch fingerprints are still checked, but unkeyed overlaps and reordered legacy
 batches cannot be safely distinguished from separate transactions.
 
-Owners can delete imported history using `DELETE /businesses/{businessId}/sales/{saleId}`
-for one imported row or `DELETE /businesses/{businessId}/sales/imported` for all imported rows.
+Owners can delete an unused product using `DELETE /businesses/{businessId}/products/{productId}`.
+The route requires session CSRF and business membership and returns `{data:{deletedRows}}`;
+repeating a successful deletion returns zero rows. Stock must be zero, with no saved sales,
+stock movements (including opening balances), forecasts, restock recommendations, quality
+reviews, or quality audit entries. Frozen forecast inputs also protect the product before
+the worker saves results. Products with stock or saved records return 409; use Deactivate
+to retain their records. Other products and history remain unchanged, and no migration is needed.
+Replaying a deleted product's original creation idempotency key returns 409; a new creation
+requires a new key.
+
+Owners can delete a recorded or imported sale using `DELETE /businesses/{businessId}/sales/{saleId}`
+or use `DELETE /businesses/{businessId}/sales/imported` for all imported rows.
 Both require the session's CSRF token and business membership and return `{data:{deletedRows}}`.
-Manual sales and imported records linked to inventory movements are protected. Deletion leaves
-stock, stock movements, and import audit metadata intact. Exact-file retries become eligible after
+Recorded-sale deletion atomically restores its quantity to the current stock balance, including
+for inactive products, and appends an owner-attributed adjustment dated on the current business
+day. The original sale and sale movement remain for audit; additive migration 008 stores the
+sale's `voided_at`. Voided rows are excluded from the sales ledger, sales CSV, and new forecast
+and restock calculations. Repeated deletion restores nothing further; a replay of the original
+record-sale idempotency key returns 409 instead of a stale successful sale response. A missing
+or inconsistent original stock deduction blocks deletion for review. Imported records linked to
+inventory movements remain protected. Imported deletion leaves stock, movements, and import
+audit metadata intact. Exact-file retries become eligible after
 all accepted rows in that batch have been deleted; partial removals keep the duplicate safeguard.
 Existing queued/running/completed forecasts retain their frozen evidence and get a durable
 `salesHistoryChanged` configuration marker; the worker preserves concurrent markers and the
@@ -201,12 +219,16 @@ Missing cutoff history leaves metrics unavailable. Saved `fallbackPolicy` is
 `contiguous_tail_product_origin_v1`; older baseline rows remain archived, while dashboard serving
 uses a conservative preview and marks them stale until Refresh. No existing migrations change.
 
-Normal Refresh keeps up to 14 final-test calendar days and expands validation to 20–28 days when
-enough history remains for the configured training gates and training-only CV folds. With default
-settings, 134 complete daily observations allow a 100/20/14 split; 142 allow 100/28/14. Shorter
-histories retain the compact split and can have unavailable intervals. Calendar allocations are
-saved as `configuration.refreshSplit`; actual per-product usable counts and eligibility remain
-authoritative. Manual run requests retain their explicit chronological boundaries.
+Normal and scheduled Refresh grow the final-test calendar period to the forecast horizon while
+preserving the configured training gates/CV reserve and at least 20 separate validation days.
+With default training requirements and a 30-day horizon, 140 complete daily observations allow
+a 100/20/20 split; 150 allow 100/20/30; 158 allow 100/28/30. If history cannot support the full
+horizon, the test automatically shortens. Short histories retain the compact split and can have
+unavailable intervals. Calendar allocations are saved as `configuration.refreshSplit`; actual
+per-product usable counts and eligibility remain authoritative. Missing or excluded dates are
+not scored as invented observations. Existing saved runs retain their original periods; new
+refreshes apply the updated allocation. Manual run requests retain their explicit chronological
+boundaries.
 
 For eligible products:
 

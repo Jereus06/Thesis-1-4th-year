@@ -20,7 +20,7 @@ const saved = {
 test("the API's enabled daily schedule shows its local time and business timezone", () => {
   assert.equal(
     forecastScheduleMessage("api", schedule),
-    "Automatic forecast refresh is scheduled daily at 00:15 (Asia/Manila).",
+    "Forecasts update daily at 00:15 (Asia/Manila).",
   );
   assert.match(
     forecastScheduleMessage("api", {
@@ -57,14 +57,17 @@ test("missing, disabled, malformed, and browser-demo schedules retain manual per
 test("persisted queued, running, and completed states report saved output without a fabricated percentage", () => {
   for (const status of ["queued", "running"]) {
     const message = forecastProgressMessage({ ...saved, latestRun: { status } }, staff);
-    assert.match(message, new RegExp(`Forecast refresh is ${status}`));
-    assert.match(message, /last completed forecast remains visible/);
+    assert.match(
+      message,
+      status === "queued" ? /Waiting to update forecasts/ : /Updating forecasts/,
+    );
+    assert.match(message, /Your previous forecast is shown for now/);
     assert.doesNotMatch(message, /\d+\/\d+|\d+%|next run/i);
   }
-  assert.equal(forecastProgressMessage(saved, staff), "Saved Python forecast through 2026-10-15");
+  assert.equal(forecastProgressMessage(saved, staff), "Forecast saved through 2026-10-15");
   assert.equal(
     forecastProgressMessage({ ...saved, run: null, latestRun: { status: "queued" } }, staff),
-    "Forecast refresh is queued.",
+    "Waiting to update forecasts.",
   );
 });
 
@@ -88,7 +91,7 @@ test("stale, expired, and baseline staff advice uses enabled automatic refresh w
 test("requesting, failed, and business-date transition states keep their existing operational meaning", () => {
   assert.match(
     forecastProgressMessage(saved, { ...staff, requesting: true }),
-    /Requesting a forecast refresh/,
+    /Starting forecast update/,
   );
   assert.equal(
     forecastProgressMessage(saved, { ...staff, error: "Synthetic forecast failure" }),
@@ -96,6 +99,6 @@ test("requesting, failed, and business-date transition states keep their existin
   );
   assert.equal(
     forecastProgressMessage(saved, { ...staff, dateChanged: true }),
-    "Business date changed. Waiting for current recommendations.",
+    "A new day has started. Waiting for today's recommendations.",
   );
 });

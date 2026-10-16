@@ -45,9 +45,7 @@ export function ForecastEvidenceBadge({
               ? "warning"
               : "outline"
         }
-        title={
-          confidence.reason + " This is a past-test error rating, not a chance of future sales."
-        }
+        title={confidence.reason + " Future sales may differ."}
       >
         {label}
       </Badge>
@@ -55,7 +53,7 @@ export function ForecastEvidenceBadge({
   }
   const [label, explanation] = evidence
     ? labels[evidence.status]
-    : ["Evidence unavailable", "Refresh forecasts to load their saved test evidence."];
+    : ["Test results unavailable", "Refresh forecasts to load past test results."];
   return (
     <Badge variant={stateWarning ? "warning" : "outline"} title={explanation}>
       {label}

@@ -1,6 +1,7 @@
-"""Imported-history deletion, stock preservation, retries, and frozen forecast evidence."""
+"""Sale corrections, imported-history deletion, retries, and frozen forecast evidence."""
 
 from copy import deepcopy
+from decimal import Decimal
 import os
 from uuid import UUID
 
@@ -61,6 +62,10 @@ def deletion_api(monkeypatch):
             self.calls = []
 
         def delete_imported_sales(self, user, sale_id=None):
+            self.calls.append((user.business_id, sale_id))
+            return {"deletedRows": 1}
+
+        def delete_sale(self, user, sale_id):
             self.calls.append((user.business_id, sale_id))
             return {"deletedRows": 1}
 
@@ -127,7 +132,6 @@ def test_delete_imported_sales_preserves_live_stock_audits_and_allows_full_reimp
     imported = [sale for sale in sales if sale["source"] == "csv_import"]
     assert all(sale["importId"] == original["id"] for sale in imported)
     assert next(sale for sale in sales if sale["id"] == live_id)["importId"] is None
-    assert client.delete(base + f"/sales/{live_id}").status_code == 409
     assert client.delete(base + f"/sales/{imported[0]['id']}").json() == {"data": {"deletedRows": 1}}
     assert client.delete(base + f"/sales/{imported[0]['id']}").json() == {"data": {"deletedRows": 0}}
     # A partially removed unkeyed batch must not duplicate its surviving history.
@@ -170,13 +174,19 @@ def test_stock_linked_import_blocks_single_and_bulk_deletion_atomically(pg_clien
 
 
 @pytest.mark.parametrize("status", ["queued", "running", "completed"])
-def test_deletion_marks_frozen_forecast_stale_including_during_worker_processing(pg_client, status):
+@pytest.mark.parametrize("source", ["imported", "manual"])
+def test_deletion_marks_frozen_forecast_stale_including_during_worker_processing(pg_client, status, source):
     from app import worker
 
     client, business, dsn = pg_client
-    create_product(client, business)
+    product = create_product(client, business)
     base = f"/api/v1/businesses/{business}"
     import_history(client, base, days=5)
+    if source == "manual":
+        live = client.post(base + "/sales", json={
+            "productId": product["id"], "saleDate": "2026-01-02", "quantity": "1",
+        })
+        assert live.status_code == 201, live.text
     boundaries = {
         "trainingStart": "2026-01-01", "trainingEnd": "2026-01-03",
         "validationStart": "2026-01-04", "validationEnd": "2026-01-04",
@@ -190,7 +200,8 @@ def test_deletion_marks_frozen_forecast_stale_including_during_worker_processing
         assert worker.run_once()
         assert not client.get(base + "/forecast-dashboard").json()["data"]["stale"]
     selected = next(sale for sale in client.get(base + "/sales").json()["data"]
-                    if sale["saleDate"] == "2026-01-02")
+                    if sale["saleDate"] == "2026-01-02"
+                    and sale["source"] == ("manual" if source == "manual" else "csv_import"))
     with psycopg.connect(dsn, row_factory=psycopg.rows.dict_row, autocommit=True) as conn:
         # Claiming before deletion reproduces a worker's older in-memory config.
         claimed = worker.claim_run(conn) if status == "running" else None
@@ -213,6 +224,11 @@ def test_deletion_marks_frozen_forecast_stale_including_during_worker_processing
     assert client.get(base + "/forecast-dashboard").json()["data"]["stale"]
     refreshed = client.post(base + "/forecast-runs", json=boundaries)
     assert refreshed.status_code == 202, refreshed.text
+    refreshed_sales = refreshed.json()["data"]["dataSnapshot"]["dailySales"]
+    if source == "manual":
+        assert next(item for item in refreshed_sales if item["date"] == "2026-01-02")["quantity"] == "2.000"
+    else:
+        assert not any(item["date"] == "2026-01-02" for item in refreshed_sales)
     assert worker.run_once()
     assert not client.get(base + "/forecast-dashboard").json()["data"]["stale"]
 
@@ -221,11 +237,14 @@ def test_delete_api_enforces_real_sessions_csrf_staff_and_business_scope(pg_clie
     from app.auth_repository import AuthRepository
 
     client, business, dsn = pg_client
-    create_product(client, business)
+    product = create_product(client, business)
     base = f"/api/v1/businesses/{business}"
     import_history(client, base)
     sale = client.get(base + "/sales").json()["data"][0]
-    paths = [base + "/sales/imported", base + f"/sales/{sale['id']}"]
+    recorded = client.post(base + "/sales", json={
+        "productId": product["id"], "saleDate": "2026-01-03", "quantity": "1",
+    }).json()["data"]
+    paths = [base + "/sales/imported", base + f"/sales/{sale['id']}", base + f"/sales/{recorded['id']}"]
     owner_csrf = client.headers.pop("X-CSRF-Token")
     for path in paths:
         assert client.delete(path).status_code == 403
@@ -265,8 +284,117 @@ def test_delete_api_enforces_real_sessions_csrf_staff_and_business_scope(pg_clie
             "X-CSRF-Token": staff_csrf,
         }).status_code == 403
         assert client.delete(path.replace(business, str(foreign_business))).status_code == 403
-    assert len(client.get(base + "/sales").json()["data"]) == 2
+    assert len(client.get(base + "/sales").json()["data"]) == 3
     assert client.delete(base + f"/sales/{foreign_sale}").json() == {"data": {"deletedRows": 0}}
     assert client.delete(base + "/sales/imported").json() == {"data": {"deletedRows": 2}}
+    assert [row["id"] for row in client.get(base + "/sales").json()["data"]] == [recorded["id"]]
     with psycopg.connect(dsn) as conn:
         assert conn.execute("SELECT id FROM sales WHERE id=%s", (foreign_sale,)).fetchone()
+
+
+def test_recorded_sale_void_restores_current_stock_and_preserves_original_audit(pg_client):
+    client, business, dsn = pg_client
+    product = create_product(client, business)
+    base = f"/api/v1/businesses/{business}"
+    sale_payload = {"productId": product["id"], "saleDate": "2026-01-02", "quantity": "2.125"}
+    key = {"Idempotency-Key": "recorded-sale-to-void"}
+    response = client.post(base + "/sales", json=sale_payload, headers=key)
+    assert response.status_code == 201, response.text
+    sale_id = response.json()["data"]["id"]
+    # A later real delivery and deactivation must survive the correction.
+    receipt = client.post(base + "/inventory-movements", json={
+        "productId": product["id"], "movementDate": "2026-01-03",
+        "movementType": "receipt", "quantityDelta": "1.250",
+    })
+    assert receipt.status_code == 201, receipt.text
+    assert client.patch(base + f"/products/{product['id']}", json={"isActive": False}).status_code == 200
+    audits_before = client.get(base + "/inventory-movements").json()["data"]
+    with psycopg.connect(dsn, row_factory=psycopg.rows.dict_row) as conn:
+        original = conn.execute("SELECT * FROM sales WHERE id=%s", (sale_id,)).fetchone()
+    assert client.delete(base + f"/sales/{sale_id}").json() == {"data": {"deletedRows": 1}}
+    assert client.delete(base + f"/sales/{sale_id}").json() == {"data": {"deletedRows": 0}}
+    assert client.delete(base + "/sales/imported").json() == {"data": {"deletedRows": 0}}
+    assert client.get(base + "/sales").json()["data"] == []
+    assert client.get(base + f"/sales?beforeDate=2026-01-03&beforeId={sale_id}").json()["data"] == []
+    assert sale_id not in client.get(base + "/exports/sales.csv").text
+    saved = client.get(base + "/products").json()["data"][0]
+    assert Decimal(saved["currentStock"]) == Decimal("21.250")
+    assert saved["isActive"] is False
+    audits = client.get(base + "/inventory-movements").json()["data"]
+    assert len(audits) == len(audits_before) + 1
+    assert {row["id"]: row for row in audits_before}.items() <= {row["id"]: row for row in audits}.items()
+    correction = next(row for row in audits if row["note"] == f"Recorded sale deleted: {sale_id}")
+    assert correction["movementType"] == "adjustment"
+    assert correction["quantityDelta"] == "2.125"
+    assert correction["balanceAfter"] == "21.250"
+    assert correction["saleId"] is None
+    assert correction["recordedBy"] == str(original["recorded_by"])
+    assert correction["dataOrigin"] == original["data_origin"]
+    assert correction["movementDate"] == client.get(base + "/forecast-dashboard").json()["data"]["businessDay"]
+    with psycopg.connect(dsn, row_factory=psycopg.rows.dict_row) as conn:
+        retained = conn.execute("SELECT * FROM sales WHERE id=%s", (sale_id,)).fetchone()
+    assert retained.pop("voided_at") is not None
+    original.pop("voided_at")
+    assert retained == original
+    retry = client.post(base + "/sales", json=sale_payload, headers=key)
+    assert retry.status_code == 409, retry.text
+    assert "deleted" in retry.text
+    assert client.get(base + "/sales").json()["data"] == []
+    assert client.get(base + "/inventory-movements").json()["data"] == audits
+
+
+@pytest.mark.parametrize("corruption", ["missing", "wrong_quantity", "wrong_product"])
+def test_recorded_sale_with_inconsistent_stock_audit_is_not_changed(pg_client, corruption):
+    client, business, dsn = pg_client
+    product = create_product(client, business)
+    base = f"/api/v1/businesses/{business}"
+    sale = client.post(base + "/sales", json={
+        "productId": product["id"], "saleDate": "2026-01-02", "quantity": "2",
+    }).json()["data"]
+    with psycopg.connect(dsn) as conn:
+        if corruption == "missing":
+            conn.execute("DELETE FROM inventory_movements WHERE sale_id=%s", (sale["id"],))
+        elif corruption == "wrong_quantity":
+            conn.execute("UPDATE inventory_movements SET quantity_delta=-1 WHERE sale_id=%s", (sale["id"],))
+        else:
+            other = conn.execute(
+                """INSERT INTO products(business_id,sku,name,category,unit)
+                   VALUES(%s,'WRONG','Other','Test','pc') RETURNING id""", (business,),
+            ).fetchone()[0]
+            conn.execute("UPDATE inventory_movements SET product_id=%s WHERE sale_id=%s", (other, sale["id"]))
+    products = client.get(base + "/products").json()["data"]
+    sales = client.get(base + "/sales").json()["data"]
+    movements = client.get(base + "/inventory-movements").json()["data"]
+    assert client.delete(base + f"/sales/{sale['id']}").status_code == 409
+    assert client.get(base + "/products").json()["data"] == products
+    assert client.get(base + "/sales").json()["data"] == sales
+    assert client.get(base + "/inventory-movements").json()["data"] == movements
+
+
+def test_concurrent_recorded_sale_deletions_restore_stock_once(pg_client):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    client, business, dsn = pg_client
+    product = create_product(client, business)
+    base = f"/api/v1/businesses/{business}"
+    sale = client.post(base + "/sales", json={
+        "productId": product["id"], "saleDate": "2026-01-02", "quantity": "2.125",
+    }).json()["data"]
+    with psycopg.connect(dsn) as conn:
+        owner_id = conn.execute("SELECT id FROM users WHERE business_id=%s AND role='owner'", (business,)).fetchone()[0]
+    principal = Principal(str(owner_id), business, "owner@example.com", "Owner", "owner")
+    barrier = Barrier(2)
+
+    def remove():
+        with psycopg.connect(dsn) as conn:
+            repository = Repository(conn)
+            barrier.wait(timeout=10)
+            return repository.delete_sale(principal, UUID(sale["id"]))["deletedRows"]
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(remove) for _ in range(2)]
+        assert sorted(future.result(timeout=20) for future in futures) == [0, 1]
+    assert Decimal(client.get(base + "/products").json()["data"][0]["currentStock"]) == Decimal("20")
+    movements = client.get(base + "/inventory-movements").json()["data"]
+    assert len([row for row in movements if row["note"] == f"Recorded sale deleted: {sale['id']}"]) == 1

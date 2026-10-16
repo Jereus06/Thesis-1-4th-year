@@ -72,7 +72,7 @@ Use the sidebar on a laptop or the bottom navigation on a smaller screen.
 | Check your account or change your password                     | **Inventory > Account & settings**; staff use **Account** |
 | Invite staff or change store settings                          | **Inventory > Account & settings**, as the owner          |
 | Review zero-sale days, closures, missing records, or stockouts | **Quality**                                               |
-| Read help, methodology, or supporting thesis text              | **Strategies**                                            |
+| Read the user guide                                           | **Strategies > User guide**                               |
 | Give feedback after using the system                           | **Strategies > Evaluation**                               |
 
 ### Owner and staff access
@@ -97,7 +97,24 @@ Only owners can manage products, correct stock counts, write off stock, import f
 
 Use **Import CSV** in the Sales ledger for earlier sales already reflected in your current physical count. Recording an earlier date through **Record sale** still deducts stock now. Recording the same transaction twice deducts it twice.
 
-If there are no active products, ask the owner to add or activate one. If the quantity exceeds the available stock, check the physical count and any unrecorded delivery before saving. Recorded sales cannot be edited, deleted, or voided here; ask the owner how to handle a mistaken recorded sale.
+If there are no active products, ask the owner to add or activate one. If the quantity exceeds the available stock, check the physical count and any unrecorded delivery before saving. Ask the owner to delete a mistakenly recorded sale using the steps below.
+
+## Delete a recorded sale
+
+**Who can do this:** owner only.
+
+**Where:** **Inventory > Sales ledger**.
+
+1. Find the row marked **Recorded**, using **Previous** or **Next** for older records.
+2. Choose its **Delete** button and review the product, date, quantity, and stock restoration.
+3. Choose **Delete sale** to confirm, or **Cancel** to keep the sale.
+4. Wait for confirmation, then refresh forecasts from **Overview** or **Forecasts**.
+
+**What changes:** the sale disappears from the sales ledger, sales exports, and future forecast inputs. Its quantity is restored to the product's current stock exactly once. For example, deleting a mistaken sale of 3 units increases a balance of 17 to 20. The original stock deduction remains in **Stock movements**, alongside a new adjustment identifying the deleted sale and the owner who deleted it. The original sale is retained internally as voided for that audit history.
+
+Use this to correct a mistaken entry. For an actual customer return, use **Stock movements > Record return** so the original sale remains part of sales history.
+
+If deletion succeeds but saved records cannot be refreshed, choose **Reload saved records** in the notice. The deletion is already saved; do not record an extra delivery or return to restore the same quantity.
 
 ## Delete imported sales
 
@@ -208,6 +225,15 @@ Deactivation keeps the saved stock balance and history. Inactive products are ex
 You can still import their past sales using the existing SKU. A historical sales import keeps
 the product inactive and leaves its current stock unchanged.
 
+### Delete a product
+
+1. Find the product and choose **Delete**.
+2. Check its name and SKU, then choose **Delete product** to permanently remove it, or **Cancel** to keep it.
+
+Only products with zero stock and no saved history can be deleted. Sales, stock movements, forecasts,
+and other saved records are protected. If these prevent deletion, the dialog explains why. You can
+use **Deactivate** to stop using a product while keeping its records. Deletion cannot be undone.
+
 ## Import current inventory
 
 **Who can do this:** owner only.
@@ -313,7 +339,7 @@ The table displays **40 records per page**, with **Previous** and **Next** contr
 2. Search by product, date, note, or recorded user ID, or choose a movement-type filter.
 3. Use the page controls to browse results and expand audit details for a record.
 4. Choose **Refresh** to load the latest movements, including changes made by another user.
-5. Choose **Export CSV** to download the movement records. **Export stock movements** in Products provides the same kind of stock audit download.
+5. Choose **Export CSV** to download the movement records.
 
 Positive changes add stock; negative changes subtract it. **Saved balance** is the balance immediately after that movement, not necessarily today's stock. Historical sales imports do not have a matching stock deduction.
 
@@ -326,10 +352,10 @@ Exports are useful copies of business records. Ask the person managing the insta
 **Where:** **Forecasts**.
 
 1. Check the forecast status, notices, and displayed dates.
-2. Choose a product in the product selector.
-3. Read its selected method, daily demand, chart, and any history or data-quality explanation.
+2. Choose a product in the results dropdown to see its own results. Choose **Overall results** to return to the combined comparison.
+3. Read its expected daily sales, chart, and any notices about its records.
 4. Hover over the chart to inspect a date's available actual sales and predictions.
-5. Review the error and prediction-interval evidence when available. **Copy MAE / RMSE table** copies the displayed model comparison for a spreadsheet.
+5. Read the **MAE / RMSE** scores in the three method cards. MAE shows average error; RMSE gives more weight to larger mistakes. Lower is better. **Past forecast errors by product** shows every product's results below the chart.
 
 XGBoost requires sufficient usable training history and an eligible place within the configured ML product limit. A product can use Moving Average when those requirements are not met. **0 ML SKUs** means none currently qualifies for machine learning; it does not mean your products or recorded sales disappeared.
 
@@ -337,7 +363,7 @@ XGBoost requires sufficient usable training history and an eligible place within
 
 The **Top products for XGBoost** panel is near the top of **Forecasts**. It lists the selected
 products, rank, product code, quantities sold during the saved training period, expected sales
-per day, and current forecast confidence. Training dates appear above the table.
+per day, and current forecast confidence. The saved selection counts and sales dates appear above the table.
 
 To use a limit of five, open **Inventory > Account & settings > Advanced forecasting settings**,
 set **ML product limit** to **Top 5 eligible products**, and choose **Save settings**. Then open
@@ -360,29 +386,35 @@ metadata request a refresh instead of inventing ranks.
 3. Wait while the run is queued or processing. You can continue using other screens.
 4. Review the completed result, product dates, and any remaining warnings.
 
-The automatic refresh schedule is displayed on Overview, Restock, and Forecasts when available. The normal default is **00:15 in the store's timezone**. It uses history through the preceding completed business day and requires the installation to remain running. Staff can record daily activity without manually starting training.
+When daily automatic updates are enabled, forecasts refresh at the configured time. The normal default is **00:15 in the store's timezone**. It uses history through the preceding completed business day and requires the installation to remain running. Staff can record daily activity without manually starting training.
 
 ### Understand the notices
 
-| Notice                    | What to do                                                                     |
-| ------------------------- | ------------------------------------------------------------------------------ |
-| Queued or processing      | Wait for the result; avoid repeated refresh requests                           |
-| Stale                     | Records or settings changed; review the next completed refresh                 |
-| Expired                   | Update recent sales or verified zero-sale dates, then ask the owner to refresh |
-| Unavailable or an em dash | Read the reason; a value was not available, rather than measured as zero       |
-| Moving Average fallback   | Check the product's history and quality notes; it may not qualify for XGBoost  |
+| Notice                    | What to do                                                                             |
+| ------------------------- | -------------------------------------------------------------------------------------- |
+| Queued or processing      | Wait for the result; avoid repeated refresh requests                                   |
+| Stale                     | Records or settings changed; review the next completed refresh                         |
+| Expired                   | Update recent sales or verified zero-sale dates, then ask the owner to refresh         |
+| Unavailable or an em dash | Read the reason; a value was not available, rather than measured as zero               |
+| Moving Average fallback   | Check the product's history and quality notes; it may not qualify for XGBoost          |
 | High confidence           | Past error was small on at least 14 consecutive tested days; still review the estimate |
-| Medium confidence         | Past error was moderate on at least 14 consecutive tested days                |
-| Low confidence            | Past errors were large, or there is not enough usable test evidence yet       |
-| Tested on past sales      | Read the number of tested days and average error; future sales can still differ |
-| Basic estimate            | Uses recent usable sales; no saved past test is available yet                  |
-| Not tested yet            | No usable saved test is available for this model; review its records           |
-| Refresh needed            | Records or settings changed after this estimate was saved                     |
-| Demonstration             | Uses synthetic practice data; it does not describe client accuracy             |
+| Medium confidence         | Past error was moderate on at least 14 consecutive tested days                         |
+| Low confidence            | Past errors were large, or there is not enough usable test evidence yet                |
+| Tested on past sales      | Read the number of tested days and average error; future sales can still differ        |
+| Basic estimate            | Uses recent usable sales; no saved past test is available yet                          |
+| Not tested yet            | No usable saved test is available for this model; review its records                   |
+| Refresh needed            | Records or settings changed after this estimate was saved                              |
+| Demonstration             | Uses synthetic practice data; it does not describe client accuracy                     |
 
 Check forecast dates before using them for today's purchasing. Unknown or excluded dates do not move old predictions forward. MAE and RMSE describe error on evaluated records, not a guaranteed accuracy percentage. Available prediction intervals show an estimated range, not a guarantee of future demand.
 
-For example, **Past test: 14 days. Average error: 2.0 units** means the saved model was checked against 14 past days and its estimates differed from actual sales by an average of 2 units. It does not mean a 98% chance of being correct. The label describes available evidence, so there is no automatic high-confidence score based only on having many rows.
+For example, an average error of **2.0 units** over **14 tested days** means the saved forecast was checked against 14 past days and differed from actual sales by an average of 2 units. It does not mean a 98% chance of being correct. Past errors and sales-record notices appear beside each estimate.
+
+On a new forecast refresh, the past test period matches the forecast horizon when enough history
+remains for training and validation. A 30-day forecast can therefore use a 30-day past test.
+With less history, the test period automatically becomes shorter. The displayed tested-day count
+includes only usable records; missing or excluded days do not count. Existing saved results keep
+their original test period until the next refresh.
 
 StockCast's confidence labels are a disclosed rating of past prediction error. The calculation
 adds the absolute errors from the saved operating method's final-test predictions, then divides
@@ -395,11 +427,11 @@ An unknown rating from an older API remains unavailable until a compatible refre
 
 **Confidence and sales volume are different.** For example, high confidence in an estimate of
 two spark plugs per day means past tests support that small estimate; it does not mean the shop
-will sell many spark plugs. Read **Expected sales per day** for the amount. Changed records,
+will sell many spark plugs. Read **Expected daily sales** for the amount. Changed records,
 expired forecasts, and unavailable current demand suppress the old confidence rating. The
 final-test rating never selects the model or recalibrates prediction intervals.
 
-Overall model comparisons use matching products and saved test records. If that evidence is incomplete, scores appear as an em dash. The model marked Selected comes from the earlier validation results; final-test scores are reported separately. A Moving Average-only test does not show an XGBoost score.
+Overall comparisons use matching products and saved test records. If those records are incomplete, scores appear as a dash. The **Chosen method** comes from an earlier, separate check; the scores shown did not decide which method to use. A Moving Average-only test does not show an XGBoost score.
 
 ## Use restock recommendations
 
@@ -408,36 +440,36 @@ Overall model comparisons use matching products and saved test records. If that 
 **Where:** **Restock**; a summary is also shown in **Overview**.
 
 1. Review the **Order now** products and any warnings about unavailable or older demand.
-2. Check **On hand**, **Daily demand**, **Reorder point**, **Days of cover**, and **Recommended qty**.
+2. Check **Stock on hand**, **Expected daily sales**, **Order when stock reaches**, **Days stock may last**, and **Suggested order**.
 3. Compare the recommendation with the physical count, supplier lead time, and your store's purchasing needs.
 4. Arrange the purchase through your normal supplier process.
 5. When the goods arrive, choose **Record delivery** and enter the actual received quantity.
 
-The reorder point combines expected demand during supplier lead time with safety stock. A recommendation is purchasing advice; it does not place an order or record a receipt. An em dash in Days of cover means the demand estimate is zero or unavailable. If demand is unavailable, you can still record an actual delivery from **Inventory > Products**.
+**Order when stock reaches** allows for expected sales while waiting for the supplier, plus extra stock kept in reserve. The supplier delivery time and reserve stock appear below the product name. A suggestion does not place an order or record a delivery. A dash in **Days stock may last** means expected sales are zero or unavailable. You can still record an actual delivery when a sales estimate is unavailable.
 
 ## Review data quality
 
 **Who can do this:** owner or staff.
 
-**Where:** **Quality**, which opens the **Data quality** screen.
+**Where:** **Quality**, which opens the **Sales record review** screen.
 
 1. Choose the **Date** you have reviewed.
 2. Select a specific **Product**, or **All products** for a store-wide condition.
-3. Choose the correct **Classification** using the table below.
-4. Add the supporting **Evidence / note**, such as a checked ledger, closure date, or correction reason.
-5. Choose **Save classification** and check **Reviewed dates**.
+3. Under **What happened?**, choose the option that describes the day.
+4. Add a **Note (optional)**, such as the record you checked or why the store was closed.
+5. Choose **Save review** and check **Reviewed dates**.
 
-| Classification               | When to use it                                                               |
-| ---------------------------- | ---------------------------------------------------------------------------- |
-| Confirmed zero sales         | You verified that records are complete and the product had no sales that day |
-| Business closed              | The store did not operate that day                                           |
-| Full stockout                | The product was unavailable for the entire selling period                    |
-| Partial stockout             | The product was unavailable for part of the selling period                   |
-| Missing / incomplete records | You cannot verify a complete sales record for that day                       |
+| What happened?                | When to use it                                                              |
+| ----------------------------- | --------------------------------------------------------------------------- |
+| No sales (confirmed)          | You checked that records are complete and the product had no sales that day |
+| Store closed                  | The store did not operate that day                                          |
+| Out of stock all day          | The product was unavailable for the entire selling period                   |
+| Out of stock part of the day  | The product was unavailable for part of the selling period                  |
+| Missing or incomplete records | You cannot verify a complete sales record for that day                      |
 
 An absent sale is not automatically a confirmed zero. Confirmed zero days can contribute to forecasting history; closures, stockouts, and incomplete dates are excluded from demand targets. A product-specific review takes precedence over an All products review for that product and date.
 
-To correct a classification, select the same date and product in the form, enter the corrected classification and note, and save again. Use **Remove** beside a reviewed date when its classification should be withdrawn. **Export audit CSV** downloads the create, update, and removal history. Check the next forecast refresh after changing reviewed dates.
+To correct a review, select the same date and product, choose the correct option, and save again. Use **Remove** beside a reviewed date to withdraw it. **Export change history** downloads a CSV file of saved changes and removals. Changes are used in the next forecast refresh.
 
 ## Manage your account and staff
 
@@ -469,8 +501,8 @@ Use **Disable** to stop a staff member's access; it also ends their active sessi
 **Who can do this:** owner only.
 
 1. Find the **Store & model settings** card in Account & settings.
-2. Review the store name, location, forecast horizon, and cover days after delivery.
-3. Find **Advanced forecasting settings** if you need the Moving Average window or ML product limit.
+2. Review the store name, location, forecast horizon, and cover days after delivery. You can type a whole number of cover days (zero or more), or choose a suggested value.
+3. Find **Advanced forecasting settings** if you need the Moving Average window or ML product limit. Moving Average offers **3, 7, 14, 28, and 30 days**.
 4. Choose **Save settings** and review a later completed forecast refresh.
 
 The ML product limit is a maximum; increasing it does not make products with insufficient history eligible. Keep product lead times and safety stock accurate in **Products**.
@@ -506,13 +538,12 @@ Save draft stores answers only in this browser; it does not submit feedback. Sta
 | A management button is missing                            | Check Your account; the action may require the owner role                                                                                                               |
 | Sale or write-off exceeds stock                           | Verify the physical count and check whether a delivery is still unrecorded                                                                                              |
 | CSV rows are rejected                                     | Read the row messages; check dates, SKUs, quantities, and source-key conflicts before retrying                                                                          |
-| Sales table shows fewer rows than the total               | It displays 40 rows per page; use Previous/Next or Export sales CSV to get all saved records                                                                              |
+| Sales table shows fewer rows than the total               | It displays 40 rows per page; use Previous/Next or Export sales CSV to get all saved records                                                                            |
 | Past sales imported, but stock did not change             | This is expected: importing history preserves current stock                                                                                                             |
 | New sales or classifications are absent from the forecast | Review the next completed refresh or ask the owner to refresh earlier                                                                                                   |
 | No XGBoost result or 0 ML SKUs                            | Read the product's history and eligibility explanation in Forecasts                                                                                                     |
 | Forecast remains queued or fails                          | Tell the owner the status and time; the person managing the installation can check processing                                                                           |
 | Invitation or recovery email is unavailable               | Ask the person managing the installation to check email delivery; verify the recipient address                                                                          |
-| Copy MAE / RMSE table is blocked                          | Check the browser's clipboard permission or copy the displayed values manually                                                                                          |
 
 If a save reports an error, do not assume it succeeded. Check the relevant ledger or saved record before repeating a transaction. Report the screen, action, exact message, and approximate time to the owner. Avoid including passwords or private customer records in a support screenshot.
 

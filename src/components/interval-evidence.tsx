@@ -18,14 +18,11 @@ export function IntervalEvidence({
   const status = intervalAvailability(forecast, mode);
   if (mode === "browser-demo")
     return (
-      <div
-        className="mt-4 rounded-xl bg-surface-2 p-3 text-sm"
-        aria-label="Prediction interval evidence"
-      >
+      <div className="mt-4 rounded-xl bg-surface-2 p-3 text-sm" aria-label="Forecast range">
         <p className="font-medium">{status}</p>
         <p className="mt-1 text-muted">
-          Browser demonstration bands illustrate uncertainty. They have no validated calibration
-          sample or guaranteed coverage and are separate from saved Python forecast intervals.
+          For demonstration only. This range has not been validated and does not guarantee future
+          sales.
         </p>
       </div>
     );
@@ -46,16 +43,12 @@ export function IntervalEvidence({
     interval.nominalCoverage > 0 &&
     interval.nominalCoverage < 1;
   return (
-    <div
-      className="mt-4 rounded-xl bg-surface-2 p-3 text-sm"
-      aria-label="Prediction interval evidence"
-    >
+    <div className="mt-4 rounded-xl bg-surface-2 p-3 text-sm" aria-label="Forecast range">
       <p className="font-medium">{status}</p>
       {forecast.forecastExpired && interval?.available && (
         <p className="mt-1 text-muted">
-          The saved forecast{forecastThrough ? ` ended on ${forecastThrough}` : " has expired"}.
-          Calibration evidence below describes that saved run. For current evidence, {refreshAdvice}
-          .
+          The saved forecast{forecastThrough ? ` ended on ${forecastThrough}` : " has expired"}. To
+          update it, {refreshAdvice}.
         </p>
       )}
       {!interval ? (
@@ -67,7 +60,7 @@ export function IntervalEvidence({
       ) : (
         <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2">
           <div>
-            <dt className="text-muted">Calibration sample</dt>
+            <dt className="text-muted">Range check records</dt>
             <dd>
               {count === undefined ? "Observation count not saved" : `${num(count)} observations`}
               {!interval.available && knownProtocol && count !== undefined && count < 10
@@ -76,7 +69,7 @@ export function IntervalEvidence({
             </dd>
           </div>
           <div>
-            <dt className="text-muted">Calibration dates</dt>
+            <dt className="text-muted">Range check dates</dt>
             <dd>
               {interval.calibrationStart && interval.calibrationEnd
                 ? `${interval.calibrationStart} to ${interval.calibrationEnd}`
@@ -84,7 +77,7 @@ export function IntervalEvidence({
             </dd>
           </div>
           <div>
-            <dt className="text-muted">Model-selection sample</dt>
+            <dt className="text-muted">Method selection records</dt>
             <dd>
               {interval.selectionObservations === undefined
                 ? "Observation count not saved"
@@ -92,7 +85,7 @@ export function IntervalEvidence({
             </dd>
           </div>
           <div>
-            <dt className="text-muted">Interval method</dt>
+            <dt className="text-muted">Range calculation</dt>
             <dd>
               {interval.method
                 ? `${interval.method} for ${modelLabel(forecast.method)}`
@@ -100,7 +93,7 @@ export function IntervalEvidence({
             </dd>
           </div>
           <div>
-            <dt className="text-muted">Nominal coverage</dt>
+            <dt className="text-muted">Target coverage</dt>
             <dd>
               {validNominal
                 ? `${num(interval.nominalCoverage! * 100)}% target`
@@ -108,7 +101,7 @@ export function IntervalEvidence({
             </dd>
           </div>
           <div>
-            <dt className="text-muted">Saved residual offsets</dt>
+            <dt className="text-muted">Saved error adjustments</dt>
             <dd>
               {interval.lowerResidual !== undefined &&
               interval.lowerResidual !== null &&
@@ -121,7 +114,7 @@ export function IntervalEvidence({
             </dd>
           </div>
           <div className="sm:col-span-2">
-            <dt className="text-muted">Final-test coverage</dt>
+            <dt className="text-muted">Past test coverage</dt>
             <dd>
               {validCoverage
                 ? `${num(coverage! * 100, 1)}% of actual sales inside the bounds`
