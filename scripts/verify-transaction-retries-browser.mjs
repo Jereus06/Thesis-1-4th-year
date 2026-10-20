@@ -11,8 +11,11 @@ const server = await createServer({
   logLevel: "error",
   server: { host: "127.0.0.1", port: 0 },
 });
+const { businessDateISO } = await server.ssrLoadModule("/src/lib/dates.ts");
 let browser;
 let page;
+let fixtureSettings;
+let fixtureNow = new Date("2026-10-15T06:59:00Z");
 let stock = 20;
 let loseResponse = true;
 let failProductRead = false;
@@ -85,7 +88,7 @@ try {
   });
   page = await context.newPage();
   page.on("pageerror", (error) => pageErrors.push(error.message));
-  await page.clock.setFixedTime(new Date("2026-10-15T06:59:00Z"));
+  await page.clock.setFixedTime(fixtureNow);
   await context.route("**/api/**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -212,11 +215,7 @@ try {
           let detail;
           if (!selected || selected.isActive === false)
             detail = "Synthetic backend rejected an inactive product.";
-          const today = await page.evaluate(async () => {
-            const { useAppStore } = await import("/src/lib/store.ts");
-            const { businessDateISO } = await import("/src/lib/dates.ts");
-            return businessDateISO(useAppStore.getState().settings.timezone);
-          });
+          const today = businessDateISO(fixtureSettings.timezone, fixtureNow);
           if ((isSale ? input.saleDate : input.movementDate) > today)
             detail = "Synthetic backend rejected a future date.";
           if (detail)
@@ -275,10 +274,7 @@ try {
     if (path.endsWith("/forecast-status"))
       return json({ revision: `transaction-fixture-${forecastRevision}` });
     if (path.endsWith("/forecast-dashboard")) {
-      const current = await page.evaluate(async () => {
-        const { useAppStore } = await import("/src/lib/store.ts");
-        return useAppStore.getState().settings;
-      });
+      const current = fixtureSettings;
       return json({
         run: restockAdvice
           ? {
@@ -384,8 +380,12 @@ try {
     0,
     "the sale form mounts before the synthetic catalog arrives",
   );
+  fixtureSettings = await page.evaluate(async () => {
+    const { useAppStore } = await import("/src/lib/store.ts");
+    return { ...useAppStore.getState().settings, timezone: "Asia/Manila" };
+  });
   await page.evaluate(
-    async ({ product: item, session: owner }) => {
+    async ({ product: item, session: owner, settings }) => {
       const { useAppStore } = await import("/src/lib/store.ts");
       useAppStore.setState({
         dataMode: "api",
@@ -393,11 +393,11 @@ try {
         apiStatus: "ready",
         products: [item],
         sales: [],
-        settings: { ...useAppStore.getState().settings, timezone: "Asia/Manila" },
+        settings,
         connectApi: async () => {},
       });
     },
-    { product, session },
+    { product, session, settings: fixtureSettings },
   );
   await initialDashboard;
   await page.evaluate(
@@ -416,7 +416,15 @@ try {
     await dialog().getByRole("button", { name: buttonName, exact: true }).click();
   }
   async function failed(buttonName) {
-    await save(buttonName);
+    // A toast from an earlier failure can remain visible while this write is
+    // still in flight. Wait for this request and its form to settle first.
+    const failedRequest = page.waitForEvent("requestfailed", {
+      predicate: (request) =>
+        ["POST", "PATCH"].includes(request.method()) &&
+        new URL(request.url()).pathname.startsWith("/api/"),
+    });
+    await Promise.all([failedRequest, save(buttonName)]);
+    await dialog().locator('button[type="submit"]:not(:disabled)').waitFor();
     await page.getByText("Failed to fetch", { exact: true }).last().waitFor();
     assert.equal(await dialog().isVisible(), true);
   }
@@ -469,6 +477,7 @@ try {
     );
   }
   async function setTimezone(timezone) {
+    fixtureSettings = { ...fixtureSettings, timezone };
     await page.evaluate(async (zone) => {
       const { useAppStore } = await import("/src/lib/store.ts");
       useAppStore.setState({ settings: { ...useAppStore.getState().settings, timezone: zone } });
@@ -487,6 +496,10 @@ try {
     await dialog().getByLabel("Quantity received", { exact: true }).fill(String(quantity));
   }
   async function openBaseMovement(movementType, quantity) {
+    // Let earlier notifications expire away from the pointer before navigating.
+    // Hovering the toast stack can otherwise keep it over the tab indefinitely.
+    await page.mouse.move(0, 0);
+    await page.waitForFunction(() => !document.querySelector("[data-sonner-toast]"));
     await page.getByRole("tab", { name: "Stock movements", exact: true }).click();
     const writeOff = movementType === "write_off";
     await page
@@ -572,7 +585,8 @@ try {
   await openDelivery(5);
   loseResponse = true;
   await failed("Add to inventory");
-  await page.clock.setFixedTime(new Date("2026-10-15T16:01:00Z"));
+  fixtureNow = new Date("2026-10-15T16:01:00Z");
+  await page.clock.setFixedTime(fixtureNow);
   await save("Add to inventory");
   await dialog().waitFor({ state: "hidden" });
   assert.equal(requests[4].key, requests[5].key);
@@ -794,7 +808,8 @@ try {
   );
 
   await setCatalogStock(10);
-  await page.clock.setFixedTime(new Date("2026-10-15T16:01:00Z"));
+  fixtureNow = new Date("2026-10-15T16:01:00Z");
+  await page.clock.setFixedTime(fixtureNow);
   const timezoneDates = await page.evaluate(async () => {
     const { businessDateISO, todayISO } = await import("/src/lib/dates.ts");
     return { browser: todayISO(), business: businessDateISO("Asia/Manila") };
@@ -911,12 +926,7 @@ try {
   const beforeTimezoneChange = requests.at(-1);
   const timezoneWriteOff = saved.get(beforeTimezoneChange.key).data;
   assert.equal(stock, 0);
-  await page.evaluate(async () => {
-    const { useAppStore } = await import("/src/lib/store.ts");
-    useAppStore.setState({
-      settings: { ...useAppStore.getState().settings, timezone: "America/Los_Angeles" },
-    });
-  });
+  await setTimezone("America/Los_Angeles");
   await refreshMovements();
   const retryDate = dialog().getByLabel("Movement date");
   assert.equal((await snapshot()).stock, 0);
@@ -1485,6 +1495,10 @@ try {
   );
 } finally {
   metadataHold?.release();
+  // Keep polling intercepted while existing context callbacks finish.
+  await page?.route("**/api/**", (route) => route.abort());
+  // Finish mocked responses before destroying their browser.
+  await page?.context().unrouteAll({ behavior: "wait" });
   await page?.close();
   await browser?.close();
   await server.close();

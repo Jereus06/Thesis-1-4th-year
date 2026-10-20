@@ -719,6 +719,21 @@ settings cannot send fixture requests to another server. Local
 unit checks and an added workflow are not by themselves evidence of an actual hosted deployment;
 read the workflow outcome and record the target hosting verification separately.
 
+The transaction browser verifier waits for the current failed POST/PATCH and its form to
+finish before checking retry state; an earlier error toast cannot advance the next case.
+Its simulated API uses fixture settings and the browser's explicit fixed instant without
+evaluating a live page inside request callbacks.
+Before return/write-off navigation it lets earlier notifications expire away from the pointer,
+so hovering the notification stack cannot keep a tab covered. Cleanup intercepts new API polls
+and drains context route callbacks before closing the page, preserving the original assertion
+failure instead of masking it with a closed-page error.
+
+On 2026-10-20, adding 200 ms to the old transaction guard reproduced an early retry-state
+lookup failure followed by the reported closed-page callback error. The corrected verifier
+passed all 41 checks both normally and with that delay in isolated native Edge runs. Typecheck,
+lint (the same three warnings), and production build passed. Fixtures were synthetic; these
+local checks do not claim a completed Linux/GitHub Actions run or new Python/database tests.
+
 Shortened-test display and retry-CI verification on 2026-10-20 passed typecheck, lint (the same
 three React Refresh warnings), production build, 36 shared evidence/render regressions, 30
 forecast adapter regressions, and all 18 isolated Edge transaction-browser checks. Workflow YAML
