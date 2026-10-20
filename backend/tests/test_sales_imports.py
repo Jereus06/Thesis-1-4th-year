@@ -55,6 +55,8 @@ class ImportConnection:
         self.in_transaction = False
         self.locked_business = None
         self.key_reads = 0
+        self.imported_at = datetime(2026, 1, 1, 12, tzinfo=UTC)
+        self.clock_reads = 0
 
     @contextmanager
     def transaction(self):
@@ -66,18 +68,24 @@ class ImportConnection:
             self.in_transaction = False
             self.locked_business = None
 
-    def execute(self, query, params):
+    def execute(self, query, params=()):
         # Reads must be protected by the transaction/business lock, not just writes.
         assert self.in_transaction
         if "FOR NO KEY UPDATE" in query:
             self.locked_business = params[0]
             return Result([{"id": params[0]}])
+        if "clock_timestamp()" in query:
+            assert self.locked_business is not None, "Import clock must follow its business lock"
+            self.clock_reads += 1
+            return Result([{"imported_at": self.imported_at}])
         if "FROM business_settings" in query:
             return Result([{
                 "business_id": params[0], "timezone": "UTC", "moving_average_window": 7,
                 "forecast_horizon_days": 7, "target_cover_days": 7,
                 "minimum_history_weeks": 8, "minimum_nonzero_days": 100,
                 "top_n_products": 5, "cv_folds": 3,
+                "business_name": "Synthetic import store", "business_location": None,
+                "data_origin": "demo", "business_updated_at": "2026-01-01T00:00:00Z",
             }])
         if "FROM data_imports" in query:
             assert self.locked_business == params[0]
@@ -113,11 +121,13 @@ class ImportConnection:
             self.batches.append(batch)
             return Result([batch])
         if "INSERT INTO sales" in query:
-            business, product, day, quantity, source, batch, number, key, _user, _business = params
+            (business, product, day, quantity, source, batch, number, key,
+             _user, created, _business) = params
             self.sales.append({
                 "business_id": business, "product_id": product, "sale_date": day,
                 "quantity": quantity, "source": source, "import_id": batch,
                 "source_row_number": number, "source_record_key": key,
+                "created_at": created,
             })
             return Result()
         if "UPDATE data_imports" in query:
@@ -134,6 +144,16 @@ class ImportConnection:
 @pytest.fixture()
 def repository():
     return Repository(ImportConnection())
+
+
+def test_import_uses_one_post_lock_timestamp_for_every_accepted_sale(repository, monkeypatch):
+    monkeypatch.setattr(repository, "business_day", lambda *_: date(2026, 1, 2))
+    saved = repository.create_sales_import(owner(), payload([
+        row("earlier"), row("later", saleDate="2026-01-02"),
+    ]))
+    assert saved["acceptedRows"] == 2
+    assert repository.conn.clock_reads == 1
+    assert [sale["created_at"] for sale in repository.conn.sales] == [repository.conn.imported_at] * 2
 
 
 def test_future_dated_import_rejects_entire_batch_before_saving(repository, monkeypatch):

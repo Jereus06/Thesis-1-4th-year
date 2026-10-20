@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, type ApiDashboard } from "@/lib/api";
-import { useAppStore } from "@/lib/store";
+import { applyApiSharedState, useAppStore } from "@/lib/store";
 import { currentForecastDashboard } from "@/lib/forecast-validity";
 import { toReorderRows, toResult } from "@/lib/api-forecast";
 import { usePermissions } from "@/lib/permissions";
@@ -33,17 +33,21 @@ export function useApiForecast(): ForecastState {
   const [requestingSession, setRequestingSession] = useState<typeof session>(null);
   const requesting = Boolean(session && requestingSession === session);
   const loadedRevision = useRef<string | null>(null);
+  const loadedSession = useRef<typeof session>(null);
   const requestVersion = useRef(0);
   const businessId = session?.businessId;
   const load = useCallback(async () => {
     if (!businessId || useAppStore.getState().session !== session) return;
     const version = ++requestVersion.current;
+    const expected = useAppStore.getState();
     // Read the revision first so a write during the full read is observed by
     // the next poll rather than being mistaken for an already loaded change.
     const revision = await forecastRevision(businessId);
     if (useAppStore.getState().session !== session) return;
     const next = await api.dashboard(businessId);
+    const inputs = await api.sharedForecastInputs(businessId, next);
     if (version !== requestVersion.current || useAppStore.getState().session !== session) return;
+    if (!applyApiSharedState(inputs, expected)) return;
     loadedRevision.current = revision;
     setData(next);
     setError(undefined);
@@ -51,12 +55,17 @@ export function useApiForecast(): ForecastState {
   useEffect(() => {
     let cancelled = false;
     let pending = false;
-    loadedRevision.current = null;
+    if (loadedSession.current !== session) {
+      loadedSession.current = session;
+      loadedRevision.current = null;
+      setData(null);
+    }
     const read = async (force = false) => {
       if (!businessId || useAppStore.getState().session !== session) return;
       if (pending) return;
       pending = true;
       const version = ++requestVersion.current;
+      const expected = useAppStore.getState();
       try {
         const revision = await forecastRevision(businessId);
         if (
@@ -70,11 +79,13 @@ export function useApiForecast(): ForecastState {
           return;
         }
         const next = await api.dashboard(businessId);
+        const inputs = await api.sharedForecastInputs(businessId, next);
         if (
           !cancelled &&
           version === requestVersion.current &&
           useAppStore.getState().session === session
         ) {
+          if (!applyApiSharedState(inputs, expected)) return;
           loadedRevision.current = revision;
           setData(next);
           setError(undefined);
@@ -90,7 +101,7 @@ export function useApiForecast(): ForecastState {
         pending = false;
       }
     };
-    void read(true);
+    void read();
     // Poll the persisted queue, including runs started by another signed-in browser.
     const timer = window.setInterval(() => {
       setClock(Date.now());

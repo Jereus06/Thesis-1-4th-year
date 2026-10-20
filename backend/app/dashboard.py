@@ -38,6 +38,9 @@ def dashboard_status(repository, business_id, *, forecast_schedule=None):
     settings = conn.execute(
         "SELECT updated_at FROM business_settings WHERE business_id=%s", (business_id,),
     ).fetchone()
+    business = conn.execute(
+        "SELECT name,location,data_origin,updated_at FROM businesses WHERE id=%s", (business_id,),
+    ).fetchone()
     quality = conn.execute(
         """SELECT count(*) AS count,max(changed_at) AS latest
         FROM sales_day_quality_audit WHERE business_id=%s""", (business_id,),
@@ -55,7 +58,8 @@ def dashboard_status(repository, business_id, *, forecast_schedule=None):
     ).fetchone()
     state = {
         "businessDay": repository.business_day(business_id),
-        "sales": sales, "products": products, "settings": settings, "quality": quality,
+        "sales": sales, "products": products, "settings": settings, "business": business,
+        "quality": quality,
         "latest": latest, "completed": completed, "schedule": forecast_schedule,
     }
     encoded = json.dumps(state, default=str, sort_keys=True).encode()
@@ -114,7 +118,8 @@ def dashboard(repository, business_id, *, forecast_schedule=None):
         predictions = [point for point in predictions if point["productId"] not in legacy_baselines]
         metrics = [metric for metric in metrics if metric["productId"] not in legacy_baselines]
         summaries = {pid: summary for pid, summary in summaries.items() if pid not in legacy_baselines}
-    products = [product for product in repository.list_products(business_id) if product["isActive"]]
+    catalog = repository.list_products(business_id)
+    products = [product for product in catalog if product["isActive"]]
     stale = False
     if completed:
         captured = completed["data_snapshot"].get("capturedAt", completed["created_at"])
@@ -318,6 +323,7 @@ def dashboard(repository, business_id, *, forecast_schedule=None):
             }
         )
     result = {
+        "sharedState": {"products": catalog, "settings": settings},
         "run": run,
         "stale": stale,
         "expired": forecast_through is not None and forecast_through < today,

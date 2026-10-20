@@ -599,6 +599,8 @@ class Repository:
         if data.movement_type == "write_off" and data.quantity_delta > 0:
             raise HTTPException(409, "Write-off quantity must decrease stock")
         with self.conn.transaction():
+            if data.movement_date > self.business_day(principal.business_id):
+                raise HTTPException(422, "Stock movements cannot be dated after the business's current date")
             product = self.conn.execute(
                 "SELECT current_stock FROM products WHERE business_id=%s AND id=%s AND is_active FOR UPDATE",
                 (principal.business_id, data.product_id),
@@ -796,12 +798,21 @@ class Repository:
 
     def get_settings(self, business_id: str):
         row = self.conn.execute(
-            "SELECT * FROM business_settings WHERE business_id=%s", (business_id,)
+            """SELECT s.*,b.name AS business_name,b.location AS business_location,
+               b.data_origin,b.updated_at AS business_updated_at
+               FROM business_settings s JOIN businesses b ON b.id=s.business_id
+               WHERE s.business_id=%s""", (business_id,)
         ).fetchone()
         if not row:
             raise HTTPException(404, "Settings not found")
         return {
             "businessId": str(row["business_id"]),
+            "businessName": row["business_name"],
+            "businessLocation": row["business_location"],
+            "dataOrigin": row["data_origin"],
+            "version": hashlib.sha256(
+                json.dumps(row, default=str, sort_keys=True).encode()
+            ).hexdigest(),
             "movingAverageWindow": row["moving_average_window"],
             "forecastHorizonDays": row["forecast_horizon_days"],
             "targetCoverDays": row["target_cover_days"],
@@ -813,8 +824,25 @@ class Repository:
         }
 
     def put_settings(self, business_id: str, data: SettingsUpdate):
-        values = data.model_dump(exclude={"business_name", "business_location"})
+        values = data.model_dump(exclude={"business_name", "business_location", "expected_version"})
         with self.conn.transaction():
+            business = self.conn.execute(
+                "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE", (business_id,)
+            ).fetchone()
+            if not business:
+                raise HTTPException(404, "Business not found")
+            settings = self.conn.execute(
+                "SELECT business_id FROM business_settings WHERE business_id=%s FOR UPDATE",
+                (business_id,),
+            ).fetchone()
+            if not settings:
+                raise HTTPException(404, "Settings not found")
+            current = self.get_settings(business_id)
+            if data.expected_version is not None and data.expected_version != current["version"]:
+                raise HTTPException(
+                    409,
+                    "Settings changed in another browser. Reload the saved settings before trying again.",
+                )
             row = self.conn.execute(
                 """UPDATE business_settings SET moving_average_window=%s,forecast_horizon_days=%s,
                 target_cover_days=%s,minimum_history_weeks=%s,minimum_nonzero_days=%s,
@@ -830,7 +858,7 @@ class Repository:
                 profile["location"] = data.business_location
             if profile:
                 self.update_business(business_id, BusinessUpdate(**profile))
-        return self.get_settings(business_id)
+            return self.get_settings(business_id)
 
     def create_sales_import(self, principal: Principal, data: SalesImportCreate):
         source_map = {
@@ -846,6 +874,12 @@ class Repository:
                 "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE",
                 (principal.business_id,),
             )
+            # now() is the transaction start, which can predate a snapshot this
+            # import waited behind. Timestamp accepted sales after acquiring its
+            # business lock so completed forecasts detect the new inputs.
+            imported_at = self.conn.execute("SELECT clock_timestamp() AS imported_at").fetchone()[
+                "imported_at"
+            ]
             today = self.business_day(principal.business_id)
             if any(item.sale_date > today for item in data.rows):
                 raise HTTPException(422, "Sales cannot be dated after the business's current date")
@@ -967,8 +1001,8 @@ class Repository:
                 self.conn.execute(
                     """INSERT INTO sales
                     (business_id,product_id,sale_date,quantity,source,data_origin,import_id,
-                     source_row_number,source_record_key,recorded_by)
-                    SELECT %s,%s,%s,%s,%s,data_origin,%s,%s,%s,%s
+                     source_row_number,source_record_key,recorded_by,created_at)
+                    SELECT %s,%s,%s,%s,%s,data_origin,%s,%s,%s,%s,%s
                     FROM businesses WHERE id=%s""",
                     (
                         principal.business_id,
@@ -980,6 +1014,7 @@ class Repository:
                         number,
                         item.source_record_key,
                         principal.user_id,
+                        imported_at,
                         principal.business_id,
                     ),
                 )

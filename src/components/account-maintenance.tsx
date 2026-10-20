@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,8 @@ export function AccountMaintenance() {
   const ownerKey = canManageMembers ? accountKey : null;
   const [current, setCurrent] = useState("");
   const [replacement, setReplacement] = useState("");
+  const [currentVisible, setCurrentVisible] = useState(false);
+  const [replacementVisible, setReplacementVisible] = useState(false);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [members, setMembers] = useState<AccountMember[]>([]);
@@ -63,6 +66,8 @@ export function AccountMaintenance() {
     setInvitationError(null);
     setCurrent("");
     setReplacement("");
+    setCurrentVisible(false);
+    setReplacementVisible(false);
     setName("");
     setEmail("");
     if (ownerKey) void loadMembers();
@@ -168,31 +173,64 @@ export function AccountMaintenance() {
         </p>
       </div>
       <form onSubmit={changePassword} className="grid gap-3">
+        <input
+          type="email"
+          name="username"
+          autoComplete="username"
+          aria-label="Account email"
+          value={session?.email ?? ""}
+          readOnly
+          tabIndex={-1}
+          className="sr-only"
+        />
         <fieldset disabled={busy} className="grid gap-2 sm:grid-cols-2">
           <div className="grid gap-1.5">
             <Label htmlFor="account-current-password">Current password</Label>
-            <Input
-              id="account-current-password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={current}
-              onChange={(event) => setCurrent(event.target.value)}
-            />
+            <div className="relative">
+              <Input
+                id="account-current-password"
+                name="current-password"
+                type={currentVisible ? "text" : "password"}
+                autoComplete="current-password"
+                required
+                placeholder="Enter your current password"
+                className="pr-24"
+                value={current}
+                onChange={(event) => setCurrent(event.target.value)}
+              />
+              <PasswordVisibility
+                fieldId="account-current-password"
+                label="current password"
+                visible={currentVisible}
+                disabled={busy}
+                onToggle={() => setCurrentVisible((visible) => !visible)}
+              />
+            </div>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="account-new-password">New password</Label>
-            <Input
-              id="account-new-password"
-              type="password"
-              autoComplete="new-password"
-              required
-              minLength={12}
-              maxLength={128}
-              placeholder="At least 12 characters"
-              value={replacement}
-              onChange={(event) => setReplacement(event.target.value)}
-            />
+            <div className="relative">
+              <Input
+                id="account-new-password"
+                name="new-password"
+                type={replacementVisible ? "text" : "password"}
+                autoComplete="new-password"
+                required
+                minLength={12}
+                maxLength={128}
+                placeholder="At least 12 characters"
+                className="pr-24"
+                value={replacement}
+                onChange={(event) => setReplacement(event.target.value)}
+              />
+              <PasswordVisibility
+                fieldId="account-new-password"
+                label="new password"
+                visible={replacementVisible}
+                disabled={busy}
+                onToggle={() => setReplacementVisible((visible) => !visible)}
+              />
+            </div>
           </div>
         </fieldset>
         {passwordError && (
@@ -327,6 +365,37 @@ export function AccountMaintenance() {
         </>
       )}
     </div>
+  );
+}
+
+function PasswordVisibility({
+  fieldId,
+  label,
+  visible,
+  disabled,
+  onToggle,
+}: {
+  fieldId: string;
+  label: string;
+  visible: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className="absolute right-1 top-1 gap-1 px-2"
+      aria-label={`${visible ? "Hide" : "Show"} ${label}`}
+      aria-controls={fieldId}
+      aria-pressed={visible}
+      disabled={disabled}
+      onClick={onToggle}
+    >
+      {visible ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+      {visible ? "Hide" : "Show"}
+    </Button>
   );
 }
 

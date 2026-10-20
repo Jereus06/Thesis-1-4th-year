@@ -1,6 +1,6 @@
 # StockCast project context
 
-CSV importer, account access, and imported-sale deletion source reviewed against this workspace: 2026-10-09. Recorded-sale correction updated and verified on 2026-10-15. Transaction retries, future-sale validation, comparison units, and forecast polling updated on 2026-10-16. Read alongside [AGENTS.md](../AGENTS.md) and source.
+CSV importer, account access, and imported-sale deletion source reviewed against this workspace: 2026-10-09. Recorded-sale correction updated and verified on 2026-10-15. Transaction retries, future-sale validation, comparison units, and forecast polling updated on 2026-10-16. Stock-movement retries/date validation, saved forecast descriptions, client dashboard/account controls, shared-state concurrency, and the import/snapshot timestamp fix updated on 2026-10-20. Read alongside [AGENTS.md](../AGENTS.md) and source.
 
 ## Purpose and confirmed research context
 
@@ -57,6 +57,16 @@ staff). Owners can maintain SKU, name, category, unit, lead time, safety stock, 
 verified stock-count corrections are a separate action using the existing audited product PATCH.
 Cover days after delivery accepts a typed nonnegative whole number and retains the 3/7/10/14-day
 suggestions. Moving Average window offers 3, 7, 14, 28, and 30 days using the existing settings API.
+The Moving Average score description uses the completed forecast's frozen
+`dataSnapshot.settings.moving_average_window`, carried into frontend result diagnostics, so
+changing the current window does not relabel older scores while a replacement is queued or
+running. Results without that saved setting show an unavailable window instead of guessing from
+current settings. Browser-demo results retain the window used when their pipeline ran.
+The setting is a local draft until Save settings succeeds. Its control identifies the saved
+window and unsaved edits, and explains that the lookback used for each average is separate from
+the accuracy test period. Forecasts shows a notice when the saved setting differs from the
+completed result's window. Saving alone does not queue training; a new refresh captures the
+saved setting. For example, a 14-day Moving Average may correctly retain 30 final-test days.
 The desktop sidebar stays at the viewport's top while the main content scrolls; its own contents
 remain scrollable on short screens.
 Owners can activate/deactivate products without deleting their stock balance or historical
@@ -107,7 +117,8 @@ image. These checks used synthetic test records and did not delete live business
 Stock movements offers returns for owners/staff and owner-only write-offs. Returns increase usable
 stock; write-offs decrease it and the form requires a reason. Both use the existing movement POST,
 CSRF, and idempotency contract, with movement date, decimal quantity, and note validation. A saved
-movement's server balance updates the catalog immediately; its audit entry includes the existing
+movement's balance belongs to its historical audit entry; current catalog stock is refreshed
+separately from the products API. Its audit entry includes the existing
 note, provenance, and recorded user ID. The searchable/filterable ledger loads all movement pages
 on opening or Refresh and supports the existing authenticated CSV export.
 CSV downloads in Sales ledger and Stock movements use outlined button controls. Products no
@@ -127,10 +138,50 @@ reach the backend even after a catalog refresh shows lower or zero stock; server
 and idempotency remain authoritative. A replay does not duplicate a loaded sale or deduct stock
 again from an already refreshed catalog balance.
 
+Deliveries, returns, and write-offs reconcile current stock through a guarded products read after
+the backend confirms the saved movement. Replayed `balanceAfter` values remain in the audit ledger
+and never replace current catalog stock, including when that follow-up read fails. A confirmed
+save stays successful if stock cannot be refreshed; the ledger shows a notice to refresh its
+balances. Unchanged pending write-off retries bypass the form's stock limit and the store's local
+negative-balance check so the existing backend idempotency handler can confirm a write-off even
+after stock refreshes to zero. The store matches the complete normalized payload and request key
+within the submitting session; edited payloads and new keys retain ordinary stock validation.
+The API/database contract, permissions, migration history, and browser-demo stock checks are
+unchanged. Pending form submissions still do not survive a page reload.
+
+Verification on 2026-10-20 passed frontend typecheck, lint (the same three React Refresh warnings),
+production build, 24 stock-maintenance regressions, 63 related session/sales/import regressions,
+and 11 isolated Edge browser checks. These used synthetic intercepted HTTP responses, including
+lost delivery/write-off responses, intervening stock changes, failed catalog reads, and edited
+retry payloads. A browser rerun timed out in an existing sale flow; the final clean run passed
+all checks, and the timeout's cause was not confirmed. Python and PostgreSQL behavior was reviewed
+against existing source; this frontend-only change did not rerun the Python/database suite or
+write live business records.
+
 Manual sales and historical sales imports reject dates after the current day in the business's
 saved timezone before saving or changing stock. An import containing any future sale rejects the
 whole batch. The sale date picker uses the same business-date upper bound; API validation remains
 authoritative. Existing legacy future rows still trigger the forecast-history safeguard.
+
+New deliveries, returns, write-offs, and dated adjustments reject movement dates after the
+business's current day in its saved timezone before changing stock or writing an audit record.
+The return/write-off picker, submit handler, and shared store apply the same boundary; delivery
+defaults also use the business timezone rather than the browser's calendar date. PostgreSQL and
+the optional SQLite API enforce the check independently of the browser, while ordinary backdated
+corrections remain supported. An unchanged pending retry can still reach the backend to confirm
+an existing saved movement if a timezone change makes its original date appear future-dated;
+if the original was not saved, backend validation rejects the new future-dated write.
+
+Movement-date and saved-window verification on 2026-10-20 passed frontend typecheck, lint
+(the same three React Refresh warnings), production build, 101 frontend regressions, and 28
+isolated Edge browser checks. The complete Python suite passed 572 tests and 14 subtests with
+no skips using Python 3.12 and a separate disposable PostgreSQL 16 database, including 27 new
+movement-date cases covering saved timezones, rollback, past dates, retries, and optional SQLite.
+The forecast browser verifier's earlier CDP launcher failed before navigation; its final run
+passed all 11 checks using the same Playwright Edge launcher as the 17 movement checks. Browser
+responses and database records were synthetic; no live business records were changed. SQL
+migration history and forecast calculations are unchanged. The disposable test database and
+temporary browser servers were removed after verification.
 
 Verification on 2026-10-16 passed frontend typecheck, lint (the same three React Refresh warnings),
 production build, 143 related frontend regressions, and 15 isolated browser checks covering
@@ -325,6 +376,14 @@ Startup generates private owner credentials only when both the local `.env` and 
 owner password. Existing owners change their password through Inventory > Account & settings >
 Account maintenance; editing `.env` or restarting does not update an existing password hash.
 Removing a documented credential does not itself rotate any deployed credential.
+Current and new password fields start masked and each has an eye with Show/Hide controls for
+the entered value. They do not retrieve a saved password; the existing password-change API,
+validation, and session revocation are unchanged.
+Account maintenance omits the helper sentence beneath the current password field. Its password
+form includes the signed-in email as a read-only username field and named current/new password
+inputs with native autocomplete, so browser-owned password managers can recognize the account.
+Autofill depends on the browser and a matching saved credential; StockCast does not promise it
+or store a recoverable application password.
 
 Owner staff lists use session-authenticated GET without a CSRF header; all account mutations retain
 CSRF and Origin protection. Account maintenance shows loading, failure, Retry, and an explicit empty
@@ -471,6 +530,13 @@ See [backend authentication details](../backend/README.md#authentication-contrac
   average quantity errors, and the relative past error; older API metadata retains neutral
   evidence labels instead of inventing grades. `confidenceLevel` retains its required enum for
   compatibility, but the operational badge uses the structured policy/level/reason.
+  Shared Forecasts/Restock evidence compares each product's saved test observations with the
+  completed run's canonical `forecastHorizonDays`. A shorter test says, for example, "Accuracy
+  checked on 14 of the requested 30 days. Test evidence is limited." Current settings, queued
+  replacements, and snapshot defaults do not supply that denominator; an explicitly requested
+  run horizon can differ from the settings snapshot. Legacy missing/invalid horizons and
+  untested previews retain their existing evidence. This disclosure changes no forecast,
+  interval, model-selection, or confidence calculation.
   New previews cannot inherit older model test results. Demo badges
   say Demonstration. The legacy `lowConfidenceCount` diagnostic counts products with fewer than
   30 nonzero training sales days; it does not classify measured forecast accuracy. Sparse counts
@@ -486,30 +552,39 @@ See [backend authentication details](../backend/README.md#authentication-contrac
   until a new completed refresh; deactivated products leave the active view without rewriting
   the saved selection. Missing legacy inputs produce an unavailable list, not inferred ranks.
   No SQL migration, training algorithm replacement, or extra frontend/backend runtime is needed.
-- Forecasts defaults to Overall results. The shared results dropdown switches the MAE/RMSE
-  cards to a product's saved final-test metrics and opens its forecast chart
-  and evidence. Overall results pools comparisons only when the included products share a unit;
-  differing units withhold MAE/RMSE and ask the user to choose a product. Product-specific scores
-  remain available, and excluded products do not affect the comparison's unit check. Products
-  outside the ML selection retain Moving Average results and unavailable ML scores; switching
-  products does not select models from final-test errors or change saved forecasts.
+- Forecasts shows product results only, with no Overall results option. It initially selects the
+  active product with the highest saved training rank and returns to that product when a new
+  completed run arrives. Manual choices survive ordinary polls and queued/running replacements.
+  The existing API run ID identifies completed results; the optional browser demonstration
+  generates an ID only for completed training, while legacy results fall back to their saved
+  training timestamp. Missing legacy ranks use deterministic SKU/product-ID order, preferring a
+  product with results, without inventing a rank. The dropdown switches MAE/RMSE, chart, and
+  evidence together. Different counting units retain per-product scores. Products outside the ML
+  selection retain Moving Average results and unavailable ML scores; switching products does not
+  select models from final-test errors or change saved forecasts. Overview retains its existing
+  aggregate/unit safeguards and includes a compact green Forecasts button inside the MAE card.
+  An unavailable MAE omits the dash placeholder while retaining the explanatory hint.
 - Client page headers omit the introductory sentences on Overview, Restock, Forecasts, Inventory,
-  and Strategies. The shared forecast banner omits the repeated daily schedule sentence, while
+  and Strategies. Overview also omits the duplicate date above Morning briefing; the shared
+  upper header retains its date. The shared forecast banner omits the repeated daily schedule sentence, while
   retaining update progress, saved forecast status, expiration, and errors. Strategies contains
   only User guide and Evaluation in both API and browser-demo modes; removed or unsupported tab
   queries open User guide. Methodology/thesis documents remain in the repository outside the
   client interface. Existing guide links and the `/methodology` route remain compatible.
-- Forecasts, Restock, and Quality use short retail wording within the original frontend layout.
+- Forecasts, Restock, and Quality use short retail wording.
   Wording-only requests must preserve the existing cards, positions, styling, and visible data;
-  do not add disclosures or move/hide sections without the user's request. The original visible
-  processing panel, inline MAE/RMSE cards, all-product table, selection summary, range evidence,
-  Restock metadata, and flat evidence paragraphs are restored after the owner's correction.
-  The explicitly requested Product/Overall selector, removed forecast copy control, and CSV
-  export buttons are retained. The chosen-method badge still uses earlier validation.
-  Shared evidence retains test errors and missing/excluded-day counts. Quality labels describe what
-  happened that day while retaining the existing classification values, override rules, audit
-  export, and permissions; an empty review list makes no claim that the store has no records.
-  This is a presentation change with no API, database, forecasting, or inventory policy change.
+  do not add disclosures or move/hide sections without the user's request. The owner's later
+  explicit dashboard request keeps Forecasts' processing panel, inline MAE/RMSE cards, all-product
+  table, selection summary, and range evidence, while replacing Overall with the product-only
+  selector described above. Restock keeps stock, expected sales, reorder point, stock cover,
+  suggested order, and delivery actions visible. Its metadata shows SKU/category, with test
+  errors, confidence reasons, and missing/excluded-day counts under closed Forecast details.
+  Unavailable estimates, fallback reasons, shortened-test limitations, and actionable quality
+  warnings remain outside that disclosure. Forecasts retains full evidence paragraphs. Forecast
+  copy controls remain removed and CSV export buttons remain available. The chosen-method badge
+  still uses earlier validation. Quality labels retain existing classification values, override
+  rules, audit export, and permissions; an empty review list makes no claim that the store has no
+  records. These presentation changes do not change API, database, model, or inventory policy.
 - Normal Refresh grows the final test to the configured forecast horizon when history can retain
   the configured training eligibility/CV reserve and at least 20 separate validation days. With
   default training requirements and a 30-day horizon, 140 complete daily observations allow a
@@ -579,6 +654,54 @@ demonstration mode. The normal frontend displays Python outputs and does not tri
 
 ## Boundaries and delivery checks
 
+The follow-up [logic audit and fixes on 2026-10-20](LOGIC_AUDIT_2026-10-20.md) reproduced six
+issues and addressed them sequentially. Stock counts retain their request identity across an
+unchanged retry; product creation retains both its generated SKU and request key. Confirmed count,
+creation and metadata saves read the current catalog instead of using historical response stock.
+Late metadata acknowledgments also preserve a newer product object and its known stock. A failed
+follow-up read displays a refresh notice while keeping an acknowledged save successful.
+
+Dashboard responses add `sharedState` with the full catalog, including inactive products, and the
+canonical settings used for advice. Revision polling synchronizes these inputs together and
+observes profile changes. Unchanged values preserve store references, avoiding dashboard loops;
+session and input-reference guards reject late reads. Older APIs retain a guarded products,
+settings and profile read path.
+
+Settings responses add canonical business profile/provenance fields and an opaque `version`.
+Optional `expectedVersion` rejects stale saves with 409 under business/settings locks before any
+write; existing clients without the field remain compatible. The form merges only actual edits
+over current saved settings, preserves invalid cover-day text, reloads canonical values on a
+conflict and keeps edits for deliberate resubmission. No PostgreSQL business-table or migration
+change was needed. Optional SQLite adds only a durable request cache for existing writes;
+its existing business schema still has no location field, so nonempty location saves return 422
+atomically rather than pretending to persist them.
+
+Exact pending sale/movement retries match the submitting session, key and normalized body before
+mutable activity/date/stock validation. Forms retain their original product, including delivery
+dialogs whose Inventory/Restock rows disappear. New/edited submissions, role/quantity/sign/note
+checks and backend validation remain authoritative. Cached voided sales remain rejected, and
+pending form identities still do not survive page reloads. Browser demonstration keeps its
+ordinary stock/date checks.
+
+Imports timestamp accepted sales with one database clock value captured after acquiring the
+business lock. A prestarted importer that waits behind a forecast snapshot can no longer hide
+its later rows behind PostgreSQL transaction-start `now()`. Saved forecast snapshots and metrics
+remain immutable. The linked audit records the real concurrency reproduction and verification;
+all records were synthetic and no live business data or credentials were changed.
+
+Sequential logic-fix verification on 2026-10-20 passed all **393 frontend unit tests**, including
+37 stock-maintenance, 12 shared-state and eight pending-form regressions, with no failures or
+skips. Typecheck and production build passed; global lint reported zero errors and the three
+existing React Refresh warnings. All **41 transaction browser** and **eight shared-state browser**
+checks passed using intercepted synthetic HTTP. Workflow YAML and browser step order also passed.
+The complete current-source Python suite passed **636 tests and 14 subtests**, with no failures
+or skips, in **665.00s** using Python 3.12.14, a separate disposable PostgreSQL 16.15 instance
+and temporary SQLite fixtures (249 dependency warnings). The import regression reproduced the
+old `stale=false` before the fix, then confirmed `needs_refresh` and withheld confidence while
+preserving 30 saved test observations and MAE 0. These are synthetic engineering checks, not
+partner accuracy findings. Existing running images still require the normal application rebuild;
+the local checks do not claim a deployed or hosted GitHub Actions result.
+
 Existing SQL migrations 001–006 are preserved. Additive `007_client_survey` stores immutable survey
 submissions and item answers without replacing users, sessions, inventory, or forecast records.
 The owner retains database-design authority; no replacement schema or second TypeScript backend
@@ -586,9 +709,61 @@ is introduced. The reserved `is_valid_iso_date` helper and its
 dedicated tests remain the groupmate's task.
 
 The GitHub workflow runs clean frontend installation/typecheck/lint/build, Python tests with
-PostgreSQL, full web/API/worker smoke checks, backup restoration, and restart persistence. Local
+PostgreSQL, full web/API/worker smoke checks, backup restoration, and restart persistence. It also
+runs `scripts/verify-transaction-retries-browser.mjs` and
+`scripts/verify-shared-state-browser.mjs` after Playwright Chromium installation. These separate
+synthetic transport checks self-start isolated Vite servers and cover count/product/movement
+retries, delayed product responses, session boundaries, shared revisions and settings conflicts;
+they do not replace real PostgreSQL checks. Their relative API URLs are pinned so environment
+settings cannot send fixture requests to another server. Local
 unit checks and an added workflow are not by themselves evidence of an actual hosted deployment;
 read the workflow outcome and record the target hosting verification separately.
+
+Shortened-test display and retry-CI verification on 2026-10-20 passed typecheck, lint (the same
+three React Refresh warnings), production build, 36 shared evidence/render regressions, 30
+forecast adapter regressions, and all 18 isolated Edge transaction-browser checks. Workflow YAML
+parsing and step-order checks passed. The browser checks used synthetic intercepted responses;
+Linux Chromium execution and the actual GitHub Actions result remain for the next workflow run.
+The Python/database suite was not rerun for this frontend/workflow-only change; its earlier
+movement-date verification above remains a separate record. No live business records were used.
+
+Client dashboard/account verification on 2026-10-20 passed typecheck, lint (the same three React
+Refresh warnings), production build, 43 shared evidence/route render regressions, 31 forecast
+adapter regressions, and eight account regressions. Seven focused Edge browser checks passed
+for the Overview shortcut, saved-rank selection through a real refresh click and queued/running/
+completed synthetic responses, compact Restock details with visible warnings, and independent
+password visibility controls. Desktop and 390px password screenshots and bounds checks confirmed
+no text/control overlap. The existing 11 scheduled-forecast browser checks also passed, including
+unchanged-revision polling and saved Moving Average settings. Browser attempts during guide
+editing were rerun with the workspace frozen. These checks used synthetic intercepted responses,
+with no password-change request or live business records. No Python/database rerun was needed for
+these frontend-only changes. The new focused verifier is `scripts/verify-client-ui-browser.mjs`;
+its screenshots/report are local ignored artifacts under `benchmarks/client-ui/`.
+
+Password/window follow-up on 2026-10-20 confirmed that the account API returns identity, not a
+recoverable password, and that the worker uses the frozen Moving Average setting independently
+of final-test length. In an isolated no-database synthetic worker simulation, changing the
+window from 7 to 14 changed predictions while both runs retained 30 final-test observations and
+30 future days. All 54 focused Python settings/worker/split tests passed in Docker Python
+3.12.14 with networking disabled and source mounted read-only; no Python code changed and the
+full database suite was not rerun. Frontend typecheck, lint (the same three warnings), build,
+44 evidence/route render tests, 31 adapter tests, three settings tests, and eight account tests
+passed. All 10 focused Edge browser checks passed using API-mode startup and intercepted
+synthetic responses, including selecting 14, saving, queued/running results retaining 7,
+completed results using 14 alongside 30 tested days, and settings surviving a full reload.
+Browser password-manager autofill remains browser-dependent; metadata and independent visibility
+controls were verified, without submitting a password change. Read-only local runtime metadata
+also included a completed run with window 14 and horizon 30, but its usable final-test count was
+28; this anonymized run was not linked to the screenshot account or presented as client accuracy.
+At that verification, the running web image still predated those follow-up UI changes and
+required the normal rebuild. No live business records or credentials were changed.
+
+UI polish on 2026-10-20 makes the Overview MAE card's Forecasts button green, omits its
+unavailable-score dash, and removes the current-password helper paragraph. Typecheck,
+production build, 44 evidence/route render tests, and eight account tests passed; lint retained
+the same three React Refresh warnings with no errors. The local web container was rebuilt and
+restarted, and HTTP checks confirmed its HTML and Overview/Inventory assets match the build
+and its API health endpoint responds successfully. These checks did not use client records.
 
 Forecast-history regression fixtures freeze only the business day in the saved timezone;
 session and idempotency expiry clocks stay real so they remain consistent with PostgreSQL's

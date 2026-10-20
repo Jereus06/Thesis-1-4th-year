@@ -15,7 +15,7 @@ import { Select } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatShort, parseDate } from "@/lib/dates";
 import { useAppStore } from "@/lib/store";
-import type { Sale } from "@/lib/types";
+import type { Sale, Settings } from "@/lib/types";
 import { CSV_API_ROW_LIMITS } from "@/lib/csv-preparation";
 import { usePermissions } from "@/lib/permissions";
 
@@ -155,21 +155,59 @@ function SettingsPanel() {
   const updateSettings = useAppStore((s) => s.updateSettings);
   const resetDemo = useAppStore((s) => s.resetDemo);
   const mode = useAppStore((s) => s.dataMode);
-  const [draft, setDraft] = useState(settings);
-  const [coverDays, setCoverDays] = useState(String(settings.coverDays));
+  const [edits, setEdits] = useState<Partial<Omit<Settings, "apiVersion">>>({});
+  const [coverDaysDraft, setCoverDaysDraft] = useState<string | null>(null);
+  const draft = { ...settings, ...edits };
+  const coverDays = coverDaysDraft ?? String(settings.coverDays);
   const coverDaysInput = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
-  const edit = (patch: Partial<typeof settings>) =>
-    setDraft((current) => ({ ...current, ...patch }));
+  const submitting = useRef(false);
+  const edit = (patch: Partial<Omit<Settings, "apiVersion">>) =>
+    setEdits((current) =>
+      Object.fromEntries(
+        Object.entries({ ...current, ...patch }).filter(
+          ([key, value]) => !Object.is(value, settings[key as keyof Settings]),
+        ),
+      ),
+    );
+  const patch: Partial<Settings> = Object.fromEntries(
+    Object.entries(edits).filter(
+      ([key, value]) => !Object.is(value, settings[key as keyof Settings]),
+    ),
+  );
+  if (coverDaysDraft !== null && Number(coverDaysDraft) !== settings.coverDays) {
+    patch.coverDays = Number(coverDaysDraft);
+  }
+  const hasEdits = Object.keys(patch).length > 0;
   async function saveSettings() {
-    if (!canManageSettings || saving || !coverDaysInput.current?.reportValidity()) return;
+    if (
+      !canManageSettings ||
+      submitting.current ||
+      !hasEdits ||
+      !coverDaysInput.current?.reportValidity()
+    )
+      return;
+    const submittedCoverDays = coverDaysDraft;
+    submitting.current = true;
     setSaving(true);
     try {
-      await updateSettings({ ...draft, coverDays: Number(coverDays) });
+      await updateSettings(patch);
+      setEdits((current) =>
+        Object.fromEntries(
+          Object.entries(current).filter(
+            ([key, value]) =>
+              !Object.hasOwn(patch, key) || !Object.is(value, patch[key as keyof Settings]),
+          ),
+        ),
+      );
+      if (Object.hasOwn(patch, "coverDays")) {
+        setCoverDaysDraft((current) => (current === submittedCoverDays ? null : current));
+      }
       toast.success("Settings saved.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Save failed");
     } finally {
+      submitting.current = false;
       setSaving(false);
     }
   }
@@ -186,12 +224,17 @@ function SettingsPanel() {
       <CardContent className="grid max-w-xl gap-4">
         <div className="grid gap-1.5">
           <Label>Store name</Label>
-          <Input value={draft.storeName} onChange={(e) => edit({ storeName: e.target.value })} />
+          <Input
+            value={draft.storeName}
+            disabled={saving}
+            onChange={(e) => edit({ storeName: e.target.value })}
+          />
         </div>
         <div className="grid gap-1.5">
           <Label>Location</Label>
           <Input
             value={draft.storeLocation}
+            disabled={saving}
             onChange={(e) => edit({ storeLocation: e.target.value })}
           />
         </div>
@@ -199,6 +242,7 @@ function SettingsPanel() {
           <Label>Forecast horizon</Label>
           <Select
             value={String(draft.forecastHorizon)}
+            disabled={saving}
             onChange={(e) => edit({ forecastHorizon: Number(e.target.value) })}
           >
             {[7, 14, 21, 30].map((n) => (
@@ -219,7 +263,12 @@ function SettingsPanel() {
             required
             list="settings-cover-days-options"
             value={coverDays}
-            onChange={(e) => setCoverDays(e.target.value)}
+            disabled={saving}
+            onChange={(e) =>
+              setCoverDaysDraft(
+                e.target.value === String(settings.coverDays) ? null : e.target.value,
+              )
+            }
           />
           <datalist id="settings-cover-days-options">
             {[3, 7, 10, 14].map((n) => (
@@ -262,9 +311,12 @@ function SettingsPanel() {
             </p>
           </div>
           <div className="grid gap-1.5">
-            <Label>Moving Average window (days)</Label>
+            <Label htmlFor="settings-ma-window">Moving Average window (days)</Label>
             <Select
+              id="settings-ma-window"
+              aria-describedby="settings-ma-window-help settings-ma-window-status"
               value={String(draft.maWindow)}
+              disabled={saving}
               onChange={(e) => edit({ maWindow: Number(e.target.value) })}
             >
               {[3, 7, 14, 28, 30].map((n) => (
@@ -273,11 +325,20 @@ function SettingsPanel() {
                 </option>
               ))}
             </Select>
+            <p id="settings-ma-window-help" className="text-xs text-muted">
+              Sales days used for each average. Accuracy is checked on a separate past test period.
+            </p>
+            <p id="settings-ma-window-status" className="text-xs text-muted" role="status">
+              {draft.maWindow !== settings.maWindow
+                ? `Not saved yet. Saved window: ${settings.maWindow} days. Choose Save settings, then Refresh forecasts.`
+                : `Saved window: ${settings.maWindow} days. Save changes before starting a new forecast refresh.`}
+            </p>
           </div>
           <div className="grid gap-1.5">
             <Label>ML product limit</Label>
             <Select
               value={String(draft.topNProducts)}
+              disabled={saving}
               onChange={(e) => edit({ topNProducts: Number(e.target.value) })}
             >
               {[5, 8, 12, 20].map((n) => (
@@ -292,7 +353,7 @@ function SettingsPanel() {
             </p>
           </div>
         </div>
-        <Button onClick={saveSettings} disabled={saving}>
+        <Button onClick={saveSettings} disabled={saving || !canManageSettings || !hasEdits}>
           {saving ? "Saving…" : "Save settings"}
         </Button>
         {mode === "browser-demo" && (

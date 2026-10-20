@@ -82,6 +82,7 @@ class MovementCreate(ApiModel):
 
 
 class SettingsUpdate(ApiModel):
+    expected_version: str | None = Field(default=None, min_length=1, max_length=200)
     business_name: str | None = Field(default=None, min_length=1, max_length=200)
     business_location: str | None = Field(default=None, max_length=300)
     moving_average_window: int = Field(gt=0)

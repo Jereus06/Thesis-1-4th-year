@@ -2,6 +2,10 @@ import type { Settings } from "./types";
 
 export type ApiSettings = {
   businessId: string;
+  version?: string;
+  businessName?: string;
+  businessLocation?: string | null;
+  dataOrigin?: "demo" | "partner";
   movingAverageWindow: number;
   forecastHorizonDays: number;
   targetCoverDays: number;
@@ -19,6 +23,7 @@ export function fromApiSettings(
 ): Settings {
   return {
     ...defaults,
+    apiVersion: saved.version,
     maWindow: saved.movingAverageWindow,
     forecastHorizon: saved.forecastHorizonDays,
     coverDays: saved.targetCoverDays,
@@ -27,14 +32,21 @@ export function fromApiSettings(
     topNProducts: saved.topNProducts,
     cvFolds: saved.cvFolds,
     timezone: saved.timezone,
-    storeName: business.name,
-    storeLocation: business.location ?? "",
+    storeName: saved.businessName ?? business.name,
+    storeLocation:
+      saved.businessLocation !== undefined
+        ? (saved.businessLocation ?? "")
+        : (business.location ?? ""),
   };
 }
 
-export function toApiSettings(settings: Settings): Omit<ApiSettings, "businessId"> & {
+export function toApiSettings(settings: Settings): Omit<
+  ApiSettings,
+  "businessId" | "version" | "businessName" | "businessLocation" | "dataOrigin"
+> & {
   businessName: string;
   businessLocation: string;
+  expectedVersion?: string;
 } {
   return {
     movingAverageWindow: settings.maWindow,
@@ -47,5 +59,6 @@ export function toApiSettings(settings: Settings): Omit<ApiSettings, "businessId
     topNProducts: settings.topNProducts,
     cvFolds: settings.cvFolds,
     timezone: settings.timezone,
+    ...(settings.apiVersion ? { expectedVersion: settings.apiVersion } : {}),
   };
 }

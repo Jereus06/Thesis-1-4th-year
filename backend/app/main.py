@@ -255,11 +255,21 @@ def update_product(
     data: ProductUpdate,
     repository: Repository = Depends(repo),
     user: Principal = Depends(csrf_protected),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     business_user(business_id, user)
     if user.role != "owner":
         raise HTTPException(403, "Owner role required")
-    return {"data": repository.update_product(user, product_id, data)}
+    return {
+        "data": write_once(
+            repository,
+            user,
+            idempotency_key,
+            f"update_product:{product_id}",
+            data,
+            lambda: repository.update_product(user, product_id, data),
+        )
+    }
 
 
 @app.delete("/api/v1/businesses/{business_id}/products/{product_id}")

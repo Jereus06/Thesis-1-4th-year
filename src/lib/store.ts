@@ -20,7 +20,7 @@ import type {
   Settings,
   StockMovementInput,
 } from "@/lib/types";
-import { fromApiSettings } from "@/lib/settings";
+import { fromApiSettings, type ApiSettings } from "@/lib/settings";
 import { deduplicateSales, isImportedSale } from "@/lib/sales-import";
 
 type Store = {
@@ -54,9 +54,12 @@ type Store = {
   ) => Promise<void>;
   recordStockMovement: (input: StockMovementInput) => Promise<void>;
   refreshInventoryMovements: () => Promise<void>;
-  updateProduct: (id: string, patch: ProductPatch) => Promise<void>;
+  updateProduct: (id: string, patch: ProductPatch, idempotencyKey?: string) => Promise<void>;
   deleteProduct: (id: string) => Promise<{ deletedRows: number }>;
-  addProduct: (product: Omit<Product, "id" | "sku"> & { sku?: string }) => Promise<void>;
+  addProduct: (
+    product: Omit<Product, "id" | "sku"> & { sku?: string },
+    idempotencyKey?: string,
+  ) => Promise<void>;
   importInventory: (rows: InventoryImportRow[], idempotencyKey?: string) => Promise<void>;
   updateSettings: (patch: Partial<Settings>) => Promise<void>;
   importSales: (rows: Sale[], originalFilename?: string) => Promise<SalesImportResult>;
@@ -68,7 +71,11 @@ type Store = {
 const dataMode = import.meta.env.VITE_DATA_MODE === "browser-demo" ? "browser-demo" : "api";
 let movementRefreshSequence = 0;
 let authRequestSequence = 0;
-const pendingSales = new WeakMap<SessionUser, Map<string, Product>>();
+const pendingSales = new WeakMap<
+  SessionUser,
+  Map<string, { signature: string; originalProduct: Product }>
+>();
+const pendingStockMovements = new WeakMap<SessionUser, Map<string, string>>();
 
 export const useAppStore = create<Store>()(
   persist(
@@ -204,12 +211,6 @@ export const useAppStore = create<Store>()(
       },
       recordSale: async (productId, date, qty, idempotencyKey) => {
         validateQuantity(qty);
-        if (date > businessDateISO(get().settings.timezone)) {
-          throw new Error(
-            "Sales cannot be future-dated. Use the business's current date or an earlier date.",
-          );
-        }
-        const product = requireActiveProduct(get(), productId);
         if (get().dataMode === "api") {
           const session = requireSession(get());
           let submissions = pendingSales.get(session);
@@ -217,11 +218,22 @@ export const useAppStore = create<Store>()(
             submissions = new Map();
             pendingSales.set(session, submissions);
           }
+          const signature = JSON.stringify({ productId, date, qty });
+          const pending = idempotencyKey ? submissions.get(idempotencyKey) : undefined;
+          const retrying = pending?.signature === signature;
+          const product = retrying
+            ? pending.originalProduct
+            : requireActiveProduct(get(), productId);
+          if (!retrying && date > businessDateISO(get().settings.timezone)) {
+            throw new Error(
+              "Sales cannot be future-dated. Use the business's current date or an earlier date.",
+            );
+          }
           if (idempotencyKey && !submissions.has(idempotencyKey)) {
-            submissions.set(idempotencyKey, product);
+            submissions.set(idempotencyKey, { signature, originalProduct: product });
           }
           // A balance refreshed after a lost response already includes the saved sale.
-          const originalProduct = idempotencyKey ? submissions.get(idempotencyKey) : product;
+          const originalProduct = product;
           const sale = await api.recordSale(
             session.businessId,
             productId,
@@ -253,6 +265,12 @@ export const useAppStore = create<Store>()(
           }
           return;
         }
+        if (date > businessDateISO(get().settings.timezone)) {
+          throw new Error(
+            "Sales cannot be future-dated. Use the business's current date or an earlier date.",
+          );
+        }
+        const product = requireActiveProduct(get(), productId);
         if (qty > product.currentStock) throw new Error("Sale quantity exceeds current stock.");
         const sale: Sale = {
           id: `s-${productId}-${date}-${Date.now()}`,
@@ -285,7 +303,7 @@ export const useAppStore = create<Store>()(
       receiveStock: async (productId, qty, submission) => {
         await get().recordStockMovement({
           productId,
-          movementDate: submission?.movementDate ?? todayISO(),
+          movementDate: submission?.movementDate ?? businessDateISO(get().settings.timezone),
           movementType: "receipt",
           quantityDelta: qty,
           idempotencyKey: submission?.idempotencyKey,
@@ -293,7 +311,7 @@ export const useAppStore = create<Store>()(
       },
       recordStockMovement: async (input) => {
         validateQuantity(Math.abs(input.quantityDelta));
-        const product = requireActiveProduct(get(), input.productId);
+        const futureDated = input.movementDate > businessDateISO(get().settings.timezone);
         if (input.movementType === "write_off" || input.movementType === "adjustment") {
           requireOwner(get());
         }
@@ -306,24 +324,71 @@ export const useAppStore = create<Store>()(
         if (input.movementType === "write_off" && input.quantityDelta > 0) {
           throw new Error("Write-offs must decrease stock.");
         }
-        const balance = stockBalance(product.currentStock + input.quantityDelta);
-        if (balance < 0) throw new Error("Movement would make stock negative.");
         if (get().dataMode === "api") {
           const session = requireSession(get());
+          let submissions = pendingStockMovements.get(session);
+          if (!submissions) {
+            submissions = new Map();
+            pendingStockMovements.set(session, submissions);
+          }
+          const signature = JSON.stringify({
+            productId: input.productId,
+            movementDate: input.movementDate,
+            movementType: input.movementType,
+            quantityDelta: input.quantityDelta,
+            note: input.note?.trim() || null,
+          });
+          const retrying =
+            !!input.idempotencyKey && submissions.get(input.idempotencyKey) === signature;
+          // An unchanged submitted request may already be saved. Let backend replay
+          // confirm it before applying mutable product, date, or balance rules.
+          const product = retrying ? null : requireActiveProduct(get(), input.productId);
+          if (futureDated && !retrying) {
+            throw new Error(
+              "Stock movements cannot be future-dated. Use the business's current date or an earlier date.",
+            );
+          }
+          // A refreshed balance may already include a submission whose response was lost.
+          // Only its unchanged retry can bypass the local stock check; the server confirms it.
+          if (product && stockBalance(product.currentStock + input.quantityDelta) < 0)
+            throw new Error("Movement would make stock negative.");
+          if (input.idempotencyKey && !submissions.has(input.idempotencyKey)) {
+            submissions.set(input.idempotencyKey, signature);
+          }
           const movement = await api.recordStockMovement(session.businessId, input);
+          if (input.idempotencyKey) submissions.delete(input.idempotencyKey);
           if (get().session !== session) return;
-          // Use the saved balance directly: a failed follow-up read must not invite a duplicate write.
+          // Saved movement balances are historical, including on an idempotent replay.
+          // Invalidate older catalog reads, then fetch current stock separately.
           set({
-            products: get().products.map((p) =>
-              p.id === input.productId ? { ...p, currentStock: movement.balanceAfter } : p,
-            ),
+            products: [...get().products],
             inventoryMovements: [
               movement,
               ...get().inventoryMovements.filter((m) => m.id !== movement.id),
             ],
+            movementsStatus: "idle",
+            movementsError: null,
           });
+          try {
+            await refreshApiProducts(session, set, get);
+          } catch {
+            if (get().session === session)
+              set({
+                movementsStatus: "error",
+                movementsError:
+                  "Stock movement saved. Refresh stock movements to verify the latest balances.",
+              });
+          }
           return;
         }
+        const product = requireActiveProduct(get(), input.productId);
+        const balance = stockBalance(product.currentStock + input.quantityDelta);
+        if (futureDated) {
+          throw new Error(
+            "Stock movements cannot be future-dated. Use the business's current date or an earlier date.",
+          );
+        }
+        if (balance < 0) throw new Error("Movement would make stock negative.");
         set({
           products: get().products.map((p) =>
             p.id === input.productId ? { ...p, currentStock: balance } : p,
@@ -380,16 +445,47 @@ export const useAppStore = create<Store>()(
           throw error;
         }
       },
-      updateProduct: async (id, patch) => {
+      updateProduct: async (id, patch, idempotencyKey) => {
         requireOwner(get());
         if (get().dataMode === "api") {
           const session = requireSession(get());
-          const updated = await api.updateProduct(session.businessId, id, patch);
+          const previousProduct = get().products.find((item) => item.id === id);
+          const updated = await api.updateProduct(session.businessId, id, patch, idempotencyKey);
           if (get().session !== session) return;
+          if (patch.currentStock !== undefined) {
+            // A replay returns the original count, which may predate later sales.
+            set({ movementsStatus: "idle", movementsError: null });
+            try {
+              await refreshApiProducts(session, set, get);
+            } catch {
+              if (get().session === session)
+                set({
+                  movementsStatus: "error",
+                  movementsError:
+                    "Stock count saved. Refresh stock movements to verify the latest balances.",
+                });
+            }
+            return;
+          }
           set({
-            products: get().products.map((item) => (item.id === id ? updated : item)),
+            products: get().products.map((item) =>
+              item.id === id && item === previousProduct
+                ? { ...updated, currentStock: item.currentStock }
+                : item,
+            ),
             movementsStatus: "idle",
+            movementsError: null,
           });
+          try {
+            await refreshApiProducts(session, set, get);
+          } catch {
+            if (get().session === session)
+              set({
+                movementsStatus: "error",
+                movementsError:
+                  "Product saved. Refresh stock movements to load the latest catalog.",
+              });
+          }
           return;
         }
         const previous = get().products.find((p) => p.id === id);
@@ -438,16 +534,27 @@ export const useAppStore = create<Store>()(
         set({ products: get().products.filter((row) => row.id !== id) });
         return { deletedRows: 1 };
       },
-      addProduct: async (product) => {
+      addProduct: async (product, idempotencyKey) => {
         requireOwner(get());
         if (get().dataMode === "api") {
           const session = requireSession(get());
-          const created = await api.createProduct(session.businessId, {
-            ...product,
-            sku: product.sku?.trim() || `SKU-${Date.now()}`,
-          });
+          await api.createProduct(
+            session.businessId,
+            { ...product, sku: product.sku?.trim() || `SKU-${crypto.randomUUID()}` },
+            idempotencyKey,
+          );
           if (get().session !== session) return;
-          set({ products: [...get().products, created], movementsStatus: "idle" });
+          set({ movementsStatus: "idle", movementsError: null });
+          try {
+            await refreshApiProducts(session, set, get);
+          } catch {
+            if (get().session === session)
+              set({
+                movementsStatus: "error",
+                movementsError:
+                  "Product saved. Refresh stock movements to load the latest catalog.",
+              });
+          }
           return;
         }
         const id = `p-${Date.now()}`;
@@ -568,18 +675,34 @@ export const useAppStore = create<Store>()(
       },
       updateSettings: async (patch) => {
         requireOwner(get());
-        const settings = { ...get().settings, ...patch };
+        const previousSettings = get().settings;
+        const settings = { ...previousSettings, ...patch, apiVersion: previousSettings.apiVersion };
         if (get().dataMode === "api") {
           const session = requireSession(get());
-          const saved = await api.updateSettings(session.businessId, settings);
-          if (get().session !== session) return;
-          set({
-            settings: fromApiSettings(
-              saved,
-              { name: settings.storeName, location: settings.storeLocation },
-              settings,
-            ),
-          });
+          try {
+            const saved = await api.updateSettings(session.businessId, settings);
+            if (get().session !== session) return;
+            if (get().settings !== previousSettings) {
+              await refreshApiSettings(session, set, get);
+              return;
+            }
+            set(canonicalSettingsPatch(saved, settings, get().dataOrigin));
+          } catch (failure) {
+            if (failure instanceof ApiError && failure.status === 409) {
+              if (get().session !== session) return;
+              try {
+                await refreshApiSettings(session, set, get);
+              } catch {
+                throw new Error(
+                  "Settings changed in another browser. Your edits are kept, but the saved settings could not be reloaded. Refresh before saving again.",
+                );
+              }
+              throw new Error(
+                "Settings changed in another browser. Your edits are kept. Review the latest saved values and save again.",
+              );
+            }
+            throw failure;
+          }
           return;
         }
         set({ settings });
@@ -770,6 +893,68 @@ export const useAppStore = create<Store>()(
     },
   ),
 );
+
+function sameValues(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function canonicalSettingsPatch(
+  saved: ApiSettings,
+  previous: Settings,
+  dataOrigin: Store["dataOrigin"],
+): Pick<Store, "settings" | "dataOrigin"> {
+  const next = fromApiSettings(
+    saved,
+    { name: previous.storeName, location: previous.storeLocation },
+    previous,
+  );
+  return {
+    settings: sameValues(next, previous) ? previous : next,
+    dataOrigin: saved.dataOrigin ?? dataOrigin,
+  };
+}
+
+/** Publish the catalog and settings used for a dashboard in the same store update. */
+export function applyApiSharedState(
+  inputs: { products: Product[]; settings: ApiSettings },
+  expected: Pick<Store, "session" | "products" | "settings">,
+): boolean {
+  const current = useAppStore.getState();
+  if (
+    current.dataMode !== "api" ||
+    !expected.session ||
+    current.session !== expected.session ||
+    current.products !== expected.products ||
+    current.settings !== expected.settings
+  )
+    return false;
+  const patch = canonicalSettingsPatch(inputs.settings, current.settings, current.dataOrigin);
+  const products = sameValues(inputs.products, current.products)
+    ? current.products
+    : inputs.products;
+  if (
+    products !== current.products ||
+    patch.settings !== current.settings ||
+    patch.dataOrigin !== current.dataOrigin
+  )
+    useAppStore.setState({ products, ...patch });
+  return true;
+}
+
+async function refreshApiSettings(
+  session: SessionUser,
+  set: (patch: Partial<Store>) => void,
+  get: () => Store,
+) {
+  for (;;) {
+    const previous = get().settings;
+    const saved = await api.settings(session.businessId);
+    if (get().session !== session) return;
+    if (get().settings !== previous) continue;
+    set(canonicalSettingsPatch(saved, previous, get().dataOrigin));
+    return;
+  }
+}
 
 function requireSession(store: Store): SessionUser {
   if (!store.session) throw new Error("Your session has expired. Sign in again.");

@@ -158,6 +158,7 @@ async function mount({ role = "owner", mode = "api", overrides = {} } = {}) {
       require(name) {
         if (name === "react") return hooks;
         if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
+        if (name === "lucide-react") return { Eye: "Eye", EyeOff: "EyeOff" };
         if (name === "sonner")
           return {
             toast: {
@@ -183,6 +184,10 @@ async function mount({ role = "owner", mode = "api", overrides = {} } = {}) {
     calls,
     notices,
     passwordReloads: () => passwordReloads,
+    setSession(nextSession) {
+      state.session = nextSession;
+      this.render();
+    },
     render() {
       let attempts = 0;
       do {
@@ -338,6 +343,91 @@ test("owners see staff controls while staff retain password maintenance without 
   );
 });
 
+test("account password controls show and hide entered values independently without submitting", async () => {
+  for (const role of ["owner", "staff"]) {
+    const h = await mount({ role });
+    const toggle = (label) => {
+      const control = h.nodes().find((node) => node.props["aria-label"] === label);
+      assert.ok(control, `password visibility control exists: ${label}`);
+      return control;
+    };
+    assert.equal(h.field("Current password").props.value, "");
+    assert.equal(h.field("New password").props.value, "");
+    assert.equal(h.field("Current password").props.placeholder, "Enter your current password");
+    const username = h.nodes().find((node) => node.props.name === "username");
+    assert.equal(username.props.value, session.email);
+    assert.equal(username.props.type, "email");
+    assert.equal(username.props.autoComplete, "username");
+    assert.equal(username.props.readOnly, true);
+    assert.equal(username.props.className, "sr-only");
+    assert.equal(username.props["aria-label"], "Account email");
+    assert.equal(username.props.tabIndex, -1);
+    assert.equal(h.field("Current password").props["aria-describedby"], undefined);
+    assert.doesNotMatch(h.text(), /Your saved password is not displayed here/);
+    h.fill("Current password", "synthetic-current-password");
+    h.fill("New password", "synthetic-new-password");
+    for (const [label, autocomplete, value] of [
+      ["Current password", "current-password", "synthetic-current-password"],
+      ["New password", "new-password", "synthetic-new-password"],
+    ]) {
+      const field = h.field(label);
+      const show = toggle(`Show ${label.toLowerCase()}`);
+      assert.equal(field.props.type, "password", "passwords begin masked");
+      assert.equal(field.props.name, autocomplete);
+      assert.equal(field.props.autoComplete, autocomplete);
+      assert.equal(show.props.type, "button", "revealing a field cannot submit the form");
+      assert.equal(show.props["aria-controls"], field.props.id);
+      assert.equal(show.props["aria-pressed"], false);
+      assert.equal(elementText(show), "Show");
+      show.props.onClick();
+      h.render();
+      assert.equal(h.field(label).props.type, "text");
+      assert.equal(h.field(label).props.value, value);
+      assert.equal(h.field(label).props.autoComplete, autocomplete);
+      const other = label === "Current password" ? "New password" : "Current password";
+      assert.equal(h.field(other).props.type, "password", "each field has its own toggle");
+      const hide = toggle(`Hide ${label.toLowerCase()}`);
+      assert.equal(hide.props["aria-pressed"], true);
+      assert.equal(elementText(hide), "Hide");
+      hide.props.onClick();
+      h.render();
+      assert.equal(h.field(label).props.type, "password");
+      assert.equal(h.field(label).props.value, value);
+    }
+    assert.equal(h.field("New password").props.minLength, 12);
+    assert.equal(h.field("New password").props.maxLength, 128);
+    assert.equal(h.calls.changePassword.length, 0);
+  }
+});
+
+test("switching accounts clears entered passwords and restores masking", async () => {
+  const h = await mount({ role: "staff" });
+  h.fill("Current password", "synthetic-current-password");
+  h.fill("New password", "synthetic-new-password");
+  for (const label of ["Show current password", "Show new password"]) {
+    h.nodes()
+      .find((node) => node.props["aria-label"] === label)
+      .props.onClick();
+    h.render();
+  }
+  h.setSession({
+    ...session,
+    userId: "another-synthetic-staff",
+    email: "another-staff@example.test",
+    role: "staff",
+  });
+  assert.equal(
+    h.nodes().find((node) => node.props.name === "username").props.value,
+    "another-staff@example.test",
+  );
+  for (const label of ["Current password", "New password"]) {
+    assert.equal(h.field(label).props.value, "");
+    assert.equal(h.field(label).props.type, "password");
+    assert.ok(h.nodes().some((node) => node.props["aria-label"] === `Show ${label.toLowerCase()}`));
+  }
+  assert.equal(h.calls.changePassword.length, 0);
+});
+
 test("pending member changes guard duplicate writes and reload after committed disable and restore", async () => {
   const write = deferred();
   const reload = deferred();
@@ -433,6 +523,10 @@ test("password and invitation writes lock management controls and reject duplica
   assert.equal(h.calls.setMemberActive.length, 0);
   assert.equal(h.button("Changing password…").props.disabled, true);
   assert.equal(h.button("Disable").props.disabled, true);
+  for (const label of ["Show current password", "Show new password"]) {
+    const toggle = h.nodes().find((node) => node.props["aria-label"] === label);
+    assert.equal(toggle.props.disabled, true);
+  }
   password.resolve({ changed: true });
   await settle();
   h.render();

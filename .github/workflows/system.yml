@@ -60,6 +60,10 @@ jobs:
         run: node scripts/verify-zip-startup.mjs
       - name: Install isolated browser for guided import verification
         run: npx playwright install --with-deps chromium
+      - name: Verify synthetic transaction retries through the browser
+        run: node scripts/verify-transaction-retries-browser.mjs
+      - name: Verify shared catalog and settings through isolated browsers
+        run: node scripts/verify-shared-state-browser.mjs
       - name: Verify guided inventory and 100,000-row sales imports through the real browser and PostgreSQL
         run: node scripts/verify-guided-csv-browser.mjs http://localhost:8080
       - name: Verify forecast evidence labels through the real browser and PostgreSQL

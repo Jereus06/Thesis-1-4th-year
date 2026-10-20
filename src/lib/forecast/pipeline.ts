@@ -544,6 +544,7 @@ export async function runPipeline(
   const sparseProductCount = Object.values(byProduct).filter((p) => p.grain === "weekly").length;
 
   const diagnostics: PipelineDiagnostics = {
+    maWindow,
     minWeeksRequired: minWeeks,
     weeksCovered: weeks,
     meetsMinimum: weeks >= minWeeks && !resolved.usedFallback,
@@ -577,6 +578,7 @@ export async function runPipeline(
   };
 
   return {
+    runId: mode === "train" ? `demo-${crypto.randomUUID()}` : undefined,
     trainedAt: AS_OF,
     trainedMs: Date.now() - started,
     holdoutStart:

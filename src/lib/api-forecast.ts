@@ -32,8 +32,16 @@ function currentEvidence(
     mae: null,
     rmse: null,
   };
+  const savedHorizon = data.run?.forecastHorizonDays;
+  const hasSavedTestHorizon =
+    typeof savedHorizon === "number" &&
+    Number.isInteger(savedHorizon) &&
+    savedHorizon > 0 &&
+    Number.isInteger(evidence.testObservations) &&
+    evidence.testObservations > 0;
   return {
     ...evidence,
+    ...(hasSavedTestHorizon ? { requestedHorizonDays: savedHorizon } : {}),
     status: row?.forecastExpired
       ? "expired"
       : !demandAvailable
@@ -241,7 +249,10 @@ export function toResult(
   const maxDays = Math.max(0, ...summaries.map((s) => s.historyDays));
   const parameters = summaries.find((s) => s.parameters)?.parameters;
   const allPoints = Object.values(byProduct).flatMap((f) => [...f.holdout, ...f.future]);
+  // Saved scores belong to the completed run, even while a replacement uses newer settings.
+  const savedMaWindow = data.run?.dataSnapshot?.settings?.moving_average_window;
   return {
+    runId: data.run?.id,
     trainedAt: data.run?.createdAt ?? "",
     trainedMs: data.run?.timing.trainingMs ?? NaN,
     processingTiming: data.run?.timing,
@@ -263,6 +274,10 @@ export function toResult(
     treesUsed: parameters?.n_estimators ?? 0,
     byProduct,
     diagnostics: {
+      maWindow:
+        typeof savedMaWindow === "number" && Number.isInteger(savedMaWindow) && savedMaWindow > 0
+          ? savedMaWindow
+          : undefined,
       minWeeksRequired: minWeeks,
       weeksCovered: maxDays / 7,
       meetsMinimum: maxDays >= minWeeks * 7,

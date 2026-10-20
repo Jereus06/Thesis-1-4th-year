@@ -14,8 +14,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { api } from "@/lib/api";
-import { todayISO } from "@/lib/dates";
+import { api, type SessionUser } from "@/lib/api";
+import { businessDateISO } from "@/lib/dates";
 import { num } from "@/lib/format";
 import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
@@ -396,33 +396,54 @@ function StockMovementForm({
 }) {
   const products = useAppStore((s) => s.products);
   const timezone = useAppStore((s) => s.settings.timezone);
+  const session = useAppStore((s) => s.session);
   const recordStockMovement = useAppStore((s) => s.recordStockMovement);
   const { canRecordReturns, canWriteOffStock } = usePermissions();
   const activeProducts = products.filter((product) => product.isActive !== false);
   const [productId, setProductId] = useState(activeProducts[0]?.id ?? "");
-  const [date, setDate] = useState(() => businessDate(timezone));
+  const [date, setDate] = useState(() => businessDateISO(timezone));
   const [qty, setQty] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const submitting = useRef(false);
-  const retry = useRef<{ signature: string; key: string } | null>(null);
+  const retry = useRef<{
+    signature: string;
+    key: string;
+    session: SessionUser | null;
+    product: Product;
+  } | null>(null);
   const id = useId();
-  const selectedProduct = activeProducts.find((product) => product.id === productId);
+  const pending = retry.current?.session === session ? retry.current : null;
+  const currentProduct = products.find((product) => product.id === productId);
+  const selectedProduct =
+    currentProduct ?? (pending?.product.id === productId ? pending.product : undefined);
+  const active = Boolean(currentProduct && currentProduct.isActive !== false);
   const allowed = movementType === "return" ? canRecordReturns : canWriteOffStock;
   const quantity = Number(qty);
+  const today = businessDateISO(timezone);
+  const trimmedNote = note.trim();
+  const input: StockMovementInput = {
+    productId,
+    movementDate: date,
+    movementType,
+    quantityDelta: movementType === "write_off" ? -quantity : quantity,
+    ...(trimmedNote ? { note: trimmedNote } : {}),
+  };
+  const signature = JSON.stringify(input);
+  const retrying = pending?.signature === signature;
   const previewBalance =
-    selectedProduct && Number.isFinite(quantity) && quantity > 0
-      ? selectedProduct.currentStock + (movementType === "write_off" ? -quantity : quantity)
+    !retrying && active && currentProduct && Number.isFinite(quantity) && quantity > 0
+      ? currentProduct.currentStock + (movementType === "write_off" ? -quantity : quantity)
       : null;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (saving || submitting.current) return;
+    if (saving || submitting.current || useAppStore.getState().session !== session) return;
     if (!allowed) {
       setError("Your role is not authorized to record this movement.");
       return;
     }
-    if (!selectedProduct) {
+    if (!selectedProduct || (!retrying && !active)) {
       setError("Choose an active product.");
       return;
     }
@@ -436,6 +457,12 @@ function StockMovementForm({
       setError("Enter a valid date in YYYY-MM-DD format.");
       return;
     }
+    if (!retrying && date > businessDateISO(timezone)) {
+      setError(
+        "Stock movements cannot be future-dated. Use the business's current date or an earlier date.",
+      );
+      return;
+    }
     const scaledQuantity = quantity * 1000;
     if (
       !qty.trim() ||
@@ -446,13 +473,12 @@ function StockMovementForm({
       setError("Enter a positive quantity with no more than three decimal places.");
       return;
     }
-    if (movementType === "write_off" && quantity > selectedProduct.currentStock) {
+    if (!retrying && movementType === "write_off" && quantity > selectedProduct.currentStock) {
       setError(
         `Only ${num(selectedProduct.currentStock, 3)} ${selectedProduct.unit} are on hand. Reduce the write-off quantity.`,
       );
       return;
     }
-    const trimmedNote = note.trim();
     if (movementType === "write_off" && !trimmedNote) {
       setError("Enter the reason for this write-off.");
       return;
@@ -461,27 +487,22 @@ function StockMovementForm({
       setError("Keep the note within 500 characters.");
       return;
     }
-    const input: StockMovementInput = {
-      productId: selectedProduct.id,
-      movementDate: date,
-      movementType,
-      quantityDelta: movementType === "write_off" ? -quantity : quantity,
-      ...(trimmedNote ? { note: trimmedNote } : {}),
-    };
-    const signature = JSON.stringify(input);
-    if (retry.current?.signature !== signature) {
-      retry.current = { signature, key: crypto.randomUUID() };
+    if (!retrying) {
+      retry.current = { signature, key: crypto.randomUUID(), session, product: selectedProduct };
     }
     submitting.current = true;
     onSavingChange(true);
     setError(null);
     try {
-      await recordStockMovement({ ...input, idempotencyKey: retry.current.key });
+      await recordStockMovement({ ...input, idempotencyKey: retry.current!.key });
+      if (useAppStore.getState().session !== session) return;
+      retry.current = null;
       toast.success(
         `${movementType === "write_off" ? "Wrote off" : "Returned"} ${num(quantity, 3)} ${selectedProduct.unit} of ${selectedProduct.name}.`,
       );
       onDone();
     } catch (caught) {
+      if (useAppStore.getState().session !== session) return;
       setError(
         caught instanceof Error
           ? caught.message
@@ -501,12 +522,17 @@ function StockMovementForm({
           <Select
             id={`${id}-product`}
             required
-            value={selectedProduct?.id ?? ""}
+            value={productId}
             onChange={(event) => setProductId(event.target.value)}
           >
             <option value="" disabled>
               Choose a product
             </option>
+            {productId && !active && (
+              <option value={productId}>
+                {selectedProduct?.name ?? "Product unavailable"} (inactive or unavailable)
+              </option>
+            )}
             {activeProducts.map((product) => (
               <option key={product.id} value={product.id}>
                 {product.name} · {product.sku}
@@ -517,8 +543,22 @@ function StockMovementForm({
         {selectedProduct && (
           <div className="rounded-xl bg-surface-2 p-3 text-sm">
             <p>
-              On hand: {num(selectedProduct.currentStock, 3)} {selectedProduct.unit}
+              {currentProduct ? (
+                <>
+                  On hand: {num(currentProduct.currentStock, 3)} {currentProduct.unit}
+                </>
+              ) : (
+                "Current stock is unavailable."
+              )}
             </p>
+            {!active && !retrying && (
+              <p className="mt-1 text-muted">Choose an active product for a new movement.</p>
+            )}
+            {retrying && (
+              <p className="mt-1 text-muted">
+                Retrying checks whether this movement was saved and refreshes current stock.
+              </p>
+            )}
             {previewBalance !== null && (
               <p className={previewBalance < 0 ? "mt-1 text-danger" : "mt-1 text-muted"}>
                 After {movementType === "write_off" ? "write-off" : "return"}:{" "}
@@ -534,6 +574,7 @@ function StockMovementForm({
             type="date"
             required
             value={date}
+            max={retrying ? undefined : today}
             onChange={(event) => setDate(event.target.value)}
           />
         </div>
@@ -545,7 +586,9 @@ function StockMovementForm({
             id={`${id}-qty`}
             type="number"
             min={0.001}
-            max={movementType === "write_off" ? selectedProduct?.currentStock : undefined}
+            max={
+              movementType === "write_off" && !retrying ? currentProduct?.currentStock : undefined
+            }
             step={0.001}
             required
             value={qty}
@@ -582,24 +625,12 @@ function StockMovementForm({
           {error}
         </p>
       )}
-      <Button type="submit" disabled={saving || !allowed || !selectedProduct}>
+      <Button
+        type="submit"
+        disabled={saving || !allowed || !selectedProduct || (!retrying && !active)}
+      >
         {saving ? "Saving..." : movementType === "write_off" ? "Save write-off" : "Save return"}
       </Button>
     </form>
   );
-}
-
-function businessDate(timezone: string) {
-  try {
-    const parts = new Intl.DateTimeFormat("en", {
-      timeZone: timezone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).formatToParts(new Date());
-    const part = (name: string) => parts.find((value) => value.type === name)?.value;
-    return `${part("year")}-${part("month")}-${part("day")}`;
-  } catch {
-    return todayISO();
-  }
 }

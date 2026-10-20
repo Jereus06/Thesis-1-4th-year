@@ -18,6 +18,7 @@ export type DemandEvidenceProps = {
   qualityWarnings?: string[];
   forecastEvidence?: ForecastEvidence;
   forecastConfidence?: ForecastConfidence;
+  compact?: boolean;
   className?: string;
 };
 
@@ -84,6 +85,7 @@ export function DemandEvidence({
   qualityWarnings,
   forecastEvidence,
   forecastConfidence,
+  compact = false,
   className = "space-y-1 text-xs text-muted",
 }: DemandEvidenceProps) {
   const reason = fallbackReason ?? forecast?.fallbackReason;
@@ -103,20 +105,40 @@ export function DemandEvidence({
   const confidenceText = confidence?.reason ? confidenceReason(confidence.reason) : undefined;
   const hasRelativeError =
     confidence?.level && Number.isFinite(relativeError) && relativeError >= 0;
-  return (
-    <div className={className}>
+  const shortenedTest =
+    evidence &&
+    Number.isInteger(evidence.testObservations) &&
+    evidence.testObservations > 0 &&
+    evidence.requestedHorizonDays !== undefined &&
+    Number.isInteger(evidence.requestedHorizonDays) &&
+    evidence.testObservations < evidence.requestedHorizonDays;
+  const shortenedNotice = shortenedTest
+    ? `Accuracy checked on ${num(evidence.testObservations)} of the requested ${num(evidence.requestedHorizonDays!)} days. Test evidence is limited.`
+    : undefined;
+  const measurements = (
+    <>
       {confidenceText && <p>{confidenceText}</p>}
       {evidence && evidence.testObservations > 0 && evidence.mae !== null && (
         <p>
-          Tested on {num(evidence.testObservations)} past{" "}
-          {evidence.testObservations === 1 ? "day" : "days"}. Average error:{" "}
-          {num(Number(evidence.mae), 1)} units.
+          {shortenedNotice && !compact ? (
+            `${shortenedNotice} `
+          ) : (
+            <>
+              Tested on {num(evidence.testObservations)} past{" "}
+              {evidence.testObservations === 1 ? "day" : "days"}.{" "}
+            </>
+          )}
+          Average error: {num(Number(evidence.mae), 1)} units.
           {evidence.status === "needs_refresh" && " Results are from an older forecast."}
         </p>
       )}
       {hasRelativeError && (
         <p>Past error compared with actual sales: {num(relativeError * 100, 1)}%.</p>
       )}
+    </>
+  );
+  const notices = (
+    <>
       {unavailableText && <p>Sales estimate unavailable: {unavailableText}</p>}
       {reasonText && reason !== unavailable && (
         <p>
@@ -124,17 +146,51 @@ export function DemandEvidence({
           {reasonText}
         </p>
       )}
-      <p>
-        Days with missing records: {missingCount} · Days left out: {skippedCount}
-      </p>
-      {warnings.map((warning) => (
-        <p key={warning}>
-          Check sales records:{" "}
-          {warning === "Confirmed-zero classification kept recorded sales for this date."
-            ? "A date marked 'no sales' has recorded sales. Those sales were kept."
-            : warning}
-        </p>
-      ))}
+    </>
+  );
+  const recordCounts = (
+    <p>
+      Days with missing records: {missingCount} · Days left out: {skippedCount}
+    </p>
+  );
+  const qualityNotices = warnings.map((warning) => (
+    <p key={warning}>
+      Check sales records:{" "}
+      {warning === "Confirmed-zero classification kept recorded sales for this date."
+        ? "A date marked 'no sales' has recorded sales. Those sales were kept."
+        : warning}
+    </p>
+  ));
+  if (compact) {
+    const hasDetails =
+      confidenceText ||
+      (evidence && evidence.testObservations > 0 && evidence.mae !== null) ||
+      hasRelativeError ||
+      missingDays !== undefined ||
+      skippedDays !== undefined;
+    return (
+      <div className={className}>
+        {notices}
+        {shortenedNotice && evidence && evidence.mae !== null && <p>{shortenedNotice}</p>}
+        {qualityNotices}
+        {hasDetails && (
+          <details>
+            <summary className="cursor-pointer font-medium text-primary">Forecast details</summary>
+            <div className="mt-2 space-y-1">
+              {measurements}
+              {recordCounts}
+            </div>
+          </details>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className={className}>
+      {measurements}
+      {notices}
+      {recordCounts}
+      {qualityNotices}
     </div>
   );
 }

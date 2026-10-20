@@ -133,6 +133,24 @@ class FakeRepository:
         }
 
 
+def test_shared_state_reuses_advice_catalog_and_retains_inactive_products(monkeypatch):
+    repository = FakeRepository()
+    repository.products.append({**repository.products[0], "id": "inactive-product", "isActive": False})
+    calls = []
+
+    def read_catalog(_business_id):
+        calls.append(_business_id)
+        assert len(calls) == 1, "Advice and shared state must use the same catalog read"
+        return [dict(product) for product in repository.products]
+
+    monkeypatch.setattr(repository, "list_products", read_catalog)
+    result = dashboard(repository, "business")
+    assert calls == ["business"]
+    assert result["sharedState"]["products"] == repository.products
+    assert result["sharedState"]["settings"] == repository.settings
+    assert [row["productId"] for row in result["recommendations"]] == [PRODUCT_ID]
+
+
 def assert_unavailable(recommendation):
     assert recommendation["demandAvailable"] is False
     assert recommendation["unavailableReason"]

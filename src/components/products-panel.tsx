@@ -21,6 +21,7 @@ import { num, peso } from "@/lib/format";
 import { CSV_API_ROW_LIMITS } from "@/lib/csv-preparation";
 import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
+import type { SessionUser } from "@/lib/api";
 import type { InventoryImportRow, Product } from "@/lib/types";
 
 type ProductAction = { productId: string; kind: "edit" | "count" | "status" | "delete" };
@@ -31,12 +32,16 @@ export function ProductsPanel() {
   const importInventory = useAppStore((state) => state.importInventory);
   const session = useAppStore((state) => state.session);
   const mode = useAppStore((state) => state.dataMode);
+  const stockRefreshError = useAppStore((state) => state.movementsError);
   const { canManageProducts, canImportRecords, canReceiveStock } = usePermissions();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("active");
   const [adding, setAdding] = useState(false);
   const [action, setAction] = useState<ProductAction | null>(null);
-  const [deliveryProductId, setDeliveryProductId] = useState<string | null>(null);
+  const [deliverySelection, setDeliverySelection] = useState<{
+    product: Product;
+    session: SessionUser | null;
+  } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -51,9 +56,11 @@ export function ProductsPanel() {
   );
   const deliveryProduct = useMemo(
     () =>
-      products.find((product) => product.id === deliveryProductId && product.isActive !== false) ??
-      null,
-    [products, deliveryProductId],
+      deliverySelection?.session === session
+        ? (products.find((product) => product.id === deliverySelection.product.id) ??
+          deliverySelection.product)
+        : null,
+    [products, deliverySelection, session],
   );
   const filteredProducts = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -92,6 +99,12 @@ export function ProductsPanel() {
   return (
     <div className="flex flex-col gap-4">
       <ImportRefreshNotice />
+      {(stockRefreshError?.startsWith("Stock count saved.") ||
+        stockRefreshError?.startsWith("Product saved.")) && (
+        <p className="text-sm text-warning" role="status">
+          {stockRefreshError}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative min-w-48 flex-1 sm:max-w-sm">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
@@ -166,7 +179,10 @@ export function ProductsPanel() {
         canReceiveStock={canReceiveStock}
         canManageProducts={canManageProducts}
         busy={busy}
-        onDelivery={setDeliveryProductId}
+        onDelivery={(productId) => {
+          const product = products.find((item) => item.id === productId);
+          if (product && product.isActive !== false) setDeliverySelection({ product, session });
+        }}
         onAction={setAction}
       />
       <Dialog
@@ -250,9 +266,9 @@ export function ProductsPanel() {
       </Dialog>
       <ReceiveStockDialog
         product={deliveryProduct}
-        open={canReceiveStock && deliveryProductId !== null}
+        open={canReceiveStock && deliveryProduct !== null}
         onOpenChange={(open) => {
-          if (!open) setDeliveryProductId(null);
+          if (!open) setDeliverySelection(null);
         }}
       />
     </div>
@@ -420,12 +436,14 @@ function ProductDetailsForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const prefix = product?.id ?? "new-product";
+  const submitting = useRef(false);
+  const retry = useRef<{ signature: string; sku: string; key: string } | null>(null);
   const edit = (key: keyof typeof draft, value: string) =>
     setDraft((current) => ({ ...current, [key]: value }));
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (saving || !canManageProducts) return;
+    if (submitting.current || !canManageProducts) return;
     setError(null);
     try {
       const sku = draft.sku.trim();
@@ -436,14 +454,6 @@ function ProductDetailsForm({
         ["Unit", draft.unit],
       ]) {
         if (!value.trim()) throw new Error(`${label} is required.`);
-      }
-      if (
-        sku &&
-        products.some(
-          (item) => item.id !== product?.id && item.sku.trim().toLowerCase() === sku.toLowerCase(),
-        )
-      ) {
-        throw new Error("Another product already uses this SKU. Choose a unique SKU.");
       }
       const details = {
         ...(sku ? { sku } : {}),
@@ -457,10 +467,33 @@ function ProductDetailsForm({
       const openingStock = product
         ? null
         : nonnegativeNumber(draft.currentStock, "Opening stock", 3);
+      const signature = JSON.stringify({ ...details, currentStock: openingStock });
+      const retrying = !product && retry.current?.signature === signature;
+      if (
+        !retrying &&
+        sku &&
+        products.some(
+          (item) => item.id !== product?.id && item.sku.trim().toLowerCase() === sku.toLowerCase(),
+        )
+      ) {
+        throw new Error("Another product already uses this SKU. Choose a unique SKU.");
+      }
+      if (!product && !retrying)
+        retry.current = {
+          signature,
+          sku: sku || `SKU-${crypto.randomUUID()}`,
+          key: crypto.randomUUID(),
+        };
+      submitting.current = true;
       setSaving(true);
       onPendingChange(true);
       if (product) await updateProduct(product.id, details);
-      else await addProduct({ ...details, currentStock: openingStock! });
+      else
+        await addProduct(
+          { ...details, sku: retry.current!.sku, currentStock: openingStock! },
+          retry.current!.key,
+        );
+      retry.current = null;
       toast.success(`${product ? "Updated" : "Added"} ${details.name}.`);
       onDone();
     } catch (failure) {
@@ -469,6 +502,7 @@ function ProductDetailsForm({
       setError(message);
       toast.error(message);
     } finally {
+      submitting.current = false;
       setSaving(false);
       onPendingChange(false);
     }
@@ -574,17 +608,24 @@ function StockCountForm({
   const [stock, setStock] = useState(String(product.currentStock));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const submitting = useRef(false);
+  const retry = useRef<{ signature: string; key: string } | null>(null);
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (saving || !canManageProducts) return;
+    if (submitting.current || !canManageProducts) return;
     setError(null);
     try {
       const currentStock = nonnegativeNumber(stock, "Verified stock count", 3);
-      if (currentStock === product.currentStock)
+      const signature = JSON.stringify({ productId: product.id, currentStock });
+      const retrying = retry.current?.signature === signature;
+      if (!retrying && currentStock === product.currentStock)
         throw new Error("The count is unchanged. Enter a different verified balance or cancel.");
+      if (!retrying) retry.current = { signature, key: crypto.randomUUID() };
+      submitting.current = true;
       setSaving(true);
       onPendingChange(true);
-      await updateProduct(product.id, { currentStock });
+      await updateProduct(product.id, { currentStock }, retry.current!.key);
+      retry.current = null;
       toast.success(`Corrected stock count for ${product.name}.`);
       onDone();
     } catch (failure) {
@@ -592,6 +633,7 @@ function StockCountForm({
       setError(message);
       toast.error(message);
     } finally {
+      submitting.current = false;
       setSaving(false);
       onPendingChange(false);
     }

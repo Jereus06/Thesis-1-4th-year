@@ -77,6 +77,7 @@ export type SalesImportResult = {
 export type DataScenario = "partner" | "thin";
 
 export type Settings = {
+  apiVersion?: string;
   storeName: string;
   storeLocation: string;
   maWindow: number;
@@ -139,6 +140,8 @@ export type PredictionIntervalEvidence = {
 export type ForecastEvidence = {
   status: "tested" | "basic" | "untested" | "needs_refresh" | "unavailable" | "expired";
   testObservations: number;
+  /** Requested days from the completed run, for displaying the saved test's scope. */
+  requestedHorizonDays?: number;
   mae: string | null;
   rmse: string | null;
 };
@@ -199,6 +202,7 @@ export type ProductForecast = {
 export type PipelineMode = "serve" | "train";
 
 export type PipelineDiagnostics = {
+  maWindow?: number;
   minWeeksRequired: number;
   weeksCovered: number;
   meetsMinimum: boolean;
@@ -249,6 +253,7 @@ export type ForecastTiming = {
 };
 
 export type PipelineResult = {
+  runId?: string;
   trainedAt: string;
   trainedMs: number;
   processingTiming?: ForecastTiming;

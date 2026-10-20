@@ -16,6 +16,8 @@ import { businessDateISO } from "@/lib/dates";
 import { num } from "@/lib/format";
 import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
+import type { SessionUser } from "@/lib/api";
+import type { Product } from "@/lib/types";
 
 export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
   const catalog = useAppStore((s) => s.products);
@@ -25,6 +27,7 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
   );
   const { canRecordSales, canManageProducts } = usePermissions();
   const recordSale = useAppStore((s) => s.recordSale);
+  const session = useAppStore((s) => s.session);
   const timezone = useAppStore((s) => s.settings.timezone);
   const [open, setOpen] = useState(false);
   const [productId, setProductId] = useState(products[0]?.id ?? "");
@@ -32,41 +35,71 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
   const [qty, setQty] = useState("1");
   const [saving, setSaving] = useState(false);
   const submitting = useRef(false);
-  const retry = useRef<{ signature: string; key: string } | null>(null);
-  const selectedProductId = products.some((p) => p.id === productId)
-    ? productId
-    : (products[0]?.id ?? "");
+  const retry = useRef<{
+    signature: string;
+    key: string;
+    session: SessionUser | null;
+    product: Product;
+  } | null>(null);
+  const pending = retry.current?.session === session ? retry.current : null;
+  const selectedProductId = productId || pending?.product.id || (products[0]?.id ?? "");
+  const currentProduct = catalog.find((product) => product.id === selectedProductId);
+  const selected =
+    currentProduct ?? (pending?.product.id === selectedProductId ? pending.product : undefined);
+  const active = Boolean(currentProduct && currentProduct.isActive !== false);
   const signature = JSON.stringify({ productId: selectedProductId, date, qty: Number(qty) });
-  const retrying = retry.current?.signature === signature;
+  const retrying = pending?.signature === signature;
   const today = businessDateISO(timezone);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (saving || submitting.current || !canRecordSales) return;
+    if (
+      saving ||
+      submitting.current ||
+      !canRecordSales ||
+      useAppStore.getState().session !== session
+    )
+      return;
     const n = Number(qty);
-    if (!selectedProductId || !Number.isFinite(n) || n <= 0) {
-      toast.error("Enter a valid quantity.");
+    if (!qty.trim() || !Number.isFinite(n) || n <= 0 || Number(n.toFixed(3)) !== n) {
+      toast.error("Enter a positive quantity with no more than three decimal places.");
       return;
     }
-    if (!date || date > businessDateISO(timezone)) {
+    const parsedDate = new Date(`${date}T00:00:00Z`);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+      Number(date.slice(0, 4)) < 1 ||
+      !Number.isFinite(parsedDate.getTime()) ||
+      parsedDate.toISOString().slice(0, 10) !== date
+    ) {
+      toast.error("Enter a valid date in YYYY-MM-DD format.");
+      return;
+    }
+    if (!retrying && date > businessDateISO(timezone)) {
       toast.error("Use the business's current date or an earlier date.");
       return;
     }
-    const product = products.find((p) => p.id === selectedProductId);
-    if (!product || (!retrying && n > product.currentStock)) {
+    if (!selected || (!retrying && !active)) {
+      toast.error("Choose an active product.");
+      return;
+    }
+    if (!retrying && n > selected.currentStock) {
       toast.error("The sale quantity exceeds the product's on-hand stock.");
       return;
     }
-    if (!retrying) retry.current = { signature, key: crypto.randomUUID() };
+    if (!retrying)
+      retry.current = { signature, key: crypto.randomUUID(), session, product: selected };
     submitting.current = true;
     try {
       setSaving(true);
       await recordSale(selectedProductId, date, n, retry.current!.key);
+      if (useAppStore.getState().session !== session) return;
       retry.current = null;
-      toast.success(`Recorded ${n} ${product?.unit ?? "unit"} of ${product?.name ?? "item"}.`);
+      toast.success(`Recorded ${n} ${selected.unit} of ${selected.name}.`);
       setOpen(false);
       setQty("1");
     } catch (error) {
+      if (useAppStore.getState().session !== session) return;
       toast.error(error instanceof Error ? error.message : "The sale could not be saved.");
     } finally {
       submitting.current = false;
@@ -75,7 +108,6 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
   }
 
   if (!canRecordSales) return null;
-  const selected = products.find((product) => product.id === selectedProductId);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -100,9 +132,14 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
             <Select
               id="sale-product"
               value={selectedProductId}
-              disabled={!products.length || saving}
+              disabled={(!products.length && !selectedProductId) || saving}
               onChange={(e) => setProductId(e.target.value)}
             >
+              {selectedProductId && !active && (
+                <option value={selectedProductId}>
+                  {selected?.name ?? "Product unavailable"} (inactive or unavailable)
+                </option>
+              )}
               {products.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -111,7 +148,20 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
             </Select>
             {selected && (
               <p className="text-xs text-muted">
-                On hand: {num(selected.currentStock, 3)} {selected.unit}
+                {currentProduct ? (
+                  <>
+                    On hand: {num(currentProduct.currentStock, 3)} {currentProduct.unit}
+                  </>
+                ) : (
+                  "Current stock is unavailable."
+                )}
+              </p>
+            )}
+            {selectedProductId && !active && (
+              <p className="text-xs text-muted">
+                {retrying
+                  ? "Retry the unchanged submission to confirm whether it saved."
+                  : "Choose an active product for a new sale."}
               </p>
             )}
           </div>
@@ -122,7 +172,7 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
               type="date"
               required
               value={date}
-              max={today}
+              max={retrying ? undefined : today}
               disabled={saving}
               onChange={(e) => setDate(e.target.value)}
             />
@@ -135,7 +185,7 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
               required
               min={0.001}
               step={0.001}
-              max={retrying ? undefined : selected?.currentStock}
+              max={retrying ? undefined : currentProduct?.currentStock}
               value={qty}
               disabled={saving}
               onChange={(e) => setQty(e.target.value)}
@@ -143,7 +193,7 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
           </div>
           <Button
             type="submit"
-            disabled={saving || !selected || (selected.currentStock <= 0 && !retrying)}
+            disabled={saving || !selected || (!retrying && (!active || selected.currentStock <= 0))}
           >
             Save sale
           </Button>

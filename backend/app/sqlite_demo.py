@@ -6,6 +6,8 @@ It exists for laptop demonstrations only; production must run :mod:`app.main`.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import sqlite3
 from datetime import UTC, datetime, timedelta
@@ -42,6 +44,20 @@ CREATE TABLE IF NOT EXISTS products(id TEXT PRIMARY KEY,business_id TEXT NOT NUL
 CREATE TABLE IF NOT EXISTS sales(id TEXT PRIMARY KEY,business_id TEXT NOT NULL,product_id TEXT NOT NULL,sale_date TEXT NOT NULL,quantity TEXT NOT NULL,source TEXT NOT NULL DEFAULT 'manual',data_origin TEXT NOT NULL DEFAULT 'demo',recorded_by TEXT NOT NULL,voided_at TEXT);
 CREATE TABLE IF NOT EXISTS inventory_movements(id TEXT PRIMARY KEY,business_id TEXT NOT NULL,product_id TEXT NOT NULL,movement_date TEXT NOT NULL,movement_type TEXT NOT NULL,quantity_delta TEXT NOT NULL,balance_after TEXT NOT NULL,data_origin TEXT NOT NULL DEFAULT 'demo',sale_id TEXT,note TEXT,recorded_by TEXT NOT NULL,created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS business_settings(business_id TEXT PRIMARY KEY,moving_average_window INTEGER NOT NULL DEFAULT 7,forecast_horizon_days INTEGER NOT NULL DEFAULT 14,target_cover_days INTEGER NOT NULL DEFAULT 7,minimum_history_weeks INTEGER NOT NULL DEFAULT 8,minimum_nonzero_days INTEGER NOT NULL DEFAULT 100,top_n_products INTEGER NOT NULL DEFAULT 8,cv_folds INTEGER NOT NULL DEFAULT 3,timezone TEXT NOT NULL DEFAULT 'Asia/Manila');
+CREATE TABLE IF NOT EXISTS idempotency_keys(
+    id TEXT PRIMARY KEY,
+    business_id TEXT NOT NULL REFERENCES businesses(id),
+    user_id TEXT NOT NULL REFERENCES users(id),
+    operation TEXT NOT NULL CHECK(trim(operation) <> ''),
+    key TEXT NOT NULL CHECK(trim(key) <> ''),
+    request_hash TEXT NOT NULL CHECK(length(request_hash) = 64),
+    response_status INTEGER CHECK(response_status BETWEEN 200 AND 599),
+    response_body TEXT,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL CHECK(expires_at > created_at),
+    UNIQUE(business_id,user_id,operation,key),
+    CHECK((response_status IS NULL) = (response_body IS NULL))
+);
 """
 
 
@@ -135,13 +151,68 @@ def member(business_id: str, user: Principal) -> None:
         raise HTTPException(403, "You do not belong to this business")
 
 
+def write_once(conn, user, key, operation, data, callback, *, status_code=200):
+    """Atomically save a request and its result in the optional demo database."""
+    if key and (not key.strip() or len(key) > 200):
+        raise HTTPException(422, "Idempotency-Key must contain 1 to 200 characters")
+    encoded = json.dumps(data.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    request_hash = hashlib.sha256(encoded.encode()).hexdigest()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if key:
+            existing = conn.execute(
+                """SELECT request_hash,response_body FROM idempotency_keys
+                   WHERE business_id=? AND user_id=? AND operation=? AND key=?""",
+                (user.business_id, user.user_id, operation, key),
+            ).fetchone()
+            if existing:
+                if existing["request_hash"] != request_hash:
+                    raise HTTPException(409, "Idempotency key was already used for another request")
+                if existing["response_body"] is None:
+                    raise HTTPException(409, "An identical request is still being processed")
+                result = json.loads(existing["response_body"])
+                if operation == "record_sale":
+                    sale = conn.execute(
+                        "SELECT voided_at FROM sales WHERE business_id=? AND id=?",
+                        (user.business_id, result["id"]),
+                    ).fetchone()
+                    if not sale or sale["voided_at"] is not None:
+                        raise HTTPException(
+                            409,
+                            "This recorded sale was deleted; record a new sale with a new idempotency key",
+                        )
+                conn.execute("COMMIT")
+                return result
+            now = datetime.now(UTC)
+            conn.execute(
+                """INSERT INTO idempotency_keys
+                   (id,business_id,user_id,operation,key,request_hash,created_at,expires_at)
+                   VALUES(?,?,?,?,?,?,?,?)""",
+                (str(uuid4()), user.business_id, user.user_id, operation, key, request_hash,
+                 now.isoformat(), (now + timedelta(hours=24)).isoformat()),
+            )
+        result = callback()
+        if key:
+            conn.execute(
+                """UPDATE idempotency_keys SET response_status=?,response_body=?
+                   WHERE business_id=? AND user_id=? AND operation=? AND key=?""",
+                (status_code, json.dumps(result), user.business_id, user.user_id, operation, key),
+            )
+        conn.execute("COMMIT")
+        return result
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+
+
 app = FastAPI(title="StockCast SQLite Demo API", version="0.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[os.getenv("CORS_ORIGIN", "http://127.0.0.1:5173")],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["Content-Type", "X-CSRF-Token"],
+    allow_headers=["Content-Type", "X-CSRF-Token", "Idempotency-Key"],
 )
 
 
@@ -241,13 +312,14 @@ def create_product(
     data: ProductCreate,
     conn: sqlite3.Connection = Depends(db),
     user: Principal = Depends(csrf),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     member(business_id, user)
     if user.role != "owner":
         raise HTTPException(403, "Owner role required")
-    product_id = str(uuid4())
-    try:
-        conn.execute("BEGIN IMMEDIATE")
+
+    def apply_creation():
+        product_id = str(uuid4())
         conn.execute(
             "INSERT INTO products VALUES(?,?,?,?,?,?,?,?,?,?,1)",
             (
@@ -281,12 +353,12 @@ def create_product(
                     datetime.now(UTC).isoformat(),
                 ),
             )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
+        return product(conn.execute("SELECT * FROM products WHERE id=?", (product_id,)).fetchone())
+
     return {
-        "data": product(conn.execute("SELECT * FROM products WHERE id=?", (product_id,)).fetchone())
+        "data": write_once(
+            conn, user, idempotency_key, "create_product", data, apply_creation, status_code=201,
+        )
     }
 
 
@@ -297,6 +369,7 @@ def update_product(
     data: ProductUpdate,
     conn: sqlite3.Connection = Depends(db),
     user: Principal = Depends(csrf),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     member(business_id, user)
     if user.role != "owner":
@@ -304,18 +377,24 @@ def update_product(
     fields = data.model_dump(exclude_none=True)
     if not fields:
         raise HTTPException(422, "At least one field is required")
-    row = conn.execute(
-        "SELECT * FROM products WHERE id=? AND business_id=?", (product_id, business_id)
-    ).fetchone()
-    if not row:
-        raise HTTPException(404, "Product not found")
-    for key, value in fields.items():
-        conn.execute(
-            f"UPDATE products SET {key}=? WHERE id=?",
-            (decimal_text(value) if isinstance(value, Decimal) else value, product_id),
-        )
+
+    def apply_update():
+        row = conn.execute(
+            "SELECT * FROM products WHERE id=? AND business_id=?", (product_id, business_id)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Product not found")
+        for key, value in fields.items():
+            conn.execute(
+                f"UPDATE products SET {key}=? WHERE id=?",
+                (decimal_text(value) if isinstance(value, Decimal) else value, product_id),
+            )
+        return product(conn.execute("SELECT * FROM products WHERE id=?", (product_id,)).fetchone())
+
     return {
-        "data": product(conn.execute("SELECT * FROM products WHERE id=?", (product_id,)).fetchone())
+        "data": write_once(
+            conn, user, idempotency_key, f"update_product:{product_id}", data, apply_update,
+        )
     }
 
 
@@ -325,10 +404,16 @@ def record_sale(
     data: SaleCreate,
     conn: sqlite3.Connection = Depends(db),
     user: Principal = Depends(csrf),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     member(business_id, user)
-    try:
-        conn.execute("BEGIN IMMEDIATE")
+
+    def apply_sale():
+        timezone = conn.execute(
+            "SELECT timezone FROM business_settings WHERE business_id=?", (business_id,),
+        ).fetchone()["timezone"]
+        if data.sale_date > datetime.now(ZoneInfo(timezone)).date():
+            raise HTTPException(422, "Sales cannot be dated after the business's current date")
         row = conn.execute(
             "SELECT current_stock FROM products WHERE id=? AND business_id=? AND is_active=1",
             (str(data.product_id), business_id),
@@ -373,12 +458,7 @@ def record_sale(
                 datetime.now(UTC).isoformat(),
             ),
         )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
-    return {
-        "data": {
+        return {
             "id": sale_id,
             "businessId": business_id,
             "productId": str(data.product_id),
@@ -387,6 +467,11 @@ def record_sale(
             "source": "manual",
             "dataOrigin": "demo",
         }
+
+    return {
+        "data": write_once(
+            conn, user, idempotency_key, "record_sale", data, apply_sale, status_code=201,
+        )
     }
 
 
@@ -483,6 +568,7 @@ def movement(
     data: MovementCreate,
     conn: sqlite3.Connection = Depends(db),
     user: Principal = Depends(csrf),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     member(business_id, user)
     if data.movement_type in {"adjustment", "write_off"} and user.role != "owner":
@@ -493,8 +579,13 @@ def movement(
         raise HTTPException(409, "Receipt and return quantities must increase stock")
     if data.movement_type == "write_off" and data.quantity_delta > 0:
         raise HTTPException(409, "Write-off quantity must decrease stock")
-    try:
-        conn.execute("BEGIN IMMEDIATE")
+
+    def apply_movement():
+        timezone = conn.execute(
+            "SELECT timezone FROM business_settings WHERE business_id=?", (business_id,),
+        ).fetchone()["timezone"]
+        if data.movement_date > datetime.now(ZoneInfo(timezone)).date():
+            raise HTTPException(422, "Stock movements cannot be dated after the business's current date")
         row = conn.execute(
             "SELECT current_stock FROM products WHERE id=? AND business_id=? AND is_active=1",
             (str(data.product_id), business_id),
@@ -527,12 +618,7 @@ def movement(
                 now,
             ),
         )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
-    return {
-        "data": {
+        return {
             "id": movement_id,
             "businessId": business_id,
             "productId": str(data.product_id),
@@ -545,6 +631,11 @@ def movement(
             "note": data.note,
             "recordedBy": user.user_id,
         }
+
+    return {
+        "data": write_once(
+            conn, user, idempotency_key, "record_movement", data, apply_movement, status_code=201,
+        )
     }
 
 
@@ -588,10 +679,7 @@ def settings(
     session: tuple[Principal, str] = Depends(authenticated),
 ):
     member(business_id, session[0])
-    row = conn.execute(
-        "SELECT * FROM business_settings WHERE business_id=?", (business_id,)
-    ).fetchone()
-    return {"data": _settings(row)}
+    return {"data": _get_settings(conn, business_id)}
 
 
 @app.put("/api/v1/businesses/{business_id}/settings")
@@ -604,24 +692,55 @@ def update_settings(
     member(business_id, user)
     if user.role != "owner":
         raise HTTPException(403, "Owner role required")
-    values = data.model_dump()
-    assignments = ",".join(f"{key}=?" for key in values)
-    conn.execute(
-        f"UPDATE business_settings SET {assignments} WHERE business_id=?",
-        (*values.values(), business_id),
-    )
-    return {
-        "data": _settings(
-            conn.execute(
-                "SELECT * FROM business_settings WHERE business_id=?", (business_id,)
-            ).fetchone()
+    values = data.model_dump(exclude={"business_name", "business_location", "expected_version"})
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        current = _get_settings(conn, business_id)
+        if data.expected_version is not None and data.expected_version != current["version"]:
+            raise HTTPException(
+                409,
+                "Settings changed in another browser. Reload the saved settings before trying again.",
+            )
+        if data.business_location is not None and data.business_location.strip():
+            raise HTTPException(422, "The SQLite demo cannot save a business location")
+        if data.business_name is not None and not data.business_name.strip():
+            raise HTTPException(422, "Business name is required")
+        assignments = ",".join(f"{key}=?" for key in values)
+        conn.execute(
+            f"UPDATE business_settings SET {assignments} WHERE business_id=?",
+            (*values.values(), business_id),
         )
-    }
+        if data.business_name is not None:
+            conn.execute(
+                "UPDATE businesses SET name=? WHERE id=?", (data.business_name.strip(), business_id),
+            )
+        result = _get_settings(conn, business_id)
+        conn.execute("COMMIT")
+        return {"data": result}
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+
+
+def _get_settings(conn, business_id):
+    row = conn.execute(
+        """SELECT s.*,b.name AS business_name,b.data_origin
+           FROM business_settings s JOIN businesses b ON b.id=s.business_id
+           WHERE s.business_id=?""", (business_id,),
+    ).fetchone()
+    if not row:
+        raise HTTPException(404, "Settings not found")
+    return _settings(row)
 
 
 def _settings(row: sqlite3.Row) -> dict:
     return {
         "businessId": row["business_id"],
+        "businessName": row["business_name"],
+        "businessLocation": None,
+        "dataOrigin": row["data_origin"],
+        "version": hashlib.sha256(json.dumps(dict(row), sort_keys=True).encode()).hexdigest(),
         "movingAverageWindow": row["moving_average_window"],
         "forecastHorizonDays": row["forecast_horizon_days"],
         "targetCoverDays": row["target_cover_days"],

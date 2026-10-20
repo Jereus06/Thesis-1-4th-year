@@ -1,14 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowRight, Clock3, PackageMinus, Scale, Wallet } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useForecast } from "@/components/forecast-context";
 import { StatusBadge } from "@/components/status-badge";
 import { TrainingBanner } from "@/components/training-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AS_OF } from "@/lib/data/seed";
-import { formatLong, todayISO } from "@/lib/dates";
 import { DISCLAIMER, modelLabel } from "@/lib/forecast/constants";
 import { hasMixedUnits } from "@/lib/forecast/metrics";
 import { metric, num, peso } from "@/lib/format";
@@ -67,9 +65,6 @@ function Overview() {
   return (
     <div className="page-enter mx-auto flex max-w-6xl flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <p className="text-xs font-medium tracking-widest text-muted uppercase">
-          {formatLong(mode === "api" ? todayISO() : AS_OF)}
-        </p>
         <h1 className="font-display text-2xl font-medium tracking-tight sm:text-3xl md:text-4xl">
           Morning briefing
           <span className="mt-1 block">for {storeName}</span>
@@ -100,11 +95,18 @@ function Overview() {
         <Kpi
           icon={Scale}
           label={ready ? `${winner} MAE` : "Holdout MAE"}
-          value={ready ? metric(winnerMae) : null}
+          value={ready ? (Number.isFinite(winnerMae) ? metric(winnerMae) : "") : null}
           hint={
             mixedUnits
               ? "Choose a product in Forecasts to see its score"
               : "Same holdout for MA, XGBoost, and ensemble"
+          }
+          action={
+            <Button size="sm" className="mt-2 h-7 gap-1 px-2 text-xs" asChild>
+              <Link to="/forecasts">
+                Forecasts <ArrowRight className="size-3" aria-hidden="true" />
+              </Link>
+            </Button>
           }
         />
         <Kpi
@@ -243,11 +245,13 @@ function Kpi({
   label,
   value,
   hint,
+  action,
 }: {
   icon: typeof Wallet;
   label: string;
   value: string | null;
   hint: string;
+  action?: ReactNode;
 }) {
   return (
     <Card>
@@ -259,10 +263,11 @@ function Kpi({
           <p className="text-xs tracking-wide text-muted uppercase">{label}</p>
           {value == null ? (
             <Skeleton className="mt-2 h-8 w-24" />
-          ) : (
+          ) : value ? (
             <p className="font-display text-2xl font-medium tracking-tight tabular">{value}</p>
-          )}
+          ) : null}
           <p className="text-xs text-muted">{hint}</p>
+          {action}
         </div>
       </CardContent>
     </Card>

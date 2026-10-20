@@ -30,6 +30,10 @@ class StatusRepository:
             "sales": [{"count": 10, "latest": "2026-10-15T00:00:00Z", "identities": 123}],
             "products": [{"id": "p1", "updated_at": "2026-10-15T00:00:00Z"}],
             "settings": [{"updated_at": "2026-10-15T00:00:00Z"}],
+            "business": [{
+                "name": "Synthetic store", "location": None, "data_origin": "demo",
+                "updated_at": "2026-10-15T00:00:00Z",
+            }],
             "quality": [{"count": 0, "latest": None}],
             "latest": [{"id": "run1", "status": "queued"}],
             "completed": [],
@@ -48,6 +52,8 @@ class StatusRepository:
             return Result(self.state["products"])
         if "FROM business_settings" in query:
             return Result(self.state["settings"])
+        if "FROM businesses" in query:
+            return Result(self.state["business"])
         if "FROM sales_day_quality_audit" in query:
             return Result(self.state["quality"])
         if "FROM forecast_runs" in query:
@@ -69,14 +75,23 @@ def test_status_is_stable_and_never_reads_or_prepares_daily_history(monkeypatch)
                and "data_snapshot" not in query for query in repository.queries)
 
 
-@pytest.mark.parametrize("field", ["sales", "products", "settings", "quality", "latest", "completed"])
+@pytest.mark.parametrize(
+    "field", ["sales", "products", "settings", "business", "quality", "latest", "completed"],
+)
 def test_each_saved_revision_input_invalidates_the_dashboard(field):
     repository = StatusRepository()
     before = dashboard_status(repository, "business")
     repository.state[field] = deepcopy(repository.state[field]) + [{"changed": field}]
     # Scalar aggregates return a single row; mutate that row for scalar sources.
-    if field in {"sales", "settings", "quality", "latest", "completed"}:
+    if field in {"sales", "settings", "business", "quality", "latest", "completed"}:
         repository.state[field] = [{"changed": field}]
+    assert dashboard_status(repository, "business") != before
+
+
+def test_profile_value_change_invalidates_status_even_with_same_timestamp():
+    repository = StatusRepository()
+    before = dashboard_status(repository, "business")
+    repository.state["business"][0]["name"] = "Renamed synthetic store"
     assert dashboard_status(repository, "business") != before
 
 

@@ -20,6 +20,216 @@ test("saved training duration uses model fits and preserves separate total proce
   assert.deepEqual(mapped.processingTiming, timing);
 });
 
+test("completed forecast identity follows the saved run rather than a pending replacement or repeated read", () => {
+  const completed = { id: "saved-run", createdAt: "2026-10-04", timing: {} };
+  const data = dashboard({
+    run: completed,
+    latestRun: { id: "replacement-run", status: "running" },
+  });
+  assert.equal(toResult(data, [product], 8, 20).runId, completed.id);
+  assert.equal(toResult({ ...data }, [{ ...product }], 8, 20).runId, completed.id);
+  assert.equal(
+    toResult({ ...data, run: { ...completed, id: "new-completed-run" } }, [product], 8, 20).runId,
+    "new-completed-run",
+  );
+  assert.equal(toResult({ ...data, run: null }, [product], 8, 20).runId, undefined);
+});
+
+test("comparison settings come from the completed run while newer settings are queued or running", () => {
+  const completed = {
+    id: "saved-seven-day-run",
+    status: "completed",
+    createdAt: "2026-10-04",
+    timing: {},
+    dataSnapshot: { settings: { moving_average_window: 7 } },
+  };
+  for (const status of ["queued", "running", "failed", "completed"]) {
+    const data = dashboard({
+      run: completed,
+      latestRun: {
+        id: "replacement-thirty-day-run",
+        status,
+        dataSnapshot: { settings: { moving_average_window: 30 } },
+      },
+      metrics: [
+        {
+          productId: product.id,
+          method: "moving_average",
+          datasetSplit: "final_test",
+          mae: "1.2",
+          rmse: "1.8",
+          observationCount: 20,
+        },
+      ],
+    });
+    const mapped = toResult(data, [product], 8, 20);
+    assert.equal(mapped.diagnostics.maWindow, 7);
+    assert.equal(mapped.byProduct[product.id].maMae, 1.2);
+    assert.equal(mapped.byProduct[product.id].maRmse, 1.8);
+  }
+});
+
+test("missing or invalid saved comparison settings stay unknown instead of borrowing a newer run", () => {
+  for (const dataSnapshot of [
+    undefined,
+    {},
+    { settings: {} },
+    ...[null, 0, -1, 7.5, "7", NaN, Infinity].map((moving_average_window) => ({
+      settings: { moving_average_window },
+    })),
+  ]) {
+    const data = dashboard({
+      run: { id: "legacy-run", timing: {}, dataSnapshot },
+      latestRun: {
+        id: "new-run",
+        status: "running",
+        dataSnapshot: { settings: { moving_average_window: 30 } },
+      },
+    });
+    assert.equal(toResult(data, [product], 8, 20).diagnostics.maWindow, undefined);
+  }
+  assert.equal(toResult(dashboard(), [product], 8, 20).diagnostics.maWindow, undefined);
+});
+
+test("forecast and restock evidence use the completed run's requested horizon without changing confidence", () => {
+  const forecastEvidence = { status: "tested", testObservations: 14, mae: "1.5", rmse: "2" };
+  const forecastConfidence = {
+    level: "high",
+    reason: "Low past error across 14 consecutive tested days.",
+    testObservations: 14,
+    relativeError: "0.10",
+    policy: "past_test_wape_v1",
+  };
+  for (const status of ["queued", "running"]) {
+    const data = dashboard({
+      run: {
+        id: "saved-thirty-day-run",
+        status: "completed",
+        timing: {},
+        forecastHorizonDays: 30,
+        dataSnapshot: { settings: { forecast_horizon_days: 7 } },
+      },
+      latestRun: { id: "replacement-run", status, forecastHorizonDays: 90 },
+      recommendation: {
+        demandAvailable: true,
+        daily_demand: "3",
+        forecastEvidence,
+        forecastConfidence,
+      },
+    });
+    for (const mapped of [result(data), toReorderRows(data, [product])[0]]) {
+      assert.deepEqual(mapped.forecastEvidence, { ...forecastEvidence, requestedHorizonDays: 30 });
+      assert.equal(mapped.forecastConfidence, forecastConfidence);
+    }
+    assert.deepEqual(data.recommendations[0].forecastEvidence, forecastEvidence);
+    assert.equal(Object.hasOwn(forecastEvidence, "requestedHorizonDays"), false);
+    assert.equal(forecastConfidence.level, "high");
+    assert.equal(data.run.dataSnapshot.settings.forecast_horizon_days, 7);
+    assert.equal(data.latestRun.forecastHorizonDays, 90);
+  }
+});
+
+test("saved test counts and requested horizon remain historical when advice is stale, expired or crosses midnight", () => {
+  const forecastEvidence = { status: "tested", testObservations: 14, mae: "1.5", rmse: "2" };
+  const forecastConfidence = {
+    level: "high",
+    reason: "Low past error across 14 consecutive tested days.",
+    testObservations: 14,
+    relativeError: "0.10",
+    policy: "past_test_wape_v1",
+  };
+  for (const state of ["stale", "expired", "midnight"]) {
+    let data = dashboard({
+      run: { id: "saved-run", timing: {}, forecastHorizonDays: 30 },
+      stale: state === "stale",
+      forecastThrough: "2026-10-10",
+      recommendation: {
+        demandAvailable: true,
+        daily_demand: "3",
+        forecastExpired: state === "expired",
+        forecastEvidence,
+        forecastConfidence,
+      },
+      predictions: [
+        {
+          productId: product.id,
+          predictionDate: "2026-10-10",
+          datasetSplit: "future",
+          method: "fallback",
+          predictedQuantity: "3",
+          actualQuantity: null,
+          lowerBound: null,
+          upperBound: null,
+        },
+      ],
+    });
+    if (state === "midnight")
+      data = currentForecastDashboard(data, new Date("2026-10-04T16:01:00Z"));
+    const expectedStatus =
+      state === "stale" ? "needs_refresh" : state === "expired" ? "expired" : "unavailable";
+    for (const mapped of [result(data), toReorderRows(data, [product])[0]]) {
+      assert.deepEqual(mapped.forecastEvidence, {
+        ...forecastEvidence,
+        status: expectedStatus,
+        requestedHorizonDays: 30,
+      });
+      assert.equal(mapped.forecastConfidence.level, null);
+      assert.equal(mapped.forecastConfidence.testObservations, 14);
+      assert.equal(mapped.forecastConfidence.relativeError, "0.10");
+    }
+    assert.equal(forecastEvidence.status, "tested");
+    assert.equal(Object.hasOwn(forecastEvidence, "requestedHorizonDays"), false);
+    assert.equal(forecastConfidence.level, "high");
+  }
+});
+
+test("legacy or invalid canonical horizons never borrow a requested length from a snapshot or newer run", () => {
+  const forecastEvidence = { status: "tested", testObservations: 14, mae: "1.5", rmse: "2" };
+  for (const forecastHorizonDays of [undefined, null, 0, -1, 7.5, "30", NaN, Infinity, true]) {
+    const data = dashboard({
+      run: {
+        id: "legacy-run",
+        timing: {},
+        forecastHorizonDays,
+        dataSnapshot: { settings: { forecast_horizon_days: 30 } },
+      },
+      latestRun: { id: "new-run", status: "running", forecastHorizonDays: 90 },
+      recommendation: { demandAvailable: true, daily_demand: "3", forecastEvidence },
+    });
+    for (const mapped of [result(data), toReorderRows(data, [product])[0]]) {
+      assert.deepEqual(mapped.forecastEvidence, forecastEvidence);
+      assert.equal(Object.hasOwn(mapped.forecastEvidence, "requestedHorizonDays"), false);
+    }
+    data.run = null;
+    for (const mapped of [result(data), toReorderRows(data, [product])[0]]) {
+      assert.deepEqual(mapped.forecastEvidence, forecastEvidence);
+      assert.equal(Object.hasOwn(mapped.forecastEvidence, "requestedHorizonDays"), false);
+    }
+  }
+});
+
+test("new previews and invalid test counts do not inherit an older run's requested test length", () => {
+  for (const testObservations of [undefined, null, 0, -1, 1.5, "14", NaN, Infinity]) {
+    const forecastEvidence = { status: "basic", testObservations, mae: null, rmse: null };
+    const data = dashboard({
+      run: { id: "older-saved-run", timing: {}, forecastHorizonDays: 30 },
+      recommendation: { demandAvailable: true, daily_demand: "3", forecastEvidence },
+    });
+    for (const mapped of [result(data), toReorderRows(data, [product])[0]]) {
+      assert.deepEqual(mapped.forecastEvidence, forecastEvidence);
+      assert.equal(Object.hasOwn(mapped.forecastEvidence, "requestedHorizonDays"), false);
+    }
+  }
+  const data = dashboard({
+    run: { id: "older-saved-run", timing: {}, forecastHorizonDays: 30 },
+    recommendation: { demandAvailable: true, daily_demand: "3" },
+  });
+  for (const mapped of [result(data), toReorderRows(data, [product])[0]]) {
+    assert.equal(mapped.forecastEvidence.testObservations, 0);
+    assert.equal(Object.hasOwn(mapped.forecastEvidence, "requestedHorizonDays"), false);
+  }
+});
+
 test("Python confidence and frozen training scope reach forecasts and restock unchanged", () => {
   const forecastConfidence = {
     level: "high",

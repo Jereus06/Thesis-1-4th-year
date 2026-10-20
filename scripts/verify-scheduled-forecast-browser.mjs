@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { launchEdge } from "./benchmark-browser.mjs";
+import { chromium } from "playwright";
 
 // Real browser interaction with isolated synthetic HTTP responses, not a database/model test.
 const base = process.argv[2] ?? "http://127.0.0.1:4177";
@@ -42,6 +42,7 @@ const completedRun = {
   finalTestStart: relativeDay(-14),
   finalTestEnd: relativeDay(-1),
   failureMessage: null,
+  dataSnapshot: { settings: { moving_average_window: 7 } },
   configuration: {
     requestedFrom: "daily_schedule",
     scheduledFor: day,
@@ -53,7 +54,9 @@ let legacyStatus = false;
 function dashboard() {
   const saved = !["queued", "running"].includes(stage);
   const expired = stage === "expired";
-  const run = saved ? completedRun : null;
+  const run = saved
+    ? { ...completedRun, ...(stage === "legacy_window" ? { dataSnapshot: {} } : {}) }
+    : null;
   const latestRun =
     stage === "failed"
       ? {
@@ -62,7 +65,14 @@ function dashboard() {
           status: "failed",
           failureMessage: "Synthetic scheduled test failure",
         }
-      : { ...completedRun, status: saved ? "completed" : stage };
+      : stage.startsWith("replacement_")
+        ? {
+            ...completedRun,
+            id: "synthetic-thirty-day-replacement",
+            status: stage.slice("replacement_".length),
+            dataSnapshot: { settings: { moving_average_window: 30 } },
+          }
+        : { ...completedRun, status: saved ? "completed" : stage };
   return {
     forecastSchedule: { enabled: stage !== "disabled", localTime: "00:15", timezone },
     stale: false,
@@ -132,13 +142,25 @@ const report = {
   checks: [],
   browserErrors: [],
 };
-const edge = await launchEdge({
-  executable: "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
-  artifactsDirectory: artifacts,
+const browser = await chromium.launch({
+  headless: true,
+  ...(process.platform === "win32" ? { channel: "msedge" } : {}),
 });
-report.software = { ...edge.software, node: process.version };
-const page = edge.page;
+const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
+const browserPage = await context.newPage();
+const page = await context.newCDPSession(browserPage);
+page.evaluate = (expression) => browserPage.evaluate(expression);
+page.waitFor = async (expression, label, timeout = 30_000) => {
+  try {
+    await browserPage.waitForFunction(expression, null, { timeout });
+  } catch (cause) {
+    throw new Error(`Browser readiness timed out: ${label}`, { cause });
+  }
+};
+report.software = { edge: browser.version(), node: process.version };
 page.on("Runtime.exceptionThrown", (e) => report.browserErrors.push(e.exceptionDetails?.text));
+await page.send("Page.enable");
+await page.send("Runtime.enable");
 await page.send("Fetch.enable", { patterns: [{ urlPattern: "*api/v1/*" }] });
 page.on("Fetch.requestPaused", async (event) => {
   try {
@@ -158,7 +180,7 @@ page.on("Fetch.requestPaused", async (event) => {
     else if (path.endsWith("/sales") || path.endsWith("/inventory-movements")) data = [];
     else if (path.endsWith("/settings"))
       data = {
-        movingAverageWindow: 7,
+        movingAverageWindow: 30,
         forecastHorizonDays: 7,
         targetCoverDays: 7,
         minimumHistoryWeeks: 8,
@@ -272,6 +294,42 @@ try {
     passed: true,
     observedWaitMs: performance.now() - disabledStarted,
   });
+  for (const nextStage of ["replacement_queued", "replacement_running"]) {
+    stage = nextStage;
+    const progress =
+      stage === "replacement_queued" ? "Waiting to update forecasts" : "Updating forecasts";
+    await page.waitFor(
+      `document.body.innerText.includes(${JSON.stringify(progress)}) && document.body.innerText.includes('Your previous forecast is shown for now') && document.body.innerText.includes('Uses the previous 7 days of sales')`,
+      `${stage} keeps the completed forecast's seven-day window`,
+      20_000,
+    );
+    assert.equal(
+      await page.evaluate("document.querySelector('#forecast-results').value"),
+      product.id,
+    );
+    const text = await page.evaluate("document.body.innerText");
+    assert.match(text, new RegExp(`Past test results for ${product.name}`));
+    assert.match(text, /Uses the previous 7 days of sales/);
+    assert.doesNotMatch(text, /Uses the previous 30 days of sales|Overall results/);
+    report.checks.push({
+      name: `${stage} preserves saved seven-day comparison settings for the selected product while current settings use thirty`,
+      passed: true,
+    });
+  }
+  stage = "legacy_window";
+  await page.waitFor(
+    `document.body.innerText.includes('Sales window unavailable for these results')`,
+    "legacy results disclose an unavailable window",
+    20_000,
+  );
+  assert.doesNotMatch(
+    await page.evaluate("document.body.innerText"),
+    /Uses the previous (?:7|30) days of sales/,
+  );
+  report.checks.push({
+    name: "legacy completed results do not borrow the current thirty-day setting",
+    passed: true,
+  });
   legacyStatus = true;
   stage = "completed";
   await page.waitFor(
@@ -304,6 +362,6 @@ try {
   console.error(report.failurePage?.slice(0, 3000));
 } finally {
   writeFileSync(resolve(artifacts, "report.json"), JSON.stringify(report, null, 2));
-  await edge.close();
+  await browser.close();
 }
 if (report.outcome !== "passed") process.exitCode = 1;

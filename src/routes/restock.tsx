@@ -10,11 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { modelLabel } from "@/lib/forecast/constants";
 import { num } from "@/lib/format";
 import { forecastRefreshAdvice } from "@/lib/forecast-schedule";
 import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
+import type { SessionUser } from "@/lib/api";
 import type { ProductForecast, ReorderRow } from "@/lib/types";
 
 export const Route = createFileRoute("/restock")({ component: RestockPage });
@@ -32,14 +32,22 @@ function RestockPage() {
   const { rows, result, schedule } = useForecast();
   const mode = useAppStore((state) => state.dataMode);
   const catalog = useAppStore((state) => state.products);
+  const session = useAppStore((state) => state.session);
   const products = useMemo(
     () => catalog.filter((product) => product.isActive !== false),
     [catalog],
   );
   const { canReceiveStock, canRefreshForecast, canManageProducts } = usePermissions();
   const refreshAdvice = forecastRefreshAdvice(mode, canRefreshForecast, schedule);
-  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
-  const selected = rows.find((row) => row.product.id === selectedProductId) ?? null;
+  const [deliverySelection, setDeliverySelection] = useState<{
+    row: ReorderRow;
+    session: SessionUser | null;
+  } | null>(null);
+  const selected =
+    deliverySelection?.session === session
+      ? (rows.find((row) => row.product.id === deliverySelection.row.product.id) ??
+        deliverySelection.row)
+      : null;
   const [open, setOpen] = useState(false);
   const ready = Boolean(result);
   const missing = products.filter((product) => !rows.some((row) => row.product.id === product.id));
@@ -68,7 +76,7 @@ function RestockPage() {
 
   function openReceive(row: ReorderRow) {
     if (!canReceiveStock || row.product.isActive === false) return;
-    setSelectedProductId(row.product.id);
+    setDeliverySelection({ row, session });
     setOpen(true);
   }
   function renderRow(row: ReorderRow) {
@@ -115,7 +123,7 @@ function RestockPage() {
               {missing.map((product) => (
                 <div key={product.id} className="rounded-xl border border-border p-3">
                   <p className="text-sm font-medium">{product.name}</p>
-                  <DemandEvidence forecast={result?.byProduct[product.id]} />
+                  <DemandEvidence forecast={result?.byProduct[product.id]} compact />
                 </div>
               ))}
             </section>
@@ -147,7 +155,7 @@ function RestockPage() {
       <ReceiveStockDialog
         product={selected?.product ?? null}
         row={selected}
-        open={open}
+        open={open && selected !== null}
         onOpenChange={setOpen}
       />
     </div>
@@ -224,9 +232,7 @@ function RestockCard({
             )}
           </div>
           <p className="text-sm text-muted">
-            {p.sku} · {p.category} · delivery {p.leadTimeDays} days · reserve stock{" "}
-            {num(p.safetyStock)}
-            {available && ` · ${modelLabel(row.winnerModel)} estimate`}
+            {p.sku} · {p.category}
           </p>
           {zeroDemand && (
             <p className="text-sm text-muted">
@@ -234,6 +240,7 @@ function RestockCard({
             </p>
           )}
           <DemandEvidence
+            compact
             forecast={forecast}
             forecastEvidence={row.forecastEvidence}
             forecastConfidence={row.forecastConfidence}

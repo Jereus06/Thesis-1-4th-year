@@ -15,7 +15,6 @@ import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { DISCLAIMER, modelLabel } from "@/lib/forecast/constants";
-import { hasMixedUnits } from "@/lib/forecast/metrics";
 import { metric, num } from "@/lib/format";
 import { intervalAvailability } from "@/lib/forecast-interval";
 import { forecastRefreshAdvice, forecastScheduleMessage } from "@/lib/forecast-schedule";
@@ -33,26 +32,55 @@ function ForecastsPage() {
   );
   const mode = useAppStore((s) => s.dataMode);
   const { canRefreshForecast } = usePermissions();
-  const window = useAppStore((s) => s.settings.maWindow);
+  const configuredMaWindow = useAppStore((s) => s.settings.maWindow);
   const configuredLimit = useAppStore((s) => s.settings.topNProducts);
   const { result, status, refresh, forecastThrough, schedule } = useForecast();
+  const savedMaWindow = result?.diagnostics.maWindow;
+  const maNote =
+    savedMaWindow !== undefined && Number.isInteger(savedMaWindow) && savedMaWindow > 0
+      ? `Uses the previous ${savedMaWindow} days of sales for each average. The accuracy test period is separate.`
+      : result
+        ? "Sales window unavailable for these results"
+        : "Averages recent daily sales";
   const refreshAdvice = forecastRefreshAdvice(mode, canRefreshForecast, schedule);
   const ready = Boolean(result);
-  const [productId, setProductId] = useState("");
-  const selected = products.find((p) => p.id === productId);
+  const preferredProduct = useMemo(() => {
+    const activeIds = new Set(products.map((product) => product.id));
+    const ranked = result?.diagnostics.trainingScope?.products
+      .filter((row) => activeIds.has(row.productId) && Number.isInteger(row.rank) && row.rank > 0)
+      .sort((a, b) => a.rank - b.rank || a.productId.localeCompare(b.productId, "en"));
+    const rankedProduct = products.find((product) => product.id === ranked?.[0]?.productId);
+    if (rankedProduct) return rankedProduct;
+    const ordered = [...products].sort(
+      (a, b) => a.sku.localeCompare(b.sku, "en") || a.id.localeCompare(b.id, "en"),
+    );
+    return ordered.find((product) => result?.byProduct[product.id]) ?? ordered[0];
+  }, [products, result]);
+  const completedRunId =
+    result?.diagnostics.mode === "train"
+      ? result.runId || result.trainedAt || undefined
+      : undefined;
+  const [selection, setSelection] = useState({
+    completedRunId,
+    productId: preferredProduct?.id ?? "",
+  });
+  const newCompletedRun =
+    completedRunId !== undefined && completedRunId !== selection.completedRunId;
+  // A new completed run replaces the selection; polls and serve previews keep the user's choice.
+  if (newCompletedRun) {
+    setSelection({ completedRunId, productId: preferredProduct?.id ?? "" });
+  }
+  const selected =
+    products.find(
+      (product) => product.id === (newCompletedRun ? preferredProduct?.id : selection.productId),
+    ) ?? preferredProduct;
   const forecast = selected ? result?.byProduct[selected.id] : undefined;
-  const mixedUnits =
-    result?.diagnostics.comparisonMixedUnits ??
-    (mode === "browser-demo" &&
-      hasMixedUnits(products.filter((product) => result?.byProduct[product.id])));
-  const scores = selected ? forecast : mixedUnits ? undefined : result;
-  const winnerAvailable = selected
-    ? Boolean(
-        forecast &&
-        Number.isFinite(forecast.cvMaeMa) &&
-        (!forecast.trainedWithMl || Number.isFinite(forecast.cvMaeXgb)),
-      )
-    : !mixedUnits && result?.diagnostics.comparisonWinnerAvailable !== false;
+  const scores = forecast;
+  const winnerAvailable = Boolean(
+    forecast &&
+    Number.isFinite(forecast.cvMaeMa) &&
+    (!forecast.trainedWithMl || Number.isFinite(forecast.cvMaeXgb)),
+  );
 
   const chartPoints: ForecastPoint[] = useMemo(() => {
     if (!forecast) return [];
@@ -93,15 +121,18 @@ function ForecastsPage() {
       />
 
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <p className="font-medium">{selected?.name ?? "Overall results"}</p>
+        <p className="font-medium">{selected?.name ?? "No active products"}</p>
         <Select
           id="forecast-results"
-          aria-label="Forecast results"
+          aria-label="Forecast product"
           className="md:max-w-xs"
           value={selected?.id ?? ""}
-          onChange={(e) => setProductId(e.target.value)}
+          disabled={!products.length}
+          onChange={(e) =>
+            setSelection({ completedRunId: selection.completedRunId, productId: e.target.value })
+          }
         >
-          <option value="">Overall results</option>
+          {!products.length && <option value="">No active products</option>}
           {products.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -136,24 +167,23 @@ function ForecastsPage() {
           winner={
             ready && winnerAvailable ? scores?.winner === "ma" || scores?.winner === "rule" : false
           }
-          note={`Uses the previous ${window} days of sales`}
+          note={maNote}
           ready={ready}
         />
       </section>
-      {ready && !selected && mixedUnits && (
+      {savedMaWindow !== undefined &&
+        Number.isInteger(savedMaWindow) &&
+        savedMaWindow > 0 &&
+        savedMaWindow !== configuredMaWindow && (
+          <p className="text-sm text-muted" role="status">
+            Saved window: {configuredMaWindow} days. Displayed results used {savedMaWindow} days.
+            New results appear after a forecast refresh using the saved setting finishes.
+          </p>
+        )}
+      {mode === "api" && ready && selected && (
         <p className="text-sm text-muted">
-          Products use different units. Choose a product to see its MAE and RMSE.
-        </p>
-      )}
-      {mode === "api" && ready && (selected || !mixedUnits) && (
-        <p className="text-sm text-muted">
-          {selected
-            ? `Past test results for ${selected.name}.`
-            : result?.diagnostics.comparisonObservationCount
-              ? `Past tests cover ${num(result.diagnostics.comparisonObservationCount)} daily results across ${num(result.diagnostics.comparisonProductCount ?? 0)} products, using the same sales records.`
-              : "Matching past test results are not available. A dash means no saved score."}{" "}
-          MAE shows average error; RMSE highlights larger mistakes. Lower is better. The chosen
-          method comes from an earlier, separate check.
+          Past test results for {selected.name}. MAE shows average error; RMSE highlights larger
+          mistakes. Lower is better. The chosen method comes from an earlier, separate check.
         </p>
       )}
 
@@ -231,10 +261,6 @@ function ForecastsPage() {
             )}
           </CardContent>
         </Card>
-      ) : products.length > 0 ? (
-        <p className="text-sm text-muted">
-          Choose a product above to see its own results and sales chart.
-        </p>
       ) : null}
 
       <Card>

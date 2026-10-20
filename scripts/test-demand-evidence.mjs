@@ -109,6 +109,7 @@ function renderPage(
     message = "Synthetic fixture",
     diagnostics = {},
     overallScores = {},
+    settings = {},
   } = {},
 ) {
   setTestState({
@@ -124,7 +125,7 @@ function renderPage(
             role,
           }
         : null,
-    settings: { storeName: "Synthetic store", forecastHorizon: 14, maWindow: 7 },
+    settings: { storeName: "Synthetic store", forecastHorizon: 14, maWindow: 7, ...settings },
   });
   setForecastState({
     rows,
@@ -145,7 +146,7 @@ function renderPage(
           maRmse: NaN,
           xgbRmse: NaN,
           ensembleRmse: NaN,
-          byProduct: { [product.id]: forecast },
+          byProduct: { [product.id]: { holdout: [], future: [], ...forecast } },
           ...overallScores,
           diagnostics: {
             trainedProductCount: 0,
@@ -167,6 +168,10 @@ function assertDeliveryEnabled(markup) {
 function renderEvidence(props = {}) {
   return renderToStaticMarkup(createElement(DemandEvidence, props));
 }
+function selectedForecastProduct(markup) {
+  const select = markup.match(/<select\b[^>]*id="forecast-results"[^>]*>([\s\S]*?)<\/select>/)?.[1];
+  return select?.match(/<option value="([^"]*)" selected=""/s)?.[1];
+}
 
 test("staff retain delivery entry while forecast refresh controls belong to owners", () => {
   assertDeliveryEnabled(renderPage(restockRoute, { role: "staff" }));
@@ -176,6 +181,14 @@ test("staff retain delivery entry while forecast refresh controls belong to owne
   assert.match(owner, /<button\b[^>]*>Refresh forecasts<\/button>/);
   assert.doesNotMatch(staff, /<button\b[^>]*>Refresh forecasts<\/button>/);
   assert.match(staff, /The owner can refresh forecasts/);
+});
+
+test("the overview MAE card has a Forecasts link", () => {
+  const markup = renderPage(overviewRoute);
+  const stats = markup.match(/<section\b[^>]*>([\s\S]*?)<\/section>/)?.[1];
+  assert.ok(stats);
+  assert.match(stats, /MAE/);
+  assert.match(stats, /<a\b[^>]*href="\/forecasts"[^>]*>Forecasts/);
 });
 
 test("enabled API schedules give staff truthful automatic status while keeping owner-only refresh", () => {
@@ -461,6 +474,192 @@ test("restock shows recorded test days and quantity error, including poor result
   assert.match(stale, /Tested on 1 past day\..*older forecast/);
 });
 
+test("Restock folds measurements into closed Forecast details while keeping actions and critical notices visible", () => {
+  const forecastEvidence = {
+    status: "tested",
+    testObservations: 14,
+    requestedHorizonDays: 30,
+    mae: "1.5",
+    rmse: "2",
+  };
+  const forecastConfidence = {
+    level: "high",
+    policy: "past_test_wape_v1",
+    relativeError: "0.1",
+    testObservations: 14,
+    reason: "Low past error across 14 consecutive tested days.",
+  };
+  const forecast = {
+    forecastEvidence,
+    forecastConfidence,
+    fallbackReason: "Synthetic fallback reason",
+    unknownDays: 2,
+    excludedDays: 1,
+    qualityWarnings: ["Synthetic quality warning"],
+  };
+  const markup = renderPage(restockRoute, { rows: [{ ...baseRow, ...forecast }], forecast });
+  const details = markup.match(/<details\b([^>]*)>([\s\S]*?)<\/details>/);
+  assert.ok(details);
+  assert.doesNotMatch(details[1], /\bopen\b/);
+  assert.match(details[2], />Forecast details<\/summary>/);
+  assert.match(details[2], /Average error: 1\.5 units/);
+  assert.match(details[2], /Days with missing records: 2/);
+  const visible = markup.replace(/<details\b[^>]*>[\s\S]*?<\/details>/g, "");
+  assert.match(
+    visible,
+    /Accuracy checked on 14 of the requested 30 days\. Test evidence is limited/,
+  );
+  assert.match(visible, /Synthetic fallback reason/);
+  assert.match(visible, /Synthetic quality warning/);
+  assert.match(visible, /High confidence/);
+  for (const label of [
+    "Stock on hand",
+    "Expected daily sales",
+    "Order when stock reaches",
+    "Days stock may last",
+    "Suggested order",
+  ])
+    assert.ok(visible.includes(label), `${label} stays visible`);
+  assertDeliveryEnabled(visible);
+  assert.doesNotMatch(
+    visible,
+    /Average error:|Days with missing records:|Small errors in tests|delivery 3 days|reserve stock|Moving Average estimate/,
+  );
+  const full = renderPage(forecastsRoute, { forecast });
+  assert.match(full, /Average error: 1\.5 units/);
+  assert.match(full, /Days with missing records: 2/);
+  assert.doesNotMatch(full, />Forecast details<\/summary>/);
+  const unavailable = renderPage(restockRoute, {
+    rows: [{ ...baseRow, demandAvailable: false, unavailableReason: "Synthetic no estimate" }],
+  }).replace(/<details\b[^>]*>[\s\S]*?<\/details>/g, "");
+  assert.match(unavailable, /Sales estimate unavailable: Synthetic no estimate/);
+  assertDeliveryEnabled(unavailable);
+});
+
+test("compact evidence without a saved error does not claim a completed accuracy check", () => {
+  const markup = renderEvidence({
+    compact: true,
+    forecastEvidence: {
+      status: "basic",
+      testObservations: 14,
+      requestedHorizonDays: 30,
+      mae: null,
+      rmse: null,
+    },
+  });
+  assert.doesNotMatch(markup, /Accuracy checked on|Test evidence is limited|Average error/);
+});
+
+test("shortened historical tests show their saved count against the requested forecast horizon", () => {
+  const markup = renderEvidence({
+    forecast: {
+      forecastEvidence: {
+        status: "tested",
+        testObservations: 14,
+        requestedHorizonDays: 30,
+        mae: "1.5",
+        rmse: "2",
+      },
+    },
+  });
+  assert.match(
+    markup,
+    /Accuracy checked on 14 of the requested 30 days\. Test evidence is limited\./,
+  );
+  assert.match(markup, /Average error: 1\.5 units\./);
+});
+
+test("full tests and unknown legacy horizons keep their ordinary saved evidence", () => {
+  for (const [testObservations, requestedHorizonDays] of [
+    [30, 30],
+    [35, 30],
+    ...[undefined, null, 0, -1, 30.5, "30", NaN, Infinity].map((horizon) => [14, horizon]),
+  ]) {
+    const markup = renderEvidence({
+      forecastEvidence: {
+        status: "tested",
+        testObservations,
+        requestedHorizonDays,
+        mae: "1",
+        rmse: "2",
+      },
+    });
+    assert.match(markup, new RegExp(`Tested on ${testObservations} past days`));
+    assert.doesNotMatch(markup, /Accuracy checked on|Test evidence is limited/);
+  }
+});
+
+test("an untested preview does not claim a completed accuracy check", () => {
+  const markup = renderEvidence({
+    forecastEvidence: {
+      status: "basic",
+      testObservations: 0,
+      requestedHorizonDays: 30,
+      mae: null,
+      rmse: null,
+    },
+  });
+  assert.doesNotMatch(markup, /Accuracy checked on|Test evidence is limited|Average error/);
+});
+
+test("shortened saved tests stay visible beside older forecast evidence", () => {
+  for (const status of ["needs_refresh", "expired", "unavailable"]) {
+    const markup = renderEvidence({
+      forecastEvidence: {
+        status,
+        testObservations: 14,
+        requestedHorizonDays: 30,
+        mae: "1",
+        rmse: "2",
+      },
+    });
+    assert.match(
+      markup,
+      /Accuracy checked on 14 of the requested 30 days\. Test evidence is limited\./,
+    );
+    if (status === "needs_refresh") assert.match(markup, /Results are from an older forecast/);
+  }
+});
+
+test("Forecasts and Restock show the saved test scope while preserving the confidence rating", () => {
+  const evidence = {
+    status: "tested",
+    testObservations: 14,
+    requestedHorizonDays: 30,
+    mae: "1",
+    rmse: "2",
+  };
+  const confidence = {
+    level: "high",
+    policy: "past_test_wape_v1",
+    relativeError: "0.1",
+    testObservations: 14,
+    reason: "Low past error across 14 consecutive tested days.",
+  };
+  for (const route of [forecastsRoute, restockRoute]) {
+    const markup = renderPage(route, {
+      status: "training",
+      settings: { forecastHorizon: 7 },
+      rows: [{ ...baseRow, forecastEvidence: evidence, forecastConfidence: confidence }],
+      forecast: {
+        holdout: [],
+        future: [],
+        forecastEvidence: evidence,
+        forecastConfidence: confidence,
+      },
+    });
+    assert.match(
+      markup,
+      /Accuracy checked on 14 of the requested 30 days\. Test evidence is limited\./,
+    );
+    if (route === restockRoute) assert.match(markup, /High confidence/);
+    assert.match(markup, /Small errors in tests across 14 days in a row/);
+    assert.doesNotMatch(markup, /of the requested 7 days/);
+  }
+  assert.equal(confidence.level, "high");
+  assert.equal(confidence.relativeError, "0.1");
+});
+
 test("browser demonstration does not present its heuristic confidence as real accuracy evidence", () => {
   const markup = renderPage(restockRoute, {
     mode: "browser-demo",
@@ -556,6 +755,87 @@ test("Forecasts visibly includes the saved Top products selection and dates", ()
   assert.match(markup, /Product code: SYNTHETIC-001/);
 });
 
+test("Forecasts defaults to the saved first-ranked active product and has no Overall results view", () => {
+  const top = { ...product, id: "saved-top-product", sku: "ZZZ-TOP", name: "Saved top product" };
+  const markup = renderPage(forecastsRoute, {
+    catalog: [product, top],
+    diagnostics: {
+      trainingScope: {
+        ...testScope,
+        products: [
+          { productId: product.id, rank: 2, trainingQuantity: "99999" },
+          { productId: top.id, rank: 1, trainingQuantity: "100" },
+        ],
+      },
+    },
+    overallScores: {
+      maMae: 50.5,
+      maRmse: 70.7,
+      byProduct: {
+        [product.id]: { holdout: [], future: [], maMae: 1.2, maRmse: 1.8 },
+        [top.id]: { holdout: [], future: [], maMae: 2.5, maRmse: 2.8 },
+      },
+    },
+  });
+  assert.equal(
+    selectedForecastProduct(markup),
+    top.id,
+    "saved rank wins over catalog order and sales quantities",
+  );
+  assert.match(markup, /Past test results for Saved top product/);
+  assert.match(markup, /MAE 2\.5.*RMSE 2\.8/);
+  assert.doesNotMatch(markup, /Overall results|MAE 50\.5|RMSE 70\.7|<option value="">/);
+});
+
+test("Forecasts skips inactive saved ranks and uses a stable forecast-bearing fallback for legacy results", () => {
+  const inactive = { ...product, isActive: false };
+  const saved = { ...product, id: "saved-product", sku: "ZZZ-SAVED", name: "Saved product" };
+  const fresh = { ...product, id: "fresh-product", sku: "AAA-FRESH", name: "Fresh product" };
+  const byProduct = { [saved.id]: { holdout: [], future: [] } };
+  const ranked = renderPage(forecastsRoute, {
+    catalog: [inactive, fresh, saved],
+    diagnostics: {
+      trainingScope: {
+        ...testScope,
+        products: [
+          { productId: inactive.id, rank: 1, trainingQuantity: "500" },
+          { productId: saved.id, rank: 2, trainingQuantity: "100" },
+        ],
+      },
+    },
+    overallScores: { byProduct },
+  });
+  assert.equal(selectedForecastProduct(ranked), saved.id);
+  for (const catalog of [
+    [fresh, saved],
+    [saved, fresh],
+  ]) {
+    const legacy = renderPage(forecastsRoute, { catalog, overallScores: { byProduct } });
+    assert.equal(
+      selectedForecastProduct(legacy),
+      saved.id,
+      "a saved forecast precedes an unforecasted product",
+    );
+    const untrained = renderPage(forecastsRoute, { catalog, result: false });
+    assert.equal(
+      selectedForecastProduct(untrained),
+      fresh.id,
+      "no saved ranking uses stable product codes",
+    );
+    assert.match(untrained, /No forecast yet/);
+    assert.doesNotMatch(untrained, /Overall results/);
+  }
+});
+
+test("Forecasts has an explicit empty product selector for empty and entirely inactive catalogs", () => {
+  for (const catalog of [[], [{ ...product, isActive: false }]]) {
+    const markup = renderPage(forecastsRoute, { catalog });
+    assert.match(markup, /<select\b[^>]*id="forecast-results"[^>]*disabled=""/);
+    assert.match(markup, /No active products/);
+    assert.doesNotMatch(markup, /Overall results|Past test results for|Expected daily sales:/);
+  }
+});
+
 test("Top products explains fewer eligible products without filling fake slots", () => {
   const markup = topPanel();
   assert.match(markup, /1 product shown/);
@@ -590,10 +870,100 @@ test("a ready page without validation evidence does not mark any model selected"
   }
 });
 
-test("mixed-unit overall results show a product-selection message without pooled scores or a selected model", () => {
+test("Moving Average score descriptions retain saved settings during a replacement forecast", () => {
+  for (const mode of ["api", "browser-demo"]) {
+    for (const [status, message] of [
+      ["ready", "Forecast saved through 2026-10-15"],
+      ["training", "Waiting to update forecasts. Your previous forecast is shown for now."],
+      ["training", "Updating forecasts. Your previous forecast is shown for now."],
+      ["serving", "Records or settings changed."],
+    ]) {
+      const markup = renderPage(forecastsRoute, {
+        mode,
+        status,
+        message,
+        forecast: { holdout: [], future: [], maMae: 1.2, maRmse: 1.8 },
+        settings: { maWindow: 30 },
+        diagnostics: { maWindow: 7 },
+        overallScores: { maMae: 50.5, maRmse: 70.7 },
+      });
+      assert.match(markup, /Uses the previous 7 days of sales/);
+      assert.match(markup, /The accuracy test period is separate/);
+      assert.match(
+        markup,
+        /Saved window: 30 days\. Displayed results used 7 days\. New results appear after a forecast refresh using the saved setting finishes\./,
+      );
+      assert.doesNotMatch(markup, /Uses the previous 30 days of sales/);
+      assert.match(markup, /MAE 1\.2.*RMSE 1\.8/);
+    }
+  }
+  const updated = renderPage(forecastsRoute, {
+    forecast: { holdout: [], future: [] },
+    settings: { maWindow: 30 },
+    diagnostics: { maWindow: 30 },
+  });
+  assert.match(updated, /Uses the previous 30 days of sales/);
+  assert.doesNotMatch(updated, /Uses the previous 7 days of sales|Displayed results used/);
+});
+
+test("a saved fourteen-day Moving Average can retain thirty tested days without changing its confidence", () => {
+  const forecastConfidence = {
+    level: "high",
+    policy: "past_test_wape_v1",
+    relativeError: "0.1",
+    testObservations: 30,
+    reason: "Low past error across 30 consecutive tested days.",
+  };
+  const markup = renderPage(forecastsRoute, {
+    settings: { maWindow: 14, forecastHorizon: 30 },
+    diagnostics: { maWindow: 14 },
+    forecast: {
+      maMae: 1.2,
+      maRmse: 1.8,
+      forecastEvidence: {
+        status: "tested",
+        testObservations: 30,
+        requestedHorizonDays: 30,
+        mae: "1.2",
+        rmse: "1.8",
+      },
+      forecastConfidence,
+    },
+  });
+  assert.match(
+    markup,
+    /Uses the previous 14 days of sales for each average\. The accuracy test period is separate\./,
+  );
+  assert.match(markup, /Tested on 30 past days\. Average error: 1\.2 units/);
+  assert.match(markup, /High confidence/);
+  assert.match(markup, /Small errors in tests across 30 days in a row/);
+  assert.doesNotMatch(
+    markup,
+    /Tested on 14 past days|Displayed results used|Test evidence is limited/,
+  );
+  assert.equal(forecastConfidence.level, "high");
+  assert.equal(forecastConfidence.testObservations, 30);
+});
+
+test("legacy results disclose an unknown Moving Average window without substituting current settings", () => {
+  for (const mode of ["api", "browser-demo"]) {
+    const markup = renderPage(forecastsRoute, {
+      mode,
+      forecast: { holdout: [], future: [] },
+      settings: { maWindow: 30 },
+    });
+    assert.match(markup, /Sales window unavailable for these results/);
+    assert.doesNotMatch(markup, /Uses the previous (?:7|30) days of sales|Displayed results used/);
+  }
+  const loading = renderPage(forecastsRoute, { result: false, settings: { maWindow: 30 } });
+  assert.match(loading, /Averages recent daily sales/);
+  assert.doesNotMatch(loading, /Sales window unavailable|Uses the previous 30 days of sales/);
+});
+
+test("overview withholds mixed-unit pooled scores while Forecasts opens individual product scores", () => {
   const overallScores = { maMae: 50.5, maRmse: 70.7 };
   for (const mode of ["api", "browser-demo"]) {
-    for (const route of [overviewRoute, forecastsRoute]) {
+    for (const route of [overviewRoute]) {
       const markup = renderPage(route, {
         mode,
         forecast: { holdout: [], future: [] },
@@ -603,12 +973,30 @@ test("mixed-unit overall results show a product-selection message without pooled
       assert.match(markup, /Products use different units\. Choose a product/);
       assert.doesNotMatch(markup, /MAE 50\.5|RMSE 70\.7|>50\.5<|>Selected<\/span>/);
     }
+    const other = { ...product, id: "other-unit", sku: "ZZZ-002", unit: "litre" };
+    const markup = renderPage(forecastsRoute, {
+      mode,
+      catalog: [other, product],
+      diagnostics: { comparisonMixedUnits: true, comparisonWinnerAvailable: false },
+      overallScores: {
+        ...overallScores,
+        byProduct: {
+          [product.id]: { holdout: [], future: [], maMae: 1.2, maRmse: 1.8 },
+          [other.id]: { holdout: [], future: [], maMae: 2.5, maRmse: 2.8 },
+        },
+      },
+    });
+    assert.match(markup, /MAE 1\.2.*RMSE 1\.8/);
+    assert.doesNotMatch(
+      markup,
+      /Overall results|Products use different units|MAE 50\.5|RMSE 70\.7/,
+    );
   }
 });
 
 test("cached browser demonstration scores are withheld when product units differ", () => {
   const other = { ...product, id: "other-unit", unit: "litre" };
-  for (const route of [overviewRoute, forecastsRoute]) {
+  for (const route of [overviewRoute]) {
     const markup = renderPage(route, {
       mode: "browser-demo",
       catalog: [product, other],
@@ -636,7 +1024,10 @@ test("browser demonstration withholds mixed-unit errors and keeps individual pro
       qty: (index % 3) + 1,
     })),
   );
-  const mixed = await runPipeline([product, other], sales, defaultSettings, { mode: "serve" });
+  const savedSettings = { ...defaultSettings, maWindow: 7 };
+  const mixed = await runPipeline([product, other], sales, savedSettings, { mode: "serve" });
+  savedSettings.maWindow = 30;
+  assert.equal(mixed.diagnostics.maWindow, 7, "cached results retain their computed settings");
   assert.equal(mixed.diagnostics.comparisonMixedUnits, true);
   assert.equal(mixed.diagnostics.comparisonWinnerAvailable, false);
   assert.ok(Number.isNaN(mixed.maMae));
@@ -649,4 +1040,20 @@ test("browser demonstration withholds mixed-unit errors and keeps individual pro
   assert.equal(same.diagnostics.comparisonMixedUnits, false);
   assert.ok(Number.isFinite(same.maMae));
   assert.ok(Number.isFinite(same.maRmse));
+});
+
+test("completed demonstration computations have separate identities while previews have no completed identity", async () => {
+  const settings = { ...defaultSettings, useFallbackIfThin: false };
+  const first = await runPipeline([], [], settings, { mode: "train" });
+  const second = await runPipeline([], [], settings, { mode: "train" });
+  const preview = await runPipeline([], [], settings, { mode: "serve" });
+  assert.equal(
+    first.trainedAt,
+    second.trainedAt,
+    "the demonstration's date is shared across computations",
+  );
+  assert.ok(first.runId);
+  assert.ok(second.runId);
+  assert.notEqual(first.runId, second.runId);
+  assert.equal(preview.runId, undefined);
 });

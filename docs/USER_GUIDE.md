@@ -72,7 +72,7 @@ Use the sidebar on a laptop or the bottom navigation on a smaller screen.
 | Check your account or change your password                     | **Inventory > Account & settings**; staff use **Account** |
 | Invite staff or change store settings                          | **Inventory > Account & settings**, as the owner          |
 | Review zero-sale days, closures, missing records, or stockouts | **Quality**                                               |
-| Read the user guide                                           | **Strategies > User guide**                               |
+| Read the user guide                                            | **Strategies > User guide**                               |
 | Give feedback after using the system                           | **Strategies > Evaluation**                               |
 
 ### Owner and staff access
@@ -352,7 +352,7 @@ Exports are useful copies of business records. Ask the person managing the insta
 **Where:** **Forecasts**.
 
 1. Check the forecast status, notices, and displayed dates.
-2. Choose a product in the results dropdown to see its own results. Choose **Overall results** to return to the combined comparison.
+2. The results dropdown opens the highest-ranked active product from the saved forecast. Choose another product to see its own results; a newly completed refresh returns to the saved top-ranked product.
 3. Read its expected daily sales, chart, and any notices about its records.
 4. Hover over the chart to inspect a date's available actual sales and predictions.
 5. Read the **MAE / RMSE** scores in the three method cards. MAE shows average error; RMSE gives more weight to larger mistakes. Lower is better. **Past forecast errors by product** shows every product's results below the chart.
@@ -416,6 +416,11 @@ With less history, the test period automatically becomes shorter. The displayed 
 includes only usable records; missing or excluded days do not count. Existing saved results keep
 their original test period until the next refresh.
 
+The **Moving Average window** is separate: a 14-day window uses the previous 14 sales days for
+each average, and its accuracy can still be checked on 30 past days. Read the Moving Average
+method card for the window used by the displayed forecast; changing this window does not set
+the number of test days.
+
 StockCast's confidence labels are a disclosed rating of past prediction error. The calculation
 adds the absolute errors from the saved operating method's final-test predictions, then divides
 that total by the actual units sold on those same tested days. **High** means this relative error
@@ -431,7 +436,7 @@ will sell many spark plugs. Read **Expected daily sales** for the amount. Change
 expired forecasts, and unavailable current demand suppress the old confidence rating. The
 final-test rating never selects the model or recalibrates prediction intervals.
 
-Overall comparisons use matching products and saved test records. If those records are incomplete, scores appear as a dash. The **Chosen method** comes from an earlier, separate check; the scores shown did not decide which method to use. A Moving Average-only test does not show an XGBoost score.
+Product comparisons use matching saved test records. If those records are incomplete, scores appear as a dash. The **Chosen method** comes from an earlier, separate check; the scores shown did not decide which method to use. A Moving Average-only test does not show an XGBoost score. If an older forecast has no saved product ranking, StockCast opens an available product without assigning it a rank. The MAE card in **Overview** also has a **Forecasts** shortcut.
 
 ## Use restock recommendations
 
@@ -445,7 +450,7 @@ Overall comparisons use matching products and saved test records. If those recor
 4. Arrange the purchase through your normal supplier process.
 5. When the goods arrive, choose **Record delivery** and enter the actual received quantity.
 
-**Order when stock reaches** allows for expected sales while waiting for the supplier, plus extra stock kept in reserve. The supplier delivery time and reserve stock appear below the product name. A suggestion does not place an order or record a delivery. A dash in **Days stock may last** means expected sales are zero or unavailable. You can still record an actual delivery when a sales estimate is unavailable.
+**Order when stock reaches** allows for expected sales while waiting for the supplier, plus extra stock kept in reserve. Delivery time and reserve stock can be reviewed in **Inventory > Products**. Open **Forecast details** on a restock card to see past test errors and missing or excluded record counts. Warnings about unavailable estimates, limited testing, or records needing attention remain visible. A suggestion does not place an order or record a delivery. A dash in **Days stock may last** means expected sales are zero or unavailable. You can still record an actual delivery when a sales estimate is unavailable.
 
 ## Review data quality
 
@@ -481,6 +486,8 @@ To correct a review, select the same date and product, choose the correct option
 2. Under **Account maintenance**, enter **Current password** and **New password**. The new password must contain 12 to 128 characters.
 3. Choose **Change password**, then sign in again. Changing a password ends that account's active sessions and invalidates its earlier recovery links.
 
+Use the eye **Show / Hide** button beside either password field to check what you entered or your browser autofilled. Both fields start empty and hidden; StockCast cannot retrieve a previously saved password. Your browser may offer a matching saved password through its password manager.
+
 Use **Forgot password** on the sign-in screen if you cannot sign in. Recovery emails require the installation's email service. **Connect Google account** is available in Your account when Google sign-in has been enabled; connecting preserves your current store and role.
 
 ### Invite staff to this store
@@ -503,7 +510,8 @@ Use **Disable** to stop a staff member's access; it also ends their active sessi
 1. Find the **Store & model settings** card in Account & settings.
 2. Review the store name, location, forecast horizon, and cover days after delivery. You can type a whole number of cover days (zero or more), or choose a suggested value.
 3. Find **Advanced forecasting settings** if you need the Moving Average window or ML product limit. Moving Average offers **3, 7, 14, 28, and 30 days**.
-4. Choose **Save settings** and review a later completed forecast refresh.
+4. Check the saved-window status below the Moving Average control, then choose **Save settings**. Selecting a value alone does not save it.
+5. Open **Forecasts**, choose **Refresh forecasts**, and wait for completion. Saving settings or reloading the browser alone does not start training. While a replacement runs, the previous result keeps its original window and scores.
 
 The ML product limit is a maximum; increasing it does not make products with insufficient history eligible. Keep product lead times and safety stock accurate in **Products**.
 

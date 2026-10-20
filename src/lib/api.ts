@@ -137,19 +137,29 @@ export const api = {
     request(`/businesses/${businessId}`, { method: "PATCH", body: { name, location } }),
   products: async (businessId: string) =>
     (await request<ApiProduct[]>(`/businesses/${businessId}/products`)).map(toProduct),
-  createProduct: async (businessId: string, product: Omit<Product, "id">) =>
+  createProduct: async (
+    businessId: string,
+    product: Omit<Product, "id">,
+    idempotencyKey: string = crypto.randomUUID(),
+  ) =>
     toProduct(
       await request<ApiProduct>(`/businesses/${businessId}/products`, {
         method: "POST",
         body: product,
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey,
       }),
     ),
-  updateProduct: async (businessId: string, productId: string, patch: ProductPatch) =>
+  updateProduct: async (
+    businessId: string,
+    productId: string,
+    patch: ProductPatch,
+    idempotencyKey?: string,
+  ) =>
     toProduct(
       await request<ApiProduct>(`/businesses/${businessId}/products/${productId}`, {
         method: "PATCH",
         body: patch,
+        idempotencyKey,
       }),
     ),
   deleteProduct: (businessId: string, productId: string) =>
@@ -207,6 +217,29 @@ export const api = {
     }),
   dashboard: (businessId: string) =>
     request<ApiDashboard>(`/businesses/${businessId}/forecast-dashboard`),
+  sharedForecastInputs: async (businessId: string, dashboard: ApiDashboard) => {
+    if (dashboard.sharedState)
+      return {
+        products: dashboard.sharedState.products.map(toProduct),
+        settings: dashboard.sharedState.settings,
+      };
+    // Keep older servers usable while the dashboard contract is rolled out.
+    const [products, settings, business] = await Promise.all([
+      api.products(businessId),
+      api.settings(businessId),
+      api.business(businessId),
+    ]);
+    return {
+      products,
+      settings: {
+        ...settings,
+        businessName: settings.businessName ?? business.name,
+        businessLocation:
+          settings.businessLocation === undefined ? business.location : settings.businessLocation,
+        dataOrigin: settings.dataOrigin ?? business.dataOrigin,
+      },
+    };
+  },
   forecastStatus: (businessId: string) =>
     request<{ revision: string }>(`/businesses/${businessId}/forecast-status`),
   refreshForecast: (businessId: string) =>
@@ -382,10 +415,15 @@ export type ApiForecastRun = {
   timing: ForecastTiming;
   finalTestStart: string;
   finalTestEnd: string;
+  forecastHorizonDays?: number;
   failureMessage: string | null;
   configuration: Record<string, unknown>;
+  dataSnapshot?: {
+    settings?: { moving_average_window?: number };
+  };
 };
 export type ApiDashboard = {
+  sharedState?: { products: ApiProduct[]; settings: ApiSettings };
   trainingScope?: ForecastTrainingScope | null;
   modelComparison?: {
     validation: ApiModelComparison;
