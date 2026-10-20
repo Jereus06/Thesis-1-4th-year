@@ -9,7 +9,10 @@ const base = process.argv[2] ?? "http://localhost:8080";
 assert.ok(["localhost", "127.0.0.1", "[::1]"].includes(new URL(base).hostname));
 const output = "benchmarks/forecast-evidence";
 await mkdir(output, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  ...(process.platform === "win32" ? { channel: "msedge" } : {}),
+});
 const context = await browser.newContext({
   viewport: { width: 1440, height: 1000 },
   reducedMotion: "reduce",
@@ -19,6 +22,22 @@ const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 page.setDefaultTimeout(30_000);
 const checks = [];
+
+const restockCard = (name) =>
+  page
+    .locator("main .rounded-2xl")
+    .filter({ has: page.getByText(name, { exact: true }) });
+
+async function openForecastDetails(card, text) {
+  const details = card.locator("details");
+  await details.waitFor();
+  const evidence = details.getByText(text);
+  await evidence.waitFor({ state: "attached" });
+  assert.equal(await details.evaluate((element) => element.open), false);
+  assert.equal(await evidence.isVisible(), false);
+  await details.locator("summary").click();
+  await evidence.waitFor();
+}
 
 try {
   const registered = await context.request.post(`${base}/api/v1/auth/sign-up`, {
@@ -72,8 +91,9 @@ try {
   const imported = await request("/data-imports", "POST", { source: "csv", rows });
   assert.equal(imported.acceptedRows, rows.length);
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.getByText("Low confidence", { exact: true }).waitFor();
-  await page.getByText(/Not tested on past sales yet/).waitFor();
+  const untrainedCard = restockCard(product.name);
+  await untrainedCard.getByText("Low confidence", { exact: true }).waitFor();
+  await openForecastDetails(untrainedCard, /Not tested on past sales yet/);
   checks.push("Usable untrained history shows Low confidence with an explicit no-test reason.");
 
   const settings = await request("/settings");
@@ -155,11 +175,12 @@ try {
   assert.equal(tested.modelComparison.finalTest.productIds.length, 5);
   assert.equal(tested.modelComparison.finalTest.observationCount, evidence.testObservations * 5);
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.getByText("High confidence", { exact: true }).first().waitFor();
-  await page
-    .getByText(new RegExp(`Tested on ${evidence.testObservations} past days\\.`))
-    .first()
-    .waitFor();
+  const testedCard = restockCard(product.name);
+  await testedCard.getByText("High confidence", { exact: true }).waitFor();
+  await openForecastDetails(
+    testedCard,
+    new RegExp(`Tested on ${evidence.testObservations} past days\\.`),
+  );
   await page.screenshot({
     path: `${output}/tested-restock.png`,
     fullPage: true,
@@ -180,8 +201,21 @@ try {
     await topProducts.innerText(),
     /Synthetic high-volume short history|Synthetic test product/,
   );
-  await page.getByText("High confidence", { exact: true }).first().waitFor();
-  await page.getByText(/Past tests cover/).waitFor();
+  const selectedProduct = candidates[5];
+  const selectedEvidence = tested.recommendations.find(
+    (row) => row.productId === selectedProduct.id,
+  ).forecastEvidence;
+  const selectedCard = page.locator("main .rounded-2xl").filter({
+    has: page.getByRole("heading", { name: selectedProduct.name, exact: true }),
+  });
+  await selectedCard.getByText("High confidence", { exact: true }).waitFor();
+  await selectedCard
+    .getByText(new RegExp(`Tested on ${selectedEvidence.testObservations} past days\\.`))
+    .waitFor();
+  await selectedCard
+    .getByLabel("Forecast range", { exact: true })
+    .getByText("Past test coverage", { exact: true })
+    .waitFor();
   await page.screenshot({
     path: `${output}/tested-forecasts.png`,
     fullPage: true,
@@ -203,11 +237,9 @@ try {
 
   await request(`/products/${product.id}`, "PATCH", { name: "Updated synthetic test product" });
   await page.goto(base + "/restock", { waitUntil: "domcontentloaded" });
-  await page.getByText("Refresh needed", { exact: true }).first().waitFor();
-  await page
-    .getByText(/Results are from an older forecast/)
-    .first()
-    .waitFor();
+  const staleCard = restockCard("Updated synthetic test product");
+  await staleCard.getByText("Refresh needed", { exact: true }).waitFor();
+  await openForecastDetails(staleCard, /Results are from an older forecast/);
   assert.equal(await page.getByText("High confidence", { exact: true }).count(), 0);
   await page.screenshot({
     path: `${output}/stale-restock.png`,
@@ -226,7 +258,7 @@ try {
     JSON.stringify(
       {
         measuredAt: new Date().toISOString(),
-        transport: "Real Python API / PostgreSQL / Chromium; no mocked responses",
+        transport: `Real Python API / PostgreSQL / ${process.platform === "win32" ? "Edge" : "Chromium"}; no mocked responses`,
         provenance:
           "Synthetic verification in a new isolated test business; not client accuracy findings",
         checks,

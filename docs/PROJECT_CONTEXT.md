@@ -734,6 +734,15 @@ passed all 41 checks both normally and with that delay in isolated native Edge r
 lint (the same three warnings), and production build passed. Fixtures were synthetic; these
 local checks do not claim a completed Linux/GitHub Actions run or new Python/database tests.
 
+The real API/PostgreSQL forecast-evidence browser verifier follows the compact Restock layout:
+it checks that each product's Forecast details starts closed, opens its summary, and then checks
+the untested, tested, or older-result text. Forecasts checks the saved first-ranked product's
+own evidence and the current Past test coverage label. On 2026-10-20 all six integration checks
+passed with native Edge, the real Python API/worker and a separate disposable PostgreSQL 16
+installation, without intercepted responses. Typecheck, production build and lint also passed
+(the same three lint warnings). Only synthetic records in the disposable installation were used;
+this is separate from the next GitHub Actions result and from client research findings.
+
 Shortened-test display and retry-CI verification on 2026-10-20 passed typecheck, lint (the same
 three React Refresh warnings), production build, 36 shared evidence/render regressions, 30
 forecast adapter regressions, and all 18 isolated Edge transaction-browser checks. Workflow YAML
