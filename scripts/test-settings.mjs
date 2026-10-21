@@ -149,7 +149,8 @@ function mountSettings(onSave) {
         reportValidity: () =>
           String(props.value).trim() !== "" &&
           Number.isInteger(Number(props.value)) &&
-          Number(props.value) >= 0,
+          Number(props.value) >= (props.min ?? -Infinity) &&
+          Number(props.value) <= (props.max ?? Infinity),
       };
     }
     return { type, props: props ?? {} };
@@ -334,4 +335,94 @@ test("pending saves reject duplicate handlers and clear only the values that suc
   assert.equal(h.field("Moving Average window (days)").props.value, "28");
   assert.equal(h.field("Store name").props.value, "Fresh profile");
   assert.equal(h.field("Moving Average window (days)").props.disabled, false);
+});
+
+for (const days of [1, 30, 90, 365]) {
+  test(`a typed ${days}-day horizon saves the exact number`, async () => {
+    const h = mountSettings();
+    h.fill("Forecast horizon", String(days));
+    assert.equal(h.requests.length, 0, "typing alone does not save settings");
+    assert.equal(h.field("Forecast horizon").type, "Input");
+    assert.equal(h.field("Forecast horizon").props.type, "number");
+    assert.equal(h.field("Forecast horizon").props.min, 1);
+    assert.equal(h.field("Forecast horizon").props.max, 365);
+    await h.save();
+    h.render();
+    assert.deepEqual(h.requests, [{ forecastHorizon: days }]);
+    assert.equal(h.state.settings.forecastHorizon, days);
+    assert.equal(h.field("Forecast horizon").props.value, String(days));
+    assert.equal(h.field("Forecast horizon").props["aria-invalid"], undefined);
+  });
+}
+
+for (const value of ["", "0", "-1", "1.5", "366", "100000"]) {
+  test(`invalid horizon ${JSON.stringify(value)} warns and prevents every settings save`, async () => {
+    const h = mountSettings();
+    h.fill("Store name", "An unrelated pending edit");
+    h.fill("Forecast horizon", value);
+    assert.equal(h.field("Forecast horizon").props.value, value, "do not silently clamp input");
+    assert.equal(h.field("Forecast horizon").props["aria-invalid"], true);
+    const warning = h.nodes().find((node) => node.props.id === "settings-forecast-horizon-error");
+    assert.equal(warning?.props.role, "alert");
+    assert.equal(
+      warning.props.children,
+      Number(value) > 365
+        ? "The maximum is 365 days. Enter 365 or less."
+        : "Enter a whole number from 1 to 365.",
+    );
+    assert.equal(h.nodes().find((node) => node.type === "Button").props.disabled, true);
+    await h.save();
+    assert.equal(h.requests.length, 0);
+    assert.equal(h.state.settings.forecastHorizon, defaults.forecastHorizon);
+    h.fill("Forecast horizon", "365");
+    await h.save();
+    h.render();
+    assert.deepEqual(h.requests, [
+      { storeName: "An unrelated pending edit", forecastHorizon: 365 },
+    ]);
+    assert.equal(
+      h.nodes().some((node) => node.props.id === "settings-forecast-horizon-error"),
+      false,
+    );
+  });
+}
+
+test("loaded custom horizons survive profile saves and typed drafts survive remote updates", async () => {
+  const h = mountSettings();
+  h.canonical({ forecastHorizon: 90, apiVersion: "version-2" });
+  assert.equal(h.field("Forecast horizon").props.value, "90");
+  h.fill("Store name", "Edited profile");
+  await h.save();
+  h.render();
+  assert.deepEqual(h.requests, [{ storeName: "Edited profile" }]);
+  assert.equal(h.state.settings.forecastHorizon, 90);
+  h.fill("Forecast horizon", "180");
+  h.canonical({ forecastHorizon: 60, maWindow: 30, apiVersion: "version-3" });
+  assert.equal(h.field("Forecast horizon").props.value, "180");
+  await h.save();
+  h.render();
+  assert.deepEqual(h.requests.at(-1), { forecastHorizon: 180 });
+  assert.equal(h.state.settings.maWindow, 30);
+  h.canonical({ forecastHorizon: 365, apiVersion: "version-4" });
+  assert.equal(
+    h.field("Forecast horizon").props.value,
+    "365",
+    "a successful save clears the submitted draft",
+  );
+});
+
+test("failed horizon saves retain the typed value for an intentional retry", async () => {
+  let attempts = 0;
+  const h = mountSettings(async (patch, state) => {
+    if (++attempts === 1) throw new Error("Save failed");
+    state.settings = { ...state.settings, ...patch };
+  });
+  h.fill("Forecast horizon", "365");
+  await h.save();
+  h.render();
+  assert.equal(h.state.settings.forecastHorizon, defaults.forecastHorizon);
+  assert.equal(h.field("Forecast horizon").props.value, "365");
+  await h.save();
+  h.render();
+  assert.equal(h.state.settings.forecastHorizon, 365);
 });
