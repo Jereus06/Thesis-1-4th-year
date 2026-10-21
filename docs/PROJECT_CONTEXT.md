@@ -467,6 +467,10 @@ The Python settings request schema rejects values outside this range before savi
 invalid requests leave the previous settings unchanged. This limit applies to future
 predictions, not the age or length of historical sales used for training. Boundary
 regressions are in `backend/tests/test_settings_horizon.py`.
+The existing Forecast horizon control accepts typed whole numbers from 1 to 365,
+with 7/14/21/30-day suggestions. An inline warning explains values above 365 or
+other invalid entries; Save settings stays disabled until the number is valid.
+Drafts remain local until a successful save, and saved values display on reload.
 
 - Eight calendar weeks and 100 nonzero sales days are separate default _training-only_ gates. The worker
   checks history and calendar completeness first, then selects the top N eligible products by
