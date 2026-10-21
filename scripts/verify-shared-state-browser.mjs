@@ -633,6 +633,64 @@ try {
     "A legacy dashboard without sharedState still refreshes current settings and the complete catalog through the compatibility reads.",
   );
 
+  await openSettings(a);
+  const horizon = () => a.page.getByLabel("Forecast horizon", { exact: true });
+  const saveButton = () => a.page.getByRole("button", { name: "Save settings", exact: true });
+  const refreshWritesBefore = report.requests.filter(
+    (entry) => entry.method === "POST" && entry.path.endsWith("/forecast-refresh"),
+  ).length;
+  await horizon().fill("90");
+  assert.equal((await saveSettings(a)).status(), 200);
+  assert.equal(report.settingsWrites.at(-1).input.forecastHorizonDays, 90);
+  await a.page.reload({ waitUntil: "domcontentloaded" });
+  await a.page.evaluate(async () => {
+    window.__sharedStateStore = (await import("/src/lib/store.ts")).useAppStore;
+  });
+  await openSettings(a);
+  assert.equal(await horizon().inputValue(), "90", "a custom saved horizon survives reload");
+  await horizon().fill("365");
+  assert.equal((await saveSettings(a)).status(), 200);
+  assert.equal(settings.forecastHorizonDays, 365);
+  const writesBeforeInvalid = report.settingsWrites.length;
+  for (const invalid of ["366", "", "0", "-1", "1.5"]) {
+    await horizon().fill(invalid);
+    assert.equal(await horizon().getAttribute("aria-invalid"), "true");
+    assert.equal(await saveButton().isDisabled(), true);
+    const message =
+      invalid === "366"
+        ? "The maximum is 365 days. Enter 365 or less."
+        : "Enter a whole number from 1 to 365.";
+    await a.page.getByRole("alert").filter({ hasText: message }).waitFor();
+    assert.equal(report.settingsWrites.length, writesBeforeInvalid);
+    assert.equal(settings.forecastHorizonDays, 365);
+    if (invalid === "366") {
+      await horizon()
+        .locator("..")
+        .screenshot({ path: `${output}/horizon-limit-warning.png` });
+      await a.page.setViewportSize({ width: 390, height: 1000 });
+      await horizon()
+        .locator("..")
+        .screenshot({ path: `${output}/horizon-limit-warning-narrow.png` });
+      await a.page.setViewportSize({ width: 1440, height: 1100 });
+    }
+  }
+  await horizon().fill("1");
+  assert.equal((await saveSettings(a)).status(), 200);
+  assert.equal(settings.forecastHorizonDays, 1);
+  assert.equal(await horizon().getAttribute("aria-invalid"), null);
+  await horizon().fill("30");
+  assert.equal((await saveSettings(a)).status(), 200);
+  assert.equal(
+    report.requests.filter(
+      (entry) => entry.method === "POST" && entry.path.endsWith("/forecast-refresh"),
+    ).length,
+    refreshWritesBefore,
+    "editing and saving a horizon does not start training automatically",
+  );
+  passed(
+    "Typed horizons90,365,1 save;90 survives reload;366/blank/zero/negative/fractional drafts warn and prevent writes without changing saved settings.",
+  );
+
   const sessionRead = holdNextDashboard(a);
   revision++;
   await sessionRead.captured();
