@@ -508,7 +508,7 @@ Use **Disable** to stop a staff member's access; it also ends their active sessi
 **Who can do this:** owner only.
 
 1. Find the **Store & model settings** card in Account & settings.
-2. Review the store name, location, forecast horizon, and cover days after delivery. You can type a whole number of cover days (zero or more), or choose a suggested value.
+2. Review the store name, location, forecast horizon, and cover days after delivery. For the forecast horizon, choose a suggestion or type a whole number from 1 to 365 future days. A warning appears if the number is invalid; correct it before saving. This does not limit how many years of past sales the model can learn from. You can also type a whole number of cover days (zero or more), or choose a suggested value.
 3. Find **Advanced forecasting settings** if you need the Moving Average window or ML product limit. Moving Average offers **3, 7, 14, 28, and 30 days**.
 4. Check the saved-window status below the Moving Average control, then choose **Save settings**. Selecting a value alone does not save it.
 5. Open **Forecasts**, choose **Refresh forecasts**, and wait for completion. Saving settings or reloading the browser alone does not start training. While a replacement runs, the previous result keeps its original window and scores.

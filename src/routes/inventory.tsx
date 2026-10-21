@@ -157,9 +157,23 @@ function SettingsPanel() {
   const mode = useAppStore((s) => s.dataMode);
   const [edits, setEdits] = useState<Partial<Omit<Settings, "apiVersion">>>({});
   const [coverDaysDraft, setCoverDaysDraft] = useState<string | null>(null);
+  const [forecastHorizonDraft, setForecastHorizonDraft] = useState<string | null>(null);
   const draft = { ...settings, ...edits };
   const coverDays = coverDaysDraft ?? String(settings.coverDays);
+  const forecastHorizon = forecastHorizonDraft ?? String(settings.forecastHorizon);
+  const forecastHorizonDays = Number(forecastHorizon);
+  const validForecastHorizon =
+    forecastHorizon.trim() !== "" &&
+    Number.isInteger(forecastHorizonDays) &&
+    forecastHorizonDays >= 1 &&
+    forecastHorizonDays <= 365;
+  const forecastHorizonError = validForecastHorizon
+    ? null
+    : forecastHorizonDays > 365
+      ? "The maximum is 365 days. Enter 365 or less."
+      : "Enter a whole number from 1 to 365.";
   const coverDaysInput = useRef<HTMLInputElement>(null);
+  const forecastHorizonInput = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
   const submitting = useRef(false);
   const edit = (patch: Partial<Omit<Settings, "apiVersion">>) =>
@@ -178,16 +192,22 @@ function SettingsPanel() {
   if (coverDaysDraft !== null && Number(coverDaysDraft) !== settings.coverDays) {
     patch.coverDays = Number(coverDaysDraft);
   }
+  if (forecastHorizonDraft !== null && forecastHorizonDays !== settings.forecastHorizon) {
+    patch.forecastHorizon = forecastHorizonDays;
+  }
   const hasEdits = Object.keys(patch).length > 0;
   async function saveSettings() {
     if (
       !canManageSettings ||
       submitting.current ||
       !hasEdits ||
+      !validForecastHorizon ||
+      !forecastHorizonInput.current?.reportValidity() ||
       !coverDaysInput.current?.reportValidity()
     )
       return;
     const submittedCoverDays = coverDaysDraft;
+    const submittedForecastHorizon = forecastHorizonDraft;
     submitting.current = true;
     setSaving(true);
     try {
@@ -202,6 +222,11 @@ function SettingsPanel() {
       );
       if (Object.hasOwn(patch, "coverDays")) {
         setCoverDaysDraft((current) => (current === submittedCoverDays ? null : current));
+      }
+      if (Object.hasOwn(patch, "forecastHorizon")) {
+        setForecastHorizonDraft((current) =>
+          current === submittedForecastHorizon ? null : current,
+        );
       }
       toast.success("Settings saved.");
     } catch (error) {
@@ -239,18 +264,39 @@ function SettingsPanel() {
           />
         </div>
         <div className="grid gap-1.5">
-          <Label>Forecast horizon</Label>
-          <Select
-            value={String(draft.forecastHorizon)}
+          <Label htmlFor="settings-forecast-horizon">Forecast horizon</Label>
+          <Input
+            ref={forecastHorizonInput}
+            id="settings-forecast-horizon"
+            type="number"
+            min={1}
+            max={365}
+            step={1}
+            required
+            list="settings-forecast-horizon-options"
+            aria-invalid={!validForecastHorizon || undefined}
+            aria-describedby={`settings-forecast-horizon-help${forecastHorizonError ? " settings-forecast-horizon-error" : ""}`}
+            value={forecastHorizon}
             disabled={saving}
-            onChange={(e) => edit({ forecastHorizon: Number(e.target.value) })}
-          >
+            onChange={(e) =>
+              setForecastHorizonDraft(
+                e.target.value === String(settings.forecastHorizon) ? null : e.target.value,
+              )
+            }
+          />
+          <datalist id="settings-forecast-horizon-options">
             {[7, 14, 21, 30].map((n) => (
-              <option key={n} value={n}>
-                {n} days
-              </option>
+              <option key={n} value={n} label={`${n} days`} />
             ))}
-          </Select>
+          </datalist>
+          <p id="settings-forecast-horizon-help" className="text-xs text-muted">
+            Future days to predict. Choose a suggestion or type a whole number from 1 to 365.
+          </p>
+          {forecastHorizonError && (
+            <p id="settings-forecast-horizon-error" className="text-sm text-warning" role="alert">
+              {forecastHorizonError}
+            </p>
+          )}
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="settings-cover-days">Cover days after delivery</Label>
@@ -353,7 +399,10 @@ function SettingsPanel() {
             </p>
           </div>
         </div>
-        <Button onClick={saveSettings} disabled={saving || !canManageSettings || !hasEdits}>
+        <Button
+          onClick={saveSettings}
+          disabled={saving || !canManageSettings || !hasEdits || !validForecastHorizon}
+        >
           {saving ? "Saving…" : "Save settings"}
         </Button>
         {mode === "browser-demo" && (
