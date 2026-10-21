@@ -462,6 +462,12 @@ See [backend authentication details](../backend/README.md#authentication-contrac
 
 ## Forecast contract
 
+Future forecast horizons in settings and forecast creation both accept 1–365 days.
+The Python settings request schema rejects values outside this range before saving;
+invalid requests leave the previous settings unchanged. This limit applies to future
+predictions, not the age or length of historical sales used for training. Boundary
+regressions are in `backend/tests/test_settings_horizon.py`.
+
 - Eight calendar weeks and 100 nonzero sales days are separate default _training-only_ gates. The worker
   checks history and calendar completeness first, then selects the top N eligible products by
   training-period sales volume, with product ID breaking ties. Ineligible products do not consume
