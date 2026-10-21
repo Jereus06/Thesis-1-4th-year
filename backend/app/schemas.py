@@ -86,7 +86,7 @@ class SettingsUpdate(ApiModel):
     business_name: str | None = Field(default=None, min_length=1, max_length=200)
     business_location: str | None = Field(default=None, max_length=300)
     moving_average_window: int = Field(gt=0)
-    forecast_horizon_days: int = Field(gt=0)
+    forecast_horizon_days: int = Field(gt=0, le=365)
     target_cover_days: int = Field(ge=0)
     minimum_history_weeks: int = Field(gt=0)
     minimum_nonzero_days: int = Field(gt=0)
