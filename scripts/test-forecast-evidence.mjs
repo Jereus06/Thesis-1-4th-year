@@ -35,6 +35,41 @@ test("completed forecast identity follows the saved run rather than a pending re
   assert.equal(toResult({ ...data, run: null }, [product], 8, 20).runId, undefined);
 });
 
+test("overview horizon belongs to the completed run despite pending replacements or missing future points", () => {
+  for (const status of ["queued", "running", "failed"]) {
+    const data = dashboard({
+      run: {
+        id: "saved-thirty-day-run",
+        status: "completed",
+        timing: {},
+        forecastHorizonDays: 30,
+        dataSnapshot: { settings: { forecast_horizon_days: 7 } },
+      },
+      latestRun: { id: "replacement-run", status, forecastHorizonDays: 90 },
+      predictions: [],
+      recommendation: { forecastExpired: true },
+    });
+    assert.equal(toResult(data, [product], 8, 20).forecastHorizonDays, 30);
+  }
+});
+
+test("unknown completed horizon stays unavailable instead of borrowing snapshot or replacement settings", () => {
+  for (const forecastHorizonDays of [undefined, null, 0, -1, 7.5, "30", NaN, Infinity, true]) {
+    const data = dashboard({
+      run: {
+        id: "legacy-run",
+        timing: {},
+        forecastHorizonDays,
+        dataSnapshot: { settings: { forecast_horizon_days: 30 } },
+      },
+      latestRun: { id: "replacement-run", status: "running", forecastHorizonDays: 90 },
+    });
+    assert.equal(toResult(data, [product], 8, 20).forecastHorizonDays, undefined);
+    data.run = null;
+    assert.equal(toResult(data, [product], 8, 20).forecastHorizonDays, undefined);
+  }
+});
+
 test("comparison settings come from the completed run while newer settings are queued or running", () => {
   const completed = {
     id: "saved-seven-day-run",

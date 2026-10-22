@@ -45,9 +45,12 @@ export function useApiForecast(): ForecastState {
     const revision = await forecastRevision(businessId);
     if (useAppStore.getState().session !== session) return;
     const next = await api.dashboard(businessId);
-    const inputs = await api.sharedForecastInputs(businessId, next);
+    const [inputs, sales] = await Promise.all([
+      api.sharedForecastInputs(businessId, next),
+      api.sales(businessId),
+    ]);
     if (version !== requestVersion.current || useAppStore.getState().session !== session) return;
-    if (!applyApiSharedState(inputs, expected)) return;
+    if (!applyApiSharedState({ ...inputs, sales }, expected)) return;
     loadedRevision.current = revision;
     setData(next);
     setError(undefined);
@@ -79,13 +82,16 @@ export function useApiForecast(): ForecastState {
           return;
         }
         const next = await api.dashboard(businessId);
-        const inputs = await api.sharedForecastInputs(businessId, next);
+        const [inputs, sales] = await Promise.all([
+          api.sharedForecastInputs(businessId, next),
+          api.sales(businessId),
+        ]);
         if (
           !cancelled &&
           version === requestVersion.current &&
           useAppStore.getState().session === session
         ) {
-          if (!applyApiSharedState(inputs, expected)) return;
+          if (!applyApiSharedState({ ...inputs, sales }, expected)) return;
           loadedRevision.current = revision;
           setData(next);
           setError(undefined);

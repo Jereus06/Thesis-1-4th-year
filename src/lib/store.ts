@@ -914,10 +914,10 @@ function canonicalSettingsPatch(
   };
 }
 
-/** Publish the catalog and settings used for a dashboard in the same store update. */
+/** Publish dashboard inputs and a refreshed ledger in the same guarded store update. */
 export function applyApiSharedState(
-  inputs: { products: Product[]; settings: ApiSettings },
-  expected: Pick<Store, "session" | "products" | "settings">,
+  inputs: { products: Product[]; settings: ApiSettings; sales?: Sale[] },
+  expected: Pick<Store, "session" | "products" | "settings" | "sales">,
 ): boolean {
   const current = useAppStore.getState();
   if (
@@ -925,19 +925,25 @@ export function applyApiSharedState(
     !expected.session ||
     current.session !== expected.session ||
     current.products !== expected.products ||
-    current.settings !== expected.settings
+    current.settings !== expected.settings ||
+    (inputs.sales !== undefined && current.sales !== expected.sales)
   )
     return false;
   const patch = canonicalSettingsPatch(inputs.settings, current.settings, current.dataOrigin);
   const products = sameValues(inputs.products, current.products)
     ? current.products
     : inputs.products;
+  const sales =
+    inputs.sales === undefined || sameValues(inputs.sales, current.sales)
+      ? current.sales
+      : inputs.sales;
   if (
     products !== current.products ||
+    sales !== current.sales ||
     patch.settings !== current.settings ||
     patch.dataOrigin !== current.dataOrigin
   )
-    useAppStore.setState({ products, ...patch });
+    useAppStore.setState({ products, sales, ...patch });
   return true;
 }
 

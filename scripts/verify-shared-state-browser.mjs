@@ -48,6 +48,7 @@ let products = [
     isActive: false,
   },
 ];
+let sales = [];
 let version = 1;
 let settings = {
   businessId: owner.businessId,
@@ -234,7 +235,12 @@ const field = (page, label) =>
 async function state(page) {
   return page.evaluate(() => {
     const current = window.__sharedStateStore.getState();
-    return { settings: current.settings, products: current.products, session: current.session };
+    return {
+      settings: current.settings,
+      products: current.products,
+      sales: current.sales,
+      session: current.session,
+    };
   });
 }
 async function waitForSettings(page, expected) {
@@ -287,6 +293,8 @@ async function newClient(id) {
     page,
     statusReads: 0,
     dashboardReads: 0,
+    salesReads: 0,
+    failSalesReads: 0,
     revisionOverride: null,
     session: clone(owner),
   };
@@ -361,7 +369,34 @@ async function newClient(id) {
       return json(settings);
     }
     if (path.endsWith("/products")) return json(products);
-    if (path.endsWith("/sales") || path.endsWith("/inventory-movements")) return json([]);
+    if (path.endsWith("/sales")) {
+      if (request.method() === "POST") {
+        const input = request.postDataJSON();
+        const saved = { id: `synthetic-sale-${sales.length + 1}`, ...input, source: "manual" };
+        sales = [saved, ...sales];
+        products = products.map((product) =>
+          product.id === input.productId
+            ? {
+                ...product,
+                currentStock: String(Number(product.currentStock) - Number(input.quantity)),
+              }
+            : product,
+        );
+        revision++;
+        return json(saved);
+      }
+      client.salesReads++;
+      if (client.failSalesReads > 0) {
+        client.failSalesReads--;
+        return route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ detail: "Synthetic ledger read failure" }),
+        });
+      }
+      return json(sales);
+    }
+    if (path.endsWith("/inventory-movements")) return json([]);
     if (path.endsWith("/forecast-status")) {
       client.statusReads++;
       return json({ revision: String(client.revisionOverride ?? revision) });
@@ -428,6 +463,70 @@ try {
   });
   const a = await newClient("A");
   const b = await newClient("B");
+  await a.page.getByRole("tab", { name: "Sales ledger", exact: true }).click();
+  await a.page.getByText("No sales recorded yet.", { exact: true }).waitFor();
+  await b.page.evaluate(
+    (id) =>
+      window.__sharedStateStore.getState().recordSale(id, "2026-10-20", 1, "shared-browser-sale"),
+    activeId,
+  );
+  await a.page.waitForFunction((id) => {
+    const current = window.__sharedStateStore.getState();
+    return (
+      current.products.find((item) => item.id === id)?.currentStock === 19 &&
+      current.sales.length === 1
+    );
+  }, activeId);
+  await a.page.getByText("1–1 of 1 sales", { exact: true }).waitFor();
+  assert.equal(await a.page.getByRole("cell", { name: "2026-10-20", exact: true }).count(), 1);
+  passed(
+    "Another browser's recorded sale and stock19 appear automatically in A's open Recent sales ledger.",
+  );
+
+  sales = [
+    ...sales,
+    ...Array.from({ length: 80 }, (_, i) => ({
+      id: `synthetic-history-${String(i).padStart(3, "0")}`,
+      productId: activeId,
+      saleDate: "2026-10-19",
+      quantity: "1",
+      source: "csv_import",
+    })),
+  ];
+  revision++;
+  await a.page.getByText("1–40 of 81 sales", { exact: true }).waitFor();
+  await a.page.getByRole("button", { name: "Next", exact: true }).click();
+  await a.page.getByText("41–80 of 81 sales", { exact: true }).waitFor();
+  {
+    const readBeforeFailure = a.salesReads;
+    const cachedBeforeFailure = await state(a.page);
+    a.failSalesReads = 1;
+    sales = sales.filter((sale) => sale.id !== "synthetic-history-000");
+    revision++;
+    await a.page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname.endsWith("/sales") && response.status() === 503,
+    );
+    assert.equal(a.salesReads, readBeforeFailure + 1);
+    assert.deepEqual((await state(a.page)).sales, cachedBeforeFailure.sales);
+    await a.page.getByText("41–80 of 80 sales", { exact: true }).waitFor();
+    assert.ok(
+      a.salesReads >= readBeforeFailure + 2,
+      "the unacknowledged revision retries its ledger read",
+    );
+    assert.equal(
+      (await state(a.page)).sales.some((sale) => sale.id === "synthetic-history-000"),
+      false,
+    );
+    assert.equal(
+      await a.page.getByRole("button", { name: "Next", exact: true }).isDisabled(),
+      true,
+    );
+  }
+  passed(
+    "A shared import/deletion refresh retains the selected 40-row page; a failed ledger read retries the same revision without dropping cached sales.",
+  );
+  await openSettings(a);
   await field(a.page, "Store name").fill("Synthetic name edited by A");
   await coverDays(a.page).fill("10");
   await maWindow(b.page).selectOption("14");
@@ -488,10 +587,11 @@ try {
     animations: "disabled",
   });
   passed(
-    "A shared dashboard refresh replaces stock20 with stock5 and coherent order21 advice while retaining inactive catalog records.",
+    "A shared dashboard refresh publishes stock5 and coherent order21 advice while retaining inactive catalog records.",
   );
 
   const dashboardsBefore = a.dashboardReads;
+  const salesReadsBefore = a.salesReads;
   const statusReadsBefore = a.statusReads;
   await a.page.waitForResponse(
     (response) =>
@@ -503,6 +603,7 @@ try {
     dashboardsBefore,
     "unchanged revision polls do not reload the dashboard",
   );
+  assert.equal(a.salesReads, salesReadsBefore, "unchanged revisions do not reload sales history");
   passed(
     "Unchanged revision polling does not create a dashboard reload loop after shared settings/catalog synchronization.",
   );

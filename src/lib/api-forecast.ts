@@ -251,8 +251,13 @@ export function toResult(
   const allPoints = Object.values(byProduct).flatMap((f) => [...f.holdout, ...f.future]);
   // Saved scores belong to the completed run, even while a replacement uses newer settings.
   const savedMaWindow = data.run?.dataSnapshot?.settings?.moving_average_window;
+  const savedHorizon = data.run?.forecastHorizonDays;
   return {
     runId: data.run?.id,
+    forecastHorizonDays:
+      typeof savedHorizon === "number" && Number.isInteger(savedHorizon) && savedHorizon > 0
+        ? savedHorizon
+        : undefined,
     trainedAt: data.run?.createdAt ?? "",
     trainedMs: data.run?.timing.trainingMs ?? NaN,
     processingTiming: data.run?.timing,

@@ -254,6 +254,8 @@ export type ForecastTiming = {
 
 export type PipelineResult = {
   runId?: string;
+  /** Future calendar days requested by the displayed run, independent of current settings. */
+  forecastHorizonDays?: number;
   trainedAt: string;
   trainedMs: number;
   processingTiming?: ForecastTiming;

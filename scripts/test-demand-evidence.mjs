@@ -191,6 +191,58 @@ test("the overview MAE card has a Forecasts link", () => {
   assert.match(stats, /<a\b[^>]*href="\/forecasts"[^>]*>Forecasts/);
 });
 
+test("overview keeps the displayed forecast horizon while a different saved setting awaits refresh", () => {
+  for (const status of ["ready", "training", "expired"]) {
+    const markup = renderPage(overviewRoute, {
+      status,
+      expired: status === "expired",
+      settings: { forecastHorizon: 90 },
+      overallScores: { forecastHorizonDays: 30 },
+    });
+    const horizonCard = markup.match(/Forecast horizon<\/p>([\s\S]*?)<\/div>/)?.[1];
+    assert.ok(horizonCard);
+    assert.match(horizonCard, />30 days<\/p>/);
+    assert.doesNotMatch(horizonCard, />90 days<\/p>/);
+    assert.match(horizonCard, /Saved setting: 90 days/);
+    assert.match(
+      horizonCard,
+      status === "training"
+        ? /Forecast refresh is pending/
+        : /Applies to the next forecast refresh/,
+    );
+  }
+});
+
+test("overview never labels an unknown or loading forecast with the current saved horizon", () => {
+  for (const forecastHorizonDays of [undefined, 0, -1, 7.5, NaN, Infinity]) {
+    const markup = renderPage(overviewRoute, {
+      settings: { forecastHorizon: 90 },
+      overallScores: { forecastHorizonDays },
+    });
+    const horizonCard = markup.match(/Forecast horizon<\/p>([\s\S]*?)<\/div>/)?.[1];
+    assert.match(horizonCard, />Unavailable<\/p>/);
+    assert.match(horizonCard, /Saved setting: 90 days/);
+    assert.doesNotMatch(horizonCard, />90 days<\/p>/);
+  }
+  const loading = renderPage(overviewRoute, {
+    result: false,
+    status: "training",
+    settings: { forecastHorizon: 90 },
+  });
+  assert.match(loading, /Waiting for forecasts/);
+  assert.match(loading, /Saved setting: 90 days.*Forecast refresh is pending/);
+  assert.doesNotMatch(loading, />90 days<\/p>/);
+});
+
+test("overview omits a pending-setting notice after the matching forecast completes", () => {
+  const markup = renderPage(overviewRoute, {
+    settings: { forecastHorizon: 90 },
+    overallScores: { forecastHorizonDays: 90 },
+  });
+  assert.match(markup, /Forecast horizon<\/p>.*>90 days<\/p>/);
+  assert.doesNotMatch(markup, /Saved setting:|Forecast refresh is pending/);
+});
+
 test("enabled API schedules give staff truthful automatic status while keeping owner-only refresh", () => {
   const schedule = { enabled: true, localTime: "00:15", timezone: "Asia/Manila" };
   const forecast = { holdout: [], future: [] };
@@ -1024,10 +1076,12 @@ test("browser demonstration withholds mixed-unit errors and keeps individual pro
       qty: (index % 3) + 1,
     })),
   );
-  const savedSettings = { ...defaultSettings, maWindow: 7 };
+  const savedSettings = { ...defaultSettings, maWindow: 7, forecastHorizon: 30 };
   const mixed = await runPipeline([product, other], sales, savedSettings, { mode: "serve" });
   savedSettings.maWindow = 30;
+  savedSettings.forecastHorizon = 90;
   assert.equal(mixed.diagnostics.maWindow, 7, "cached results retain their computed settings");
+  assert.equal(mixed.forecastHorizonDays, 30, "cached results retain their computed horizon");
   assert.equal(mixed.diagnostics.comparisonMixedUnits, true);
   assert.equal(mixed.diagnostics.comparisonWinnerAvailable, false);
   assert.ok(Number.isNaN(mixed.maMae));

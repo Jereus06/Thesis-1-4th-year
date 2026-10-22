@@ -1,6 +1,6 @@
 # StockCast project context
 
-CSV importer, account access, and imported-sale deletion source reviewed against this workspace: 2026-10-09. Recorded-sale correction updated and verified on 2026-10-15. Transaction retries, future-sale validation, comparison units, and forecast polling updated on 2026-10-16. Stock-movement retries/date validation, saved forecast descriptions, client dashboard/account controls, shared-state concurrency, and the import/snapshot timestamp fix updated on 2026-10-20. Read alongside [AGENTS.md](../AGENTS.md) and source.
+CSV importer, account access, and imported-sale deletion source reviewed against this workspace: 2026-10-09. Recorded-sale correction updated and verified on 2026-10-15. Transaction retries, future-sale validation, comparison units, and forecast polling updated on 2026-10-16. Stock-movement retries/date validation, saved forecast descriptions, client dashboard/account controls, shared-state concurrency, and the import/snapshot timestamp fix updated on 2026-10-20. Forecast capture locking, shared sales polling, and completed-run horizon display updated on 2026-10-23. Read alongside [AGENTS.md](../AGENTS.md) and source.
 
 ## Purpose and confirmed research context
 
@@ -49,6 +49,53 @@ business/settings but no generated product or sales history.
 Older browser and SQLite records are not silently migrated. Explicit imports/restore transfer
 authorized records to the shared PostgreSQL application. Normal API mode uses a separate browser
 storage key so it does not overwrite the existing `stockcast-v5` demonstration.
+
+## Concurrent saves and displayed forecast inputs
+
+Manual sales, product creation/edits, and stock movements acquire the existing business row
+lock before product locks, matching imports, quality reviews, settings saves, and forecast
+capture. A concurrent save either finishes before capture reads its inputs or waits until the
+immutable snapshot transaction ends. Sale creation and new catalog timestamps use the database
+wall clock after acquiring that lock. Additive migration `009_wall_clock_revisions` changes the
+existing `set_updated_at()` trigger function to `clock_timestamp()` so a prestarted settings or
+product transaction cannot hide a later write behind transaction-start `now()`. Migrations
+001–008, table shapes, request/response contracts, and frozen forecast inputs remain intact.
+This follows PostgreSQL's documented distinction between
+[transaction-start and wall-clock timestamps](https://www.postgresql.org/docs/current/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT).
+
+Changed dashboard revisions also reload sales alongside the shared catalog/settings, with
+session and local-write guards; unchanged revisions retain the existing lightweight polling.
+Another user's sale can therefore update both stock and Recent sales without a page reload.
+Overview's forecast horizon belongs to the displayed completed run, including while a new run
+is queued/running. A different saved setting is identified separately until replacement results
+arrive. Legacy results without a saved horizon show it as unavailable instead of borrowing
+current settings; the optional browser pipeline records the horizon it actually used.
+
+The 2026-10-23 focused verification used Python 3.12.14 and a separate disposable PostgreSQL
+16.15 instance. Fourteen new cases cover transactions started before capture and actual blocked
+writes during capture for sales, product edits/activation/creation, settings, receipts, and
+quality reviews. All 15 focused database tests passed, including the existing import/worker
+regression. Running the seven prestarted cases against copied original source and migrations
+001–008 produced six expected failures and one existing-quality pass: sales, metadata, settings,
+and receipts reproduced a later save with `stale=false`; catalog creation/activation also
+retained an older timestamp even where product membership independently marked the result stale.
+The fixed tests require later timestamps and preserve the frozen snapshot.
+
+All 11 focused Edge browser checks passed using intercepted synthetic HTTP, including another
+browser's sale updating both stock and the open sales ledger, retained 40-row pagination,
+same-revision retry after a failed ledger read, and no ledger reads for unchanged revisions.
+These browser fixtures are separate from the real PostgreSQL tests. No live business records,
+partner accuracy findings, or hosted deployment are claimed.
+
+The full serial frontend run passed all 414 tests with no failures or skips. Frontend typecheck,
+production build, and lint passed; lint retained the three existing React Refresh warnings.
+The first parallel check attempt exhausted host memory, so checks were completed sequentially.
+The complete current-source Python suite then passed 671 tests and 14 subtests, with no failures
+or skips, in 990.99 seconds using the isolated Python 3.12.14/PostgreSQL 16.15 environment
+(249 dependency warnings). The schema contract check passed for all 20 tables. These checks
+used synthetic test schemas and temporary SQLite fixtures; running application services were
+not rebuilt or changed. The normal application rebuild/startup must apply migration 009 and
+load the new code before these fixes take effect in a running installation.
 
 ## Product maintenance, stock movements, and frontend roles
 

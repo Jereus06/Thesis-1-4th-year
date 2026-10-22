@@ -155,14 +155,18 @@ test("shared dashboard stock, inactive catalog, settings and profile publish ato
   assert.equal(current.dataOrigin, "partner");
 });
 
-test("equal shared snapshots preserve catalog/settings references and cause no store notification", () => {
+test("equal shared snapshots preserve catalog/settings/sales references and cause no store notification", () => {
   const previous = useAppStore.getState();
   let notifications = 0;
   const unsubscribe = useAppStore.subscribe(() => notifications++);
   try {
     assert.equal(
       applyApiSharedState(
-        { products: previous.products.map((row) => ({ ...row })), settings: savedSettings() },
+        {
+          products: previous.products.map((row) => ({ ...row })),
+          settings: savedSettings(),
+          sales: previous.sales.map((row) => ({ ...row })),
+        },
         previous,
       ),
       true,
@@ -172,7 +176,141 @@ test("equal shared snapshots preserve catalog/settings references and cause no s
   }
   assert.equal(useAppStore.getState().products, previous.products);
   assert.equal(useAppStore.getState().settings, previous.settings);
+  assert.equal(useAppStore.getState().sales, previous.sales);
   assert.equal(notifications, 0);
+});
+
+test("a shared ledger read publishes another browser's sale and stock together through the real adapter", async () => {
+  const expected = useAppStore.getState();
+  const sale = {
+    id: "shared-recorded-sale",
+    productId: product.id,
+    saleDate: "2026-10-01",
+    quantity: "1.125",
+    source: "manual",
+  };
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    requests.push(url);
+    if (url.endsWith("/forecast-dashboard"))
+      return envelope({
+        sharedState: {
+          products: [wireProduct({ ...product, currentStock: 18.875 })],
+          settings: savedSettings(),
+        },
+      });
+    assert.match(url, /\/sales\?limit=1000$/);
+    return envelope([sale]);
+  };
+  const next = await api.dashboard(owner.businessId);
+  const [inputs, sales] = await Promise.all([
+    api.sharedForecastInputs(owner.businessId, next),
+    api.sales(owner.businessId),
+  ]);
+  const observations = [];
+  const unsubscribe = useAppStore.subscribe((state) => observations.push(state));
+  try {
+    assert.equal(applyApiSharedState({ ...inputs, sales }, expected), true);
+  } finally {
+    unsubscribe();
+  }
+  assert.equal(requests.length, 2);
+  assert.equal(observations.length, 1);
+  assert.equal(observations[0].products[0].currentStock, 18.875);
+  assert.deepEqual(observations[0].sales, [
+    {
+      id: sale.id,
+      productId: product.id,
+      date: sale.saleDate,
+      qty: 1.125,
+      source: "manual",
+    },
+  ]);
+});
+
+test("a refreshed shared ledger retains complete cursor-paginated history and removes deleted records", async () => {
+  const deleted = { id: "deleted-import", productId: product.id, date: "2026-09-01", qty: 3 };
+  useAppStore.setState({ sales: [deleted] });
+  const expected = useAppStore.getState();
+  const firstPage = Array.from({ length: 1000 }, (_, i) => ({
+    id: `shared-sale-${String(1000 - i).padStart(4, "0")}`,
+    productId: product.id,
+    saleDate: "2026-10-01",
+    quantity: "2",
+    source: "csv_import",
+  }));
+  const lastPage = [{ ...firstPage.at(-1), id: "shared-sale-0000", saleDate: "2026-09-30" }];
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    requests.push(new URL(url, "https://synthetic.test"));
+    return envelope(requests.length === 1 ? firstPage : lastPage);
+  };
+  const sales = await api.sales(owner.businessId);
+  assert.equal(
+    applyApiSharedState(
+      { products: expected.products, settings: savedSettings(), sales },
+      expected,
+    ),
+    true,
+  );
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].searchParams.get("beforeId"), firstPage.at(-1).id);
+  assert.equal(requests[1].searchParams.get("beforeDate"), firstPage.at(-1).saleDate);
+  assert.equal(useAppStore.getState().sales.length, 1001);
+  assert.equal(
+    useAppStore.getState().sales.some((row) => row.id === deleted.id),
+    false,
+  );
+  assert.equal(useAppStore.getState().sales.at(-1).id, lastPage[0].id);
+});
+
+test("an older shared sales read cannot replace a concurrent local recorded sale, import or deletion", () => {
+  const previousSale = {
+    id: "previous-sale",
+    productId: product.id,
+    date: "2026-10-01",
+    qty: 1,
+  };
+  const localSale = { ...previousSale, id: "local-sale" };
+  for (const sales of [[previousSale, localSale], [{ ...previousSale, id: "local-import" }], []]) {
+    useAppStore.setState({ sales: [previousSale] });
+    const expected = useAppStore.getState();
+    useAppStore.setState({ sales });
+    const current = useAppStore.getState();
+    assert.equal(
+      applyApiSharedState(
+        {
+          products: [{ ...product, currentStock: 1 }],
+          settings: savedSettings(),
+          sales: [previousSale],
+        },
+        expected,
+      ),
+      false,
+    );
+    assert.equal(useAppStore.getState(), current, "do not publish stale sales or partial stock");
+  }
+});
+
+test("a failed shared ledger page leaves every cached input intact for a later retry", async () => {
+  const expected = useAppStore.getState();
+  const next = {
+    sharedState: {
+      products: [wireProduct({ ...product, currentStock: 19 })],
+      settings: savedSettings({ movingAverageWindow: 14 }),
+    },
+  };
+  globalThis.fetch = async () => {
+    throw new Error("Synthetic ledger read failure");
+  };
+  await assert.rejects(async () => {
+    const [inputs, sales] = await Promise.all([
+      api.sharedForecastInputs(owner.businessId, next),
+      api.sales(owner.businessId),
+    ]);
+    applyApiSharedState({ ...inputs, sales }, expected);
+  }, /Synthetic ledger read failure/);
+  assert.equal(useAppStore.getState(), expected);
 });
 
 test("shared reads cannot overwrite a catalog write, settings write, replacement session or signout", () => {

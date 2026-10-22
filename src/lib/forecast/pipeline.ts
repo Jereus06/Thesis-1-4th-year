@@ -579,6 +579,7 @@ export async function runPipeline(
 
   return {
     runId: mode === "train" ? `demo-${crypto.randomUUID()}` : undefined,
+    forecastHorizonDays: horizon,
     trainedAt: AS_OF,
     trainedMs: Date.now() - started,
     holdoutStart:

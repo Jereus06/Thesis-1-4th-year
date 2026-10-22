@@ -36,9 +36,15 @@ function Overview() {
   const { canManageProducts, canRefreshForecast } = usePermissions();
   const storeName = useAppStore((s) => s.settings.storeName);
   const forecastHorizon = useAppStore((s) => s.settings.forecastHorizon);
-  const { result, rows, expired, schedule } = useForecast();
+  const { result, rows, expired, schedule, status } = useForecast();
   const refreshAdvice = forecastRefreshAdvice(mode, canRefreshForecast, schedule);
   const ready = Boolean(result);
+  const displayedHorizon = result?.forecastHorizonDays;
+  const hasDisplayedHorizon =
+    typeof displayedHorizon === "number" &&
+    Number.isInteger(displayedHorizon) &&
+    displayedHorizon > 0;
+  const horizonSettingChanged = !hasDisplayedHorizon || displayedHorizon !== forecastHorizon;
   const mixedUnits =
     result?.diagnostics.comparisonMixedUnits ??
     (mode === "browser-demo" &&
@@ -112,11 +118,21 @@ function Overview() {
         <Kpi
           icon={Clock3}
           label="Forecast horizon"
-          value={`${forecastHorizon} days`}
+          value={result ? (hasDisplayedHorizon ? `${displayedHorizon} days` : "Unavailable") : null}
           hint={
             result
               ? `${result.diagnostics.trainedProductCount} ML SKUs · top ${result.diagnostics.topN}`
-              : "Serving"
+              : "Waiting for forecasts"
+          }
+          action={
+            horizonSettingChanged ? (
+              <p className="mt-2 text-xs text-muted">
+                Saved setting: {forecastHorizon} days.{" "}
+                {status === "training"
+                  ? "Forecast refresh is pending."
+                  : "Applies to the next forecast refresh."}
+              </p>
+            ) : undefined
           }
         />
       </section>

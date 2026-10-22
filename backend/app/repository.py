@@ -352,10 +352,16 @@ class Repository:
 
     def create_product(self, principal: Principal, data: ProductCreate):
         with self.conn.transaction():
+            # Take the snapshot lock before any catalog row locks or inserts.
+            self.conn.execute(
+                "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE",
+                (principal.business_id,),
+            )
             row = self.conn.execute(
                 """INSERT INTO products
-                (business_id,sku,name,category,unit,current_stock,lead_time_days,safety_stock,unit_cost)
-                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                (business_id,sku,name,category,unit,current_stock,lead_time_days,safety_stock,unit_cost,
+                 created_at,updated_at)
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,clock_timestamp(),clock_timestamp()) RETURNING *""",
                 (
                     principal.business_id,
                     data.sku.strip(),
@@ -461,6 +467,10 @@ class Repository:
         if not set(fields) <= names:
             raise HTTPException(422, "Unsupported product field")
         with self.conn.transaction():
+            self.conn.execute(
+                "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE",
+                (principal.business_id,),
+            )
             previous = self.conn.execute(
                 "SELECT * FROM products WHERE business_id=%s AND id=%s FOR UPDATE",
                 (principal.business_id, product_id),
@@ -538,6 +548,12 @@ class Repository:
 
     def record_sale(self, principal: Principal, data: SaleCreate):
         with self.conn.transaction():
+            # A sale must be wholly before or after immutable forecast capture.
+            # Keep the business -> product lock order shared by imports/counts.
+            self.conn.execute(
+                "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE",
+                (principal.business_id,),
+            )
             if data.sale_date > self.business_day(principal.business_id):
                 raise HTTPException(422, "Sales cannot be dated after the business's current date")
             product = self.conn.execute(
@@ -550,8 +566,10 @@ class Repository:
             if balance < 0:
                 raise HTTPException(409, "Sale quantity exceeds current stock")
             sale = self.conn.execute(
-                """INSERT INTO sales(business_id,product_id,sale_date,quantity,source,data_origin,recorded_by)
-                SELECT %s,%s,%s,%s,'manual',data_origin,%s FROM businesses WHERE id=%s RETURNING *""",
+                """INSERT INTO sales
+                (business_id,product_id,sale_date,quantity,source,data_origin,recorded_by,created_at)
+                SELECT %s,%s,%s,%s,'manual',data_origin,%s,clock_timestamp()
+                FROM businesses WHERE id=%s RETURNING *""",
                 (
                     principal.business_id,
                     data.product_id,
@@ -599,6 +617,10 @@ class Repository:
         if data.movement_type == "write_off" and data.quantity_delta > 0:
             raise HTTPException(409, "Write-off quantity must decrease stock")
         with self.conn.transaction():
+            self.conn.execute(
+                "SELECT id FROM businesses WHERE id=%s FOR NO KEY UPDATE",
+                (principal.business_id,),
+            )
             if data.movement_date > self.business_day(principal.business_id):
                 raise HTTPException(422, "Stock movements cannot be dated after the business's current date")
             product = self.conn.execute(
