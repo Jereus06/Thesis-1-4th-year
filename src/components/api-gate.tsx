@@ -98,6 +98,14 @@ export function ApiGate({ children }: { children: ReactNode }) {
     };
   }, [connect, mode]);
 
+  useEffect(() => {
+    if (mode !== "api") return;
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("reset")) return;
+    url.searchParams.delete("reset");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [mode]);
+
   function clearFeedback() {
     setFormError("");
     setNotice("");
