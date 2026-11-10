@@ -67,6 +67,11 @@
   * {
     border-color: var(--color-border);
   }
+
+  input[type="password"]::-ms-reveal,
+  input[type="password"]::-ms-clear {
+    display: none;
+  }
 }
 
 @layer components {

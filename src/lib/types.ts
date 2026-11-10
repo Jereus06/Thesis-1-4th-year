@@ -3,6 +3,9 @@ export type Product = {
   sku: string;
   name: string;
   category: string;
+  brand?: string;
+  model?: string;
+  variant?: string;
   unit: string;
   currentStock: number;
   leadTimeDays: number;
@@ -21,6 +24,9 @@ export type ProductPatch = Partial<
     | "sku"
     | "name"
     | "category"
+    | "brand"
+    | "model"
+    | "variant"
     | "unit"
     | "currentStock"
     | "leadTimeDays"

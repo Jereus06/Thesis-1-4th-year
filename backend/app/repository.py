@@ -86,6 +86,9 @@ def product_row(row: dict[str, Any]) -> dict[str, Any]:
         "sku": row["sku"],
         "name": row["name"],
         "category": row["category"],
+        "brand": row["brand"],
+        "model": row["model"],
+        "variant": row["variant"],
         "unit": row["unit"],
         "currentStock": decimal_text(row["current_stock"]),
         "leadTimeDays": row["lead_time_days"],
@@ -359,14 +362,17 @@ class Repository:
             )
             row = self.conn.execute(
                 """INSERT INTO products
-                (business_id,sku,name,category,unit,current_stock,lead_time_days,safety_stock,unit_cost,
+                (business_id,sku,name,category,brand,model,variant,unit,current_stock,lead_time_days,safety_stock,unit_cost,
                  created_at,updated_at)
-                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,clock_timestamp(),clock_timestamp()) RETURNING *""",
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,clock_timestamp(),clock_timestamp()) RETURNING *""",
                 (
                     principal.business_id,
                     data.sku.strip(),
                     data.name.strip(),
                     data.category.strip(),
+                    data.brand.strip(),
+                    data.model.strip(),
+                    data.variant.strip(),
                     data.unit.strip(),
                     data.current_stock,
                     data.lead_time_days,
@@ -462,6 +468,9 @@ class Repository:
             "sku",
             "name",
             "category",
+            "brand",
+            "model",
+            "variant",
             "unit",
         }
         if not set(fields) <= names:

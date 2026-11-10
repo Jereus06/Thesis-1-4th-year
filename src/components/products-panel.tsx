@@ -26,6 +26,10 @@ import type { InventoryImportRow, Product } from "@/lib/types";
 
 type ProductAction = { productId: string; kind: "edit" | "count" | "status" | "delete" };
 const InventoryCsvImporter = memo(CsvImporter);
+type ProductGroup = {
+  name: string;
+  products: Product[];
+};
 
 export function ProductsPanel() {
   const products = useAppStore((state) => state.products);
@@ -292,19 +296,51 @@ const ProductCards = memo(function ProductCards({
   onDelivery: (productId: string) => void;
   onAction: (action: ProductAction) => void;
 }) {
+  const groupedProducts = useMemo(() => {
+    const groups = new Map<string, ProductGroup>();
+    for (const product of products) {
+      const key = product.category.trim().toLocaleLowerCase();
+      const existing = groups.get(key);
+      if (existing) {
+        existing.products.push(product);
+      } else {
+        groups.set(key, { name: product.category, products: [product] });
+      }
+    }
+    return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name, "en"));
+  }, [products]);
+
   return (
     <div className="grid gap-3">
-      {products.map((product) => (
-        <ProductCard
-          key={product.id}
-          product={product}
-          canReceiveStock={canReceiveStock}
-          canManageProducts={canManageProducts}
-          busy={busy}
-          onDelivery={onDelivery}
-          onAction={onAction}
-        />
-      ))}
+      {groupedProducts.map((group) => {
+        const content = group.products.map((product) => (
+          <ProductCard
+            key={product.id}
+            product={product}
+            canReceiveStock={canReceiveStock}
+            canManageProducts={canManageProducts}
+            busy={busy}
+            onDelivery={onDelivery}
+            onAction={onAction}
+          />
+        ));
+        return (
+          <details key={group.name} className="rounded-xl border border-border">
+            <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-4 font-medium [&::-webkit-details-marker]:hidden">
+              <span>
+                {group.name}
+                <span className="ml-2 text-sm font-normal text-muted">
+                  ({group.products.length} {group.products.length === 1 ? "item" : "items"})
+                </span>
+              </span>
+              <span className="text-muted" aria-hidden="true">
+                ▾
+              </span>
+            </summary>
+            <div className="grid gap-3 border-t border-border p-3">{content}</div>
+          </details>
+        );
+      })}
       {products.length === 0 && (
         <Card>
           <CardContent className="text-sm text-muted">
@@ -352,7 +388,7 @@ const ProductCard = memo(function ProductCard({
             <div>
               <dt className="inline text-muted">On hand: </dt>
               <dd className="inline tabular">
-                {num(product.currentStock, 3)} {product.unit}
+                {num(product.currentStock)} {product.unit}
               </dd>
             </div>
             <div>
@@ -362,7 +398,7 @@ const ProductCard = memo(function ProductCard({
             <div>
               <dt className="inline text-muted">Safety stock: </dt>
               <dd className="inline tabular">
-                {num(product.safetyStock, 3)} {product.unit}
+                {num(product.safetyStock)} {product.unit}
               </dd>
             </div>
           </dl>
@@ -423,6 +459,13 @@ function ProductDetailsForm({
   const updateProduct = useAppStore((state) => state.updateProduct);
   const products = useAppStore((state) => state.products);
   const { canManageProducts } = usePermissions();
+  const categories = useMemo(
+    () =>
+      [...new Set(["Staples", ...products.map((item) => item.category.trim()).filter(Boolean)])].sort(
+        (a, b) => a.localeCompare(b, "en"),
+      ),
+    [products],
+  );
   const [draft, setDraft] = useState({
     sku: product?.sku ?? "",
     name: product?.name ?? "",
@@ -433,6 +476,9 @@ function ProductDetailsForm({
     safetyStock: String(product?.safetyStock ?? 5),
     unitCost: String(product?.unitCost ?? 10),
   });
+  const [customCategory, setCustomCategory] = useState(
+    Boolean(draft.category) && !categories.includes(draft.category),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const prefix = product?.id ?? "new-product";
@@ -527,14 +573,53 @@ function ProductDetailsForm({
           required
           maxLength={200}
         />
-        <TextField
-          id={`${prefix}-category`}
-          label="Category"
-          value={draft.category}
-          onChange={(value) => edit("category", value)}
-          required
-          maxLength={100}
-        />
+        {customCategory ? (
+          <div className="grid gap-1">
+            <TextField
+              id={`${prefix}-category`}
+              label="New category"
+              value={draft.category}
+              onChange={(value) => edit("category", value)}
+              required
+              maxLength={100}
+            />
+            <button
+              type="button"
+              className="justify-self-start text-xs text-primary underline"
+              onClick={() => {
+                setCustomCategory(false);
+                edit("category", categories[0] ?? "Staples");
+              }}
+            >
+              Choose an existing category
+            </button>
+          </div>
+        ) : (
+          <div className="grid gap-1">
+            <Label htmlFor={`${prefix}-category`}>Category</Label>
+            <Select
+              id={`${prefix}-category`}
+              value={draft.category}
+              onChange={(event) => {
+                if (event.target.value === "__new__") {
+                  setCustomCategory(true);
+                  edit("category", "");
+                } else {
+                  edit("category", event.target.value);
+                }
+              }}
+              required
+            >
+              {categories.length === 0 && <option value="Staples">Staples</option>}
+              {categories.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+              <option value="__new__">+ Add new category...</option>
+            </Select>
+          </div>
+        )}
         <TextField
           id={`${prefix}-unit`}
           label="Unit"
@@ -643,7 +728,7 @@ function StockCountForm({
       <div className="rounded-xl bg-surface-2 p-3 text-sm">
         <p className="font-medium">{product.name}</p>
         <p className="text-muted">
-          Current balance: {num(product.currentStock, 3)} {product.unit}
+          Current balance: {num(product.currentStock)} {product.unit}
         </p>
       </div>
       <fieldset disabled={saving}>

@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { DemandChart } from "@/components/demand-chart";
 import { DemandEvidence } from "@/components/demand-evidence";
@@ -11,7 +12,7 @@ import { ForecastTimingEvidence } from "@/components/forecast-timing-evidence";
 import { TopForecastProducts } from "@/components/top-forecast-products";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { DISCLAIMER, modelLabel } from "@/lib/forecast/constants";
@@ -20,7 +21,7 @@ import { intervalAvailability } from "@/lib/forecast-interval";
 import { forecastRefreshAdvice, forecastScheduleMessage } from "@/lib/forecast-schedule";
 import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
-import type { ForecastPoint } from "@/lib/types";
+import type { ForecastPoint, Product } from "@/lib/types";
 
 export const Route = createFileRoute("/forecasts")({ component: ForecastsPage });
 
@@ -35,6 +36,7 @@ function ForecastsPage() {
   const configuredMaWindow = useAppStore((s) => s.settings.maWindow);
   const configuredLimit = useAppStore((s) => s.settings.topNProducts);
   const { result, status, refresh, forecastThrough, schedule } = useForecast();
+  const [errorSearch, setErrorSearch] = useState("");
   const savedMaWindow = result?.diagnostics.maWindow;
   const maNote =
     savedMaWindow !== undefined && Number.isInteger(savedMaWindow) && savedMaWindow > 0
@@ -120,25 +122,16 @@ function ForecastsPage() {
         demonstration={mode === "browser-demo"}
       />
 
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="relative z-30 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <p className="font-medium">{selected?.name ?? "No active products"}</p>
-        <Select
-          id="forecast-results"
-          aria-label="Forecast product"
-          className="md:max-w-xs"
-          value={selected?.id ?? ""}
+        <ProductPicker
+          products={products}
+          selected={selected}
           disabled={!products.length}
-          onChange={(e) =>
-            setSelection({ completedRunId: selection.completedRunId, productId: e.target.value })
+          onChange={(productId) =>
+            setSelection({ completedRunId: selection.completedRunId, productId })
           }
-        >
-          {!products.length && <option value="">No active products</option>}
-          {products.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </Select>
+        />
       </div>
 
       <section aria-label="Model scores" className="grid gap-3 md:grid-cols-3">
@@ -270,6 +263,12 @@ function ForecastsPage() {
             Average differences between estimated and recorded sales. Smaller numbers mean closer
             estimates.
           </CardDescription>
+          <Input
+            aria-label="Search forecast errors"
+            placeholder="Search by product name or SKU"
+            value={errorSearch}
+            onChange={(event) => setErrorSearch(event.target.value)}
+          />
         </CardHeader>
         <CardContent className="overflow-x-auto">
           {!ready ? (
@@ -289,7 +288,11 @@ function ForecastsPage() {
                 </tr>
               </thead>
               <tbody>
-                {products.map((p) => {
+                {products
+                  .filter((p) =>
+                    `${p.name} ${p.sku}`.toLowerCase().includes(errorSearch.trim().toLowerCase()),
+                  )
+                  .map((p) => {
                   const f = result?.byProduct[p.id];
                   if (!f) return null;
                   return (
@@ -316,12 +319,89 @@ function ForecastsPage() {
                       </td>
                     </tr>
                   );
-                })}
+                  })}
               </tbody>
             </table>
           )}
+          {ready &&
+            !products.some(
+              (p) =>
+                result?.byProduct[p.id] &&
+                `${p.name} ${p.sku}`.toLowerCase().includes(errorSearch.trim().toLowerCase()),
+            ) && <p className="pt-3 text-sm text-muted">No products match your search.</p>}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function ProductPicker({
+  products,
+  selected,
+  disabled,
+  onChange,
+}: {
+  products: Product[];
+  selected?: Product;
+  disabled?: boolean;
+  onChange: (productId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const visibleProducts = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return products;
+    return products.filter((product) =>
+      `${product.name} ${product.sku}`.toLowerCase().includes(normalizedQuery),
+    );
+  }, [products, query]);
+
+  return (
+    <div className="relative w-full md:max-w-xs">
+      <button
+        type="button"
+        className="flex h-11 w-full items-center justify-between rounded-lg border border-border bg-surface px-3 text-left text-sm text-fg outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="truncate">{selected?.name ?? "No active products"}</span>
+        <ChevronDown className="ml-2 size-4 shrink-0" aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 w-full rounded-lg border border-border bg-surface p-2 shadow-lg">
+          <Input
+            autoFocus
+            aria-label="Search forecast products"
+            placeholder="Search products or SKU"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <div className="mt-2 max-h-60 overflow-y-auto" role="listbox">
+            {visibleProducts.length ? (
+              visibleProducts.map((product) => (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={product.id === selected?.id}
+                  key={product.id}
+                  className="block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-surface-2 aria-selected:bg-surface-2"
+                  onClick={() => {
+                    onChange(product.id);
+                    setQuery("");
+                    setOpen(false);
+                  }}
+                >
+                  {product.name}
+                </button>
+              ))
+            ) : (
+              <p className="px-3 py-2 text-sm text-muted">No products match your search.</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

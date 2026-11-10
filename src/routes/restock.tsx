@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
 import { ForecastEvidenceBadge } from "@/components/forecast-evidence-badge";
 import { DemandEvidence } from "@/components/demand-evidence";
 import { useForecast } from "@/components/forecast-context";
@@ -9,6 +10,7 @@ import { TrainingBanner } from "@/components/training-banner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { num } from "@/lib/format";
 import { forecastRefreshAdvice } from "@/lib/forecast-schedule";
@@ -49,30 +51,48 @@ function RestockPage() {
         deliverySelection.row)
       : null;
   const [open, setOpen] = useState(false);
+  const [productSearch, setProductSearch] = useState("");
   const ready = Boolean(result);
-  const missing = products.filter((product) => !rows.some((row) => row.product.id === product.id));
+  const filteredProducts = useMemo(() => {
+    const query = productSearch.trim().toLowerCase();
+    if (!query) return products;
+    return products.filter((product) =>
+      `${product.name} ${product.sku}`.toLowerCase().includes(query),
+    );
+  }, [productSearch, products]);
+  const filteredProductIds = useMemo(
+    () => new Set(filteredProducts.map((product) => product.id)),
+    [filteredProducts],
+  );
+  const filteredRows = useMemo(
+    () => rows.filter((row) => filteredProductIds.has(row.product.id)),
+    [filteredProductIds, rows],
+  );
+  const missing = filteredProducts.filter(
+    (product) => !filteredRows.some((row) => row.product.id === product.id),
+  );
 
   const groups = useMemo(() => {
     return {
-      action: rows.filter(
+      action: filteredRows.filter(
         (row) => hasCurrentDemand(row) && (row.status === "stockout" || row.status === "reorder"),
       ),
-      watch: rows.filter(
+      watch: filteredRows.filter(
         (row) => hasCurrentDemand(row) && row.dailyDemand > 0 && row.status === "watch",
       ),
-      healthy: rows.filter(
+      healthy: filteredRows.filter(
         (row) => hasCurrentDemand(row) && row.dailyDemand > 0 && row.status === "healthy",
       ),
-      zero: rows.filter(
+      zero: filteredRows.filter(
         (row) =>
           hasCurrentDemand(row) &&
           row.dailyDemand === 0 &&
           row.status !== "stockout" &&
           row.status !== "reorder",
       ),
-      unavailable: rows.filter((row) => !hasCurrentDemand(row)),
+      unavailable: filteredRows.filter((row) => !hasCurrentDemand(row)),
     };
-  }, [rows]);
+  }, [filteredRows]);
 
   function openReceive(row: ReorderRow) {
     if (!canReceiveStock || row.product.isActive === false) return;
@@ -98,6 +118,14 @@ function RestockPage() {
         <h1 className="font-display text-3xl font-medium tracking-tight">
           Restocking recommendations
         </h1>
+        <div className="mt-3 max-w-md">
+          <Input
+            aria-label="Search restocking products"
+            placeholder="Search by product name or SKU"
+            value={productSearch}
+            onChange={(event) => setProductSearch(event.target.value)}
+          />
+        </div>
       </header>
       <TrainingBanner />
       {!ready ? (
@@ -111,6 +139,8 @@ function RestockPage() {
             ? "No active products to assess. Add or activate products in Inventory before reviewing restocking recommendations."
             : "No active products to assess. Ask the owner to add or activate products."}
         </p>
+      ) : filteredProducts.length === 0 ? (
+        <p className="text-sm text-muted">No products match your search.</p>
       ) : (
         <>
           {missing.length > 0 && (
@@ -171,16 +201,29 @@ function Section({
   empty: string;
   children: ReactNode;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const items = Array.isArray(children) ? children : [children];
   const has = items.filter(Boolean).length > 0;
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="font-display text-xl font-medium">{title}</h2>
-      {has ? (
-        <div className="grid gap-3">{items}</div>
-      ) : (
-        <p className="text-sm text-muted">{empty}</p>
-      )}
+      <button
+        type="button"
+        className="flex items-center justify-between text-left"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <span className="font-display text-xl font-medium">{title}</span>
+        <ChevronDown
+          className={`size-5 transition-transform ${expanded ? "" : "-rotate-90"}`}
+          aria-hidden="true"
+        />
+      </button>
+      {expanded &&
+        (has ? (
+          <div className="grid gap-3">{items}</div>
+        ) : (
+          <p className="text-sm text-muted">{empty}</p>
+        ))}
     </section>
   );
 }
