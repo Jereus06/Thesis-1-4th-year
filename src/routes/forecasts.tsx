@@ -8,7 +8,6 @@ import { ForecastEvidenceBadge } from "@/components/forecast-evidence-badge";
 import { IntervalEvidence } from "@/components/interval-evidence";
 import { useForecast } from "@/components/forecast-context";
 import { TrainingBanner } from "@/components/training-banner";
-import { ForecastTimingEvidence } from "@/components/forecast-timing-evidence";
 import { TopForecastProducts } from "@/components/top-forecast-products";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,7 +39,7 @@ function ForecastsPage() {
   const savedMaWindow = result?.diagnostics.maWindow;
   const maNote =
     savedMaWindow !== undefined && Number.isInteger(savedMaWindow) && savedMaWindow > 0
-      ? `Uses the previous ${savedMaWindow} days of sales for each average. The accuracy test period is separate.`
+      ? `Uses the previous ${savedMaWindow} days of sales.`
       : result
         ? "Sales window unavailable for these results"
         : "Averages recent daily sales";
@@ -108,7 +107,6 @@ function ForecastsPage() {
       </header>
 
       <TrainingBanner />
-      {mode === "api" && <ForecastTimingEvidence timing={result?.processingTiming} />}
       {!canRefreshForecast && !forecastScheduleMessage(mode, schedule) && (
         <p className="text-sm text-muted">The owner can refresh forecasts after records change.</p>
       )}
@@ -170,13 +168,13 @@ function ForecastsPage() {
         savedMaWindow !== configuredMaWindow && (
           <p className="text-sm text-muted" role="status">
             Saved window: {configuredMaWindow} days. Displayed results used {savedMaWindow} days.
-            New results appear after a forecast refresh using the saved setting finishes.
+            Refresh forecasts to apply the change.
           </p>
         )}
       {mode === "api" && ready && selected && (
         <p className="text-sm text-muted">
-          Past test results for {selected.name}. MAE shows average error; RMSE highlights larger
-          mistakes. Lower is better. The chosen method comes from an earlier, separate check.
+          Past test results for {selected.name}. MAE is average error; RMSE highlights larger
+          errors. Lower is better.
         </p>
       )}
 
@@ -235,7 +233,7 @@ function ForecastsPage() {
             )}
             <p className="mt-3 text-xs text-muted">
               {mode === "api"
-                ? "The chart compares past estimates with recorded sales and shows upcoming estimates."
+                ? "Recorded sales and future estimates are shown separately."
                 : "This chart uses sample data. Its shaded range is for demonstration only."}{" "}
               {DISCLAIMER}
             </p>
@@ -243,12 +241,9 @@ function ForecastsPage() {
               <details className="mt-3 text-sm text-muted">
                 <summary className="cursor-pointer font-medium">How confidence is rated</summary>
                 <p className="mt-2">
-                  Confidence describes past forecasting results, not how much a product will sell.
-                  High means total error was at most 20% of recorded sales; Medium means at most
-                  50%. Both need at least 14 tested days in a row with some sales. Low means larger
-                  errors or too few usable test results. These ratings do not guarantee future
-                  sales. The error percentage adds up all prediction differences and divides that
-                  total by recorded sales.
+                  Confidence reflects past accuracy. High: up to 20% error. Medium: up to 50%. Both
+                  require at least 14 consecutive tested days and some recorded sales. Low means
+                  larger errors or limited test records. Future sales may differ.
                 </p>
               </details>
             )}
@@ -259,10 +254,7 @@ function ForecastsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Past forecast errors by product</CardTitle>
-          <CardDescription>
-            Average differences between estimated and recorded sales. Smaller numbers mean closer
-            estimates.
-          </CardDescription>
+          <CardDescription>Lower error means closer estimates.</CardDescription>
           <Input
             aria-label="Search forecast errors"
             placeholder="Search by product name or SKU"
@@ -293,32 +285,32 @@ function ForecastsPage() {
                     `${p.name} ${p.sku}`.toLowerCase().includes(errorSearch.trim().toLowerCase()),
                   )
                   .map((p) => {
-                  const f = result?.byProduct[p.id];
-                  if (!f) return null;
-                  return (
-                    <tr key={p.id} className="border-t border-border">
-                      <td className="py-2.5 pr-3">{p.name}</td>
-                      <td className="tabular">{num(f.nonzeroCount)}</td>
-                      <td className="tabular">{metric(f.maMae)}</td>
-                      <td className="tabular">{metric(f.xgbMae)}</td>
-                      <td className="tabular">{metric(f.ensembleMae)}</td>
-                      <td>
-                        <Badge variant={f.trainedWithMl ? "primary" : "default"}>
-                          {modelLabel(f.method)}
-                        </Badge>
-                      </td>
-                      <td className="min-w-48 py-2.5 pr-3">
-                        {mode === "api" ? (
-                          <DemandEvidence forecast={f} unavailableReason={f.unavailableReason} />
-                        ) : (
-                          <span className="text-xs text-muted">Synthetic demonstration</span>
-                        )}
-                      </td>
-                      <td className="min-w-40 text-xs text-muted">
-                        {intervalAvailability(f, mode)}
-                      </td>
-                    </tr>
-                  );
+                    const f = result?.byProduct[p.id];
+                    if (!f) return null;
+                    return (
+                      <tr key={p.id} className="border-t border-border">
+                        <td className="py-2.5 pr-3">{p.name}</td>
+                        <td className="tabular">{num(f.nonzeroCount)}</td>
+                        <td className="tabular">{metric(f.maMae)}</td>
+                        <td className="tabular">{metric(f.xgbMae)}</td>
+                        <td className="tabular">{metric(f.ensembleMae)}</td>
+                        <td>
+                          <Badge variant={f.trainedWithMl ? "primary" : "default"}>
+                            {modelLabel(f.method)}
+                          </Badge>
+                        </td>
+                        <td className="min-w-48 py-2.5 pr-3">
+                          {mode === "api" ? (
+                            <DemandEvidence forecast={f} unavailableReason={f.unavailableReason} />
+                          ) : (
+                            <span className="text-xs text-muted">Synthetic demonstration</span>
+                          )}
+                        </td>
+                        <td className="min-w-40 text-xs text-muted">
+                          {intervalAvailability(f, mode)}
+                        </td>
+                      </tr>
+                    );
                   })}
               </tbody>
             </table>

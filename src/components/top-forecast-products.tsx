@@ -29,10 +29,7 @@ export function TopForecastProducts({
     <Card role="region" aria-label="Top products for XGBoost">
       <CardHeader>
         <CardTitle>Top products for XGBoost</CardTitle>
-        <CardDescription>
-          Up to {num(limit)} products, ranked by past sales used to prepare the saved forecast. This
-          does not guarantee future best sellers.
-        </CardDescription>
+        <CardDescription>Up to {num(limit)} products selected by past sales.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {!scope ? (
@@ -109,16 +106,11 @@ export function TopForecastProducts({
             )}
             {scope.products.length < scope.limit && (
               <p className="text-sm text-muted">
-                Fewer products appear when fewer have enough usable history. Other products can
-                still use Moving Average.
+                Products need enough sales history for XGBoost. Others can use Moving Average.
               </p>
             )}
           </>
         )}
-        <p className="text-xs text-muted">
-          Confidence shows how well an estimate performed in past checks. High confidence does not
-          mean high sales.
-        </p>
       </CardContent>
     </Card>
   );

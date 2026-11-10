@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright";
 import { createServer } from "vite";
 
@@ -104,7 +105,7 @@ try {
       const input = request.postDataJSON();
       const key = request.headers()["idempotency-key"];
       assert.ok(key, "product creation sends a submission identifier");
-      assert.ok(input.sku, "blank SKU is resolved once before submitting");
+      assert.ok(input.sku, "an automatic or entered SKU is resolved before submitting");
       createRequests.push({ key, input });
       let result = savedCreates.get(key);
       if (result)
@@ -432,12 +433,21 @@ try {
     await page.getByRole("button", { name: "Record sale", exact: true }).first().click();
     await dialog().getByLabel("Quantity", { exact: true }).fill(String(qty));
   }
+  async function expandProductCategory() {
+    const summary = page.locator("details > summary").filter({ hasText: product.category }).first();
+    if (await summary.count()) {
+      const expanded = await summary.evaluate((element) => element.parentElement.open);
+      if (!expanded) await summary.click();
+    }
+  }
   async function openDelivery(qty) {
+    await expandProductCategory();
     await page.getByRole("button", { name: "Record delivery", exact: true }).click();
     await dialog().getByLabel("Quantity received").fill(String(qty));
   }
   async function openCount(quantity) {
     await page.getByRole("tab", { name: "Products", exact: true }).click();
+    await expandProductCategory();
     await page.getByRole("button", { name: "Correct stock count", exact: true }).click();
     await dialog()
       .getByLabel("Verified on-hand count (piece)", { exact: true })
@@ -446,9 +456,10 @@ try {
   async function openProduct(name, sku = "") {
     await page.getByRole("tab", { name: "Products", exact: true }).click();
     await page.getByRole("button", { name: "Add product", exact: true }).click();
-    await dialog().getByLabel("SKU (optional)", { exact: true }).fill(sku);
     await dialog().getByLabel("Name", { exact: true }).fill(name);
-    await dialog().getByLabel("Category", { exact: true }).fill("Synthetic create retry");
+    await dialog().getByLabel("Category", { exact: true }).selectOption("__new__");
+    await dialog().getByLabel("New category", { exact: true }).fill("Synthetic create retry");
+    if (sku) await dialog().getByLabel("SKU", { exact: true }).fill(sku);
     await dialog().getByLabel("Unit", { exact: true }).fill("piece");
     await dialog().getByLabel("Opening stock", { exact: true }).fill("20");
     await dialog().getByLabel("Lead time (days)", { exact: true }).fill("2");
@@ -492,6 +503,7 @@ try {
     if (!page.url().endsWith("/inventory"))
       await page.getByRole("link", { name: "Inventory", exact: true }).click();
     await page.getByRole("tab", { name: "Products", exact: true }).click();
+    await expandProductCategory();
     await page.getByRole("button", { name: "Record delivery", exact: true }).first().click();
     await dialog().getByLabel("Quantity received", { exact: true }).fill(String(quantity));
   }
@@ -545,6 +557,73 @@ try {
       };
     }, movementId);
   }
+
+  await page.getByRole("button", { name: "Add product", exact: true }).click();
+  assert.equal(await dialog().getByLabel("SKU", { exact: true }).inputValue(), "STA-001");
+  await dialog().getByLabel("Category", { exact: true }).selectOption("Test");
+  assert.equal(await dialog().getByLabel("SKU", { exact: true }).inputValue(), "TES-001");
+  await dialog().getByLabel("SKU", { exact: true }).fill("SUPPLIER-OVERRIDE");
+  await dialog().getByLabel("Category", { exact: true }).selectOption("Staples");
+  assert.equal(await dialog().getByLabel("SKU", { exact: true }).inputValue(), "STA-001");
+  await dialog().getByLabel("Category", { exact: true }).selectOption("__new__");
+  await dialog().getByLabel("New category", { exact: true }).fill("Cleaning supplies");
+  assert.equal(await dialog().getByLabel("SKU", { exact: true }).inputValue(), "CLE-001");
+  await dialog().getByLabel("New category", { exact: true }).fill("Electronics");
+  assert.equal(await dialog().getByLabel("SKU", { exact: true }).inputValue(), "ELE-001");
+  await dialog().getByRole("button", { name: "Cancel", exact: true }).click();
+  await dialog().waitFor({ state: "hidden" });
+  console.log(
+    "Passed: Add product shows an automatic SKU, updates it for selected/custom categories and regenerates it after changing a category with a manual override.",
+  );
+
+  const originalCatalog = await page.evaluate(async () => {
+    const { useAppStore } = await import("/src/lib/store.ts");
+    const original = useAppStore.getState().products;
+    useAppStore.setState({
+      products: [
+        ...original,
+        { ...original[0], id: "sku-sequence-active", sku: "BVR-001", category: "Beverages" },
+        {
+          ...original[0],
+          id: "sku-sequence-inactive",
+          sku: "BVR-004",
+          category: "Beverages",
+          isActive: false,
+        },
+        { ...original[0], id: "sku-other-category", sku: "bvr-005", category: "Other" },
+      ],
+    });
+    return original;
+  });
+  await page.getByRole("button", { name: "Add product", exact: true }).click();
+  await dialog().getByLabel("Category", { exact: true }).selectOption("Beverages");
+  assert.equal(await dialog().getByLabel("SKU", { exact: true }).inputValue(), "BVR-006");
+  await dialog().getByLabel("Name", { exact: true }).fill("Synthetic beverage example");
+  await mkdir("benchmarks/product-sku", { recursive: true });
+  await dialog().screenshot({ path: "benchmarks/product-sku/new-product.png" });
+  await dialog().getByRole("button", { name: "Cancel", exact: true }).click();
+  await dialog().waitFor({ state: "hidden" });
+  await page.evaluate(async (products) => {
+    const { useAppStore } = await import("/src/lib/store.ts");
+    useAppStore.setState({ products });
+  }, originalCatalog);
+  console.log(
+    "Passed: category SKU generation continues its numeric sequence, includes inactive products and skips a case-insensitive collision in another category.",
+  );
+
+  await expandProductCategory();
+  await page.getByRole("button", { name: "Edit details", exact: true }).first().click();
+  assert.equal(await dialog().getByLabel("SKU", { exact: true }).inputValue(), product.sku);
+  await dialog().getByLabel("Category", { exact: true }).selectOption("Staples");
+  assert.equal(await dialog().getByLabel("SKU", { exact: true }).inputValue(), product.sku);
+  await dialog().getByLabel("Category", { exact: true }).selectOption("__new__");
+  await dialog().getByLabel("New category", { exact: true }).fill("Electronics");
+  assert.equal(await dialog().getByLabel("SKU", { exact: true }).inputValue(), product.sku);
+  await dialog().getByRole("button", { name: "Cancel", exact: true }).click();
+  await dialog().waitFor({ state: "hidden" });
+  assert.equal(createRequests.length, 0, "SKU previews do not save catalog products");
+  assert.equal(metadataRequests.length, 0, "category previews do not edit saved products");
+  console.log("Passed: changing an existing product's category preserves its saved SKU.");
 
   await openSale(5);
   assert.equal(
@@ -1104,7 +1183,7 @@ try {
   assert.equal((await productSnapshot(secondEditedResult.data.id)).length, 1);
   assert.equal(secondEditedResult.data.name, "Synthetic edited creation changed");
   console.log(
-    "Passed: edited failed blank-SKU creation uses a fresh key and generated SKU even under a fixed clock.",
+    "Passed: edited failed creation uses a fresh key and generated SKU even under a fixed clock.",
   );
 
   await openProduct("Synthetic acknowledged creation with failed read");
@@ -1139,6 +1218,7 @@ try {
   for (const failedRead of [false, true]) {
     await setCatalogStock(20);
     await page.getByRole("tab", { name: "Products", exact: true }).click();
+    await expandProductCategory();
     await page.getByRole("button", { name: "Edit details", exact: true }).first().click();
     const revisedName = `Synthetic metadata race ${failedRead ? "failed" : "successful"} read`;
     await dialog().getByLabel("Name", { exact: true }).fill(revisedName);
@@ -1276,6 +1356,11 @@ try {
   forecastRevision++;
   await page.getByRole("link", { name: "Restock", exact: true }).click();
   await page.getByRole("heading", { name: "Restocking recommendations", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Enough stock", exact: true }).click();
+  // Earlier midnight checks move the browser beyond this fixture's businessDay.
+  // Current-date validation can move its advice into the unavailable group;
+  // either group still allows recording the actual receipt under test.
+  await page.getByRole("button", { name: "Sales estimate unavailable", exact: true }).click();
   const restockCard = page
     .locator("main .rounded-2xl")
     .filter({ has: page.getByText(productDetails.name, { exact: true }) })

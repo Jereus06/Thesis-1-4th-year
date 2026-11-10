@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { num } from "@/lib/format";
+import { num, quantity } from "@/lib/format";
 import { businessDateISO } from "@/lib/dates";
 import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
@@ -38,7 +38,7 @@ export function ReceiveStockDialog({
       ? "Demand is unavailable. Enter the quantity actually delivered."
       : suggested > 0
         ? `Suggested reorder is ${num(suggested)} ${product?.unit}. Enter the quantity actually delivered.`
-        : "Enter the quantity actually delivered. A reorder recommendation is not required.";
+        : "Enter the quantity actually delivered.";
 
   return (
     <Dialog open={open && canReceiveStock} onOpenChange={onOpenChange}>
@@ -128,7 +128,7 @@ function ReceiveStockForm({
       });
       if (useAppStore.getState().session !== session) return;
       retry.current = null;
-      toast.success(`Received ${num(n, 3)} ${attempt.product.unit} of ${attempt.product.name}.`);
+      toast.success(`Received ${quantity(n)} ${attempt.product.unit} of ${attempt.product.name}.`);
       onDone();
     } catch (error) {
       if (useAppStore.getState().session !== session) return;
@@ -145,11 +145,13 @@ function ReceiveStockForm({
         <p className="font-medium">{product.name}</p>
         <p className="text-muted">
           {currentProduct ? (
-            <>On hand {num(currentProduct.currentStock)}</>
+            <>On hand {quantity(currentProduct.currentStock)}</>
           ) : (
             "Current stock is unavailable."
           )}
-          {row && row.demandAvailable !== false && <> · ROP {num(Math.ceil(row.reorderPoint))}</>}
+          {row && row.demandAvailable !== false && (
+            <> · Restock threshold {num(Math.ceil(row.reorderPoint))}</>
+          )}
         </p>
         {!active && (
           <p className="mt-1 text-muted">

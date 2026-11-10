@@ -1,4 +1,3 @@
-import { modelLabel } from "@/lib/forecast/constants";
 import { num } from "@/lib/format";
 import { intervalAvailability } from "@/lib/forecast-interval";
 import type { ProductForecast } from "@/lib/types";
@@ -21,8 +20,7 @@ export function IntervalEvidence({
       <div className="mt-4 rounded-xl bg-surface-2 p-3 text-sm" aria-label="Forecast range">
         <p className="font-medium">{status}</p>
         <p className="mt-1 text-muted">
-          For demonstration only. This range has not been validated and does not guarantee future
-          sales.
+          Sample range for demonstration; accuracy has not been checked.
         </p>
       </div>
     );
@@ -54,13 +52,13 @@ export function IntervalEvidence({
       {!interval ? (
         <p className="mt-1 text-muted">
           {forecast.trainedWithMl
-            ? "No calibration metadata was saved for this product. Existing bounds alone do not establish calibrated coverage."
-            : "This baseline product has no saved interval calibration evidence. A point forecast can still be available without an interval."}
+            ? "This range has not been checked against past sales."
+            : "A sales estimate may be available even when a range is unavailable."}
         </p>
       ) : (
         <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2">
           <div>
-            <dt className="text-muted">Range check records</dt>
+            <dt className="text-muted">Sales records used to check the range</dt>
             <dd>
               {count === undefined ? "Observation count not saved" : `${num(count)} observations`}
               {!interval.available && knownProtocol && count !== undefined && count < 10
@@ -73,23 +71,7 @@ export function IntervalEvidence({
             <dd>
               {interval.calibrationStart && interval.calibrationEnd
                 ? `${interval.calibrationStart} to ${interval.calibrationEnd}`
-                : "Not saved / no calibration sample"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-muted">Method selection records</dt>
-            <dd>
-              {interval.selectionObservations === undefined
-                ? "Observation count not saved"
-                : `${num(interval.selectionObservations)} observations`}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-muted">Range calculation</dt>
-            <dd>
-              {interval.method
-                ? `${interval.method} for ${modelLabel(forecast.method)}`
-                : "Method not saved"}
+                : "Dates unavailable"}
             </dd>
           </div>
           <div>
@@ -100,19 +82,6 @@ export function IntervalEvidence({
                 : "Target not saved"}
             </dd>
           </div>
-          <div>
-            <dt className="text-muted">Saved error adjustments</dt>
-            <dd>
-              {interval.lowerResidual !== undefined &&
-              interval.lowerResidual !== null &&
-              interval.upperResidual !== undefined &&
-              interval.upperResidual !== null &&
-              Number.isFinite(interval.lowerResidual) &&
-              Number.isFinite(interval.upperResidual)
-                ? `${num(interval.lowerResidual, 2)} to ${num(interval.upperResidual, 2)} units`
-                : "Not saved / no calibrated offsets"}
-            </dd>
-          </div>
           <div className="sm:col-span-2">
             <dt className="text-muted">Past test coverage</dt>
             <dd>
@@ -121,15 +90,15 @@ export function IntervalEvidence({
                 : "Not available"}
               {testCount === undefined
                 ? "; observation count not saved"
-                : `; ${num(testCount)} final-test observations`}
+                : `; ${num(testCount)} tested sales records`}
             </dd>
           </div>
         </dl>
       )}
       <p className="mt-2 text-xs text-muted">
         {knownProtocol
-          ? "Calibration uses separate late-validation residuals after model selection. Fixed 10th and 90th residual offsets are added across the forecast horizon and clipped at zero. A small, time-ordered sample does not guarantee future coverage. Final-test observations assess coverage and never tune these bounds. These bands describe observed sales, not unmet demand during stockouts."
-          : "The calibration protocol is not saved or recognized. These records do not establish independently calibrated coverage or guaranteed future coverage. Observed sales may understate demand during stockouts."}
+          ? "Future sales may fall outside this range. Sales during stockouts may understate demand."
+          : "Range accuracy could not be verified. Sales during stockouts may understate demand."}
       </p>
     </div>
   );

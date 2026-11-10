@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { businessDateISO } from "@/lib/dates";
-import { num } from "@/lib/format";
+import { quantity } from "@/lib/format";
 import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
 import type { SessionUser } from "@/lib/api";
@@ -95,7 +95,7 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
       await recordSale(selectedProductId, date, n, retry.current!.key);
       if (useAppStore.getState().session !== session) return;
       retry.current = null;
-      toast.success(`Recorded ${n} ${selected.unit} of ${selected.name}.`);
+      toast.success(`Recorded ${quantity(n)} ${selected.unit} of ${selected.name}.`);
       setOpen(false);
       setQty("1");
     } catch (error) {
@@ -116,7 +116,7 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
         <DialogHeader>
           <DialogTitle>Record a sale</DialogTitle>
           <DialogDescription>
-            Deducts from on-hand stock and feeds the next forecast run.
+            Enter what sold. The quantity is deducted from your stock.
           </DialogDescription>
         </DialogHeader>
         {!products.length && (
@@ -150,7 +150,7 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
               <p className="text-xs text-muted">
                 {currentProduct ? (
                   <>
-                    On hand: {num(currentProduct.currentStock, 3)} {currentProduct.unit}
+                    On hand: {quantity(currentProduct.currentStock)} {currentProduct.unit}
                   </>
                 ) : (
                   "Current stock is unavailable."

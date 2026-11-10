@@ -17,7 +17,7 @@ Use this guide to find a screen, record a transaction, and check your saved reco
 
 1. Choose **Create account**, then enter **Your name**, **Email**, **Password**, and **Confirm password**. Use a password with 12 to 128 characters.
 2. Enter the **Store name** and optional location.
-3. Choose **Test records** for practice or **Authorized business records** for records you have permission to store. Confirm that permission when requested.
+3. Confirm that you have permission to manage the store's records.
 4. Choose **Create my store** and wait for the store to open.
 
 Use the eye button to show or hide a password while checking it. Switching between account-access screens clears entered passwords. If the page says your account was created but store records could not be loaded, reload the page to load the existing account.
@@ -66,11 +66,13 @@ Use the sidebar on a laptop or the bottom navigation on a smaller screen.
 | Find products that may need more stock                         | **Restock**                                               |
 | View a product's demand chart and forecast information         | **Forecasts**                                             |
 | Add, find, or edit a product                                   | **Inventory > Products**                                  |
+| Find low-stock or out-of-stock products                       | **Inventory > Low stock**                                 |
 | Record an incoming delivery or check current stock             | **Inventory > Products**                                  |
 | View sales, import past sales, or download sales records       | **Inventory > Sales ledger**                              |
 | Record returns or write-offs and inspect stock changes         | **Inventory > Stock movements**                           |
 | Check your account or change your password                     | **Inventory > Account & settings**; staff use **Account** |
 | Invite staff or change store settings                          | **Inventory > Account & settings**, as the owner          |
+| See who signed in or signed out                                | **Inventory > Account & settings > Sign-in activity**, owner only |
 | Review zero-sale days, closures, missing records, or stockouts | **Quality**                                               |
 | Read the user guide                                            | **Strategies > User guide**                               |
 | Give feedback after using the system                           | **Strategies > Evaluation**                               |
@@ -98,6 +100,29 @@ Only owners can manage products, correct stock counts, write off stock, import f
 Use **Import CSV** in the Sales ledger for earlier sales already reflected in your current physical count. Recording an earlier date through **Record sale** still deducts stock now. Recording the same transaction twice deducts it twice.
 
 If there are no active products, ask the owner to add or activate one. If the quantity exceeds the available stock, check the physical count and any unrecorded delivery before saving. Ask the owner to delete a mistakenly recorded sale using the steps below.
+
+## Check low stock
+
+**Where:** **Inventory > Low stock**.
+
+1. Review **All alerts**, **Out of stock**, and **Low stock**. Select a count card to filter the list. Out-of-stock products appear first, including products with no sales history.
+2. Check each item's SKU, **Current quantity**, **Unit**, **Threshold**, and **Status**. A positive quantity at or below its threshold is **Low stock**; zero stock is **Out of stock**.
+3. Search by product name, SKU, or category. **Show all alerts** clears an unmatched search and the status filter.
+4. When goods actually arrive, choose **Record delivery** on the product and enter the delivered quantity. Owners and staff can record deliveries. Use **Open Restock** to review buying recommendations separately.
+
+The threshold basis appears below its quantity. **Reorder point** uses current estimated demand during lead time plus safety stock. When a current estimate is unavailable, **Safety stock minimum** uses the product's saved minimum for this inventory alert. That minimum is not a forecast or an order quantity. Only active products appear, and units are kept explicit.
+
+## View daily sales
+
+**Where:** **Inventory > Daily sales**.
+
+1. Choose **Sales date** to open the calendar and select a day. **Today**, **Yesterday**, the arrow buttons, and the weekday buttons give quick access to nearby dates. Dates follow the store's timezone.
+2. Read **Products sold**, **Sales records**, and **Quantity sold by unit**. Pieces, bottles, packs, and other counting units have separate totals.
+3. Check **What sold** for each item's sale date, product name, SKU, quantity, unit, and number of sales records. Recorded and imported sales both use their sale date, including records beyond the Sales ledger's visible page.
+4. Use **Search products or SKU** to find an item by name or SKU. The list and summary totals follow your search. Choose **Clear search** to show all products again.
+5. For a longer period, choose **Date range**, then select **From date** and **To date**. Both dates are included, with separate rows for a product sold on different dates. Choose **Single day** to return to a day view.
+
+Dots in the weekday strip mark dates with saved sales. If no records match, choose another date or **View latest sales**. No records does not automatically confirm that the business had zero sales. Returns remain separate in **Stock movements** and do not subtract the original sale from this view.
 
 ## Delete a recorded sale
 
@@ -200,7 +225,7 @@ Use this task for a verified counting correction. Use **Record sale**, **Record 
 ### Add a product
 
 1. Choose **Add product**.
-2. Enter **Name**, **Category**, and **Unit**. Enter a SKU if your store already uses one, or leave it blank to generate one.
+2. Enter **Name**, **Category**, and **Unit**. The **SKU** fills automatically and updates when you choose or type a category. It continues a clear existing category numbering pattern, or starts a category code such as `STA-001` for Staples. You can replace it with your store's own unique code.
 3. Enter the actual **Opening stock**, **Lead time (days)**, **Safety stock**, and **Unit cost (PHP)**.
 4. Choose **Add to catalog**.
 5. Find the saved product in the list and check its details.
@@ -366,7 +391,7 @@ products, rank, product code, quantities sold during the saved training period, 
 per day, and current forecast confidence. The saved selection counts and sales dates appear above the table.
 
 To use a limit of five, open **Inventory > Account & settings > Advanced forecasting settings**,
-set **ML product limit** to **Top 5 eligible products**, and choose **Save settings**. Then open
+set **Forecast product limit** to **Top 5 eligible products**, and choose **Save settings**. Then open
 **Forecasts** and choose **Refresh forecasts**. After it completes, the panel shows up to five
 eligible products ranked by training-period sales quantities. The limit is a maximum: a list
 of two products means only two qualified, not that three products disappeared.
@@ -482,13 +507,24 @@ To correct a review, select the same date and product, choose the correct option
 
 ### Check your account or change your password
 
-1. Read **Your account** to check your email, role, and Business ID.
+1. Read **Your account** to check your email and role. Open **Store reference** if you need the Business ID.
 2. Under **Account maintenance**, enter **Current password** and **New password**. The new password must contain 12 to 128 characters.
 3. Choose **Change password**, then sign in again. Changing a password ends that account's active sessions and invalidates its earlier recovery links.
 
 Use the eye **Show / Hide** button beside either password field to check what you entered or your browser autofilled. Both fields start empty and hidden; StockCast cannot retrieve a previously saved password. Your browser may offer a matching saved password through its password manager.
 
 Use **Forgot password** on the sign-in screen if you cannot sign in. Recovery emails require the installation's email service. **Connect Google account** is available in Your account when Google sign-in has been enabled; connecting preserves your current store and role.
+
+### Check sign-in activity
+
+**Who can do this:** owner only.
+
+1. Open **Inventory > Account & settings > Sign-in activity**.
+2. Read the member's name, email, role, **Signed in** or **Signed out** action, and date/time. Times follow the store timezone shown on the card.
+3. Use **Search team activity** to find a name or email, and **Activity type** to show sign-ins, sign-outs, or both. These filters search all saved events.
+4. Choose **Load older activity** for earlier entries, or **Refresh activity** for the newest matching events. The count tells you how many events are loaded.
+
+The log shows saved sign-ins and uses of **Sign out**, including older entries when available. Closing the browser is not recorded as signing out. If activity history is unavailable, contact your administrator.
 
 ### Invite staff to this store
 
@@ -507,9 +543,9 @@ Use **Disable** to stop a staff member's access; it also ends their active sessi
 
 **Who can do this:** owner only.
 
-1. Find the **Store & model settings** card in Account & settings.
+1. Find the **Store & forecast settings** card in Account & settings.
 2. Review the store name, location, forecast horizon, and cover days after delivery. For the forecast horizon, choose a suggestion or type a whole number from 1 to 365 future days. A warning appears if the number is invalid; correct it before saving. This does not limit how many years of past sales the model can learn from. You can also type a whole number of cover days (zero or more), or choose a suggested value.
-3. Find **Advanced forecasting settings** if you need the Moving Average window or ML product limit. Moving Average offers **3, 7, 14, 28, and 30 days**.
+3. Find **Advanced forecasting settings** if you need the Moving Average window or Forecast product limit. Moving Average offers **3, 7, 14, 28, and 30 days**.
 4. Check the saved-window status below the Moving Average control, then choose **Save settings**. Selecting a value alone does not save it.
 5. Open **Forecasts**, choose **Refresh forecasts**, and wait for completion. Saving settings or reloading the browser alone does not start training. While a replacement runs, the previous result keeps its original window and scores.
 
@@ -519,7 +555,7 @@ The ML product limit is a maximum; increasing it does not make products with ins
 
 People using the same running StockCast website and the same store share its saved business records. Different owner stores remain separate. Independent laptop installations have their own databases; copying the application files does not copy another laptop's saved records.
 
-**Test records** identifies a store using demonstration data. Renaming that store does not turn its records into client evidence. Choose the appropriate record type when creating a store and use only authorized real business records for actual business work.
+New accounts start with an empty business store. **Demo store · Test records** identifies an existing demonstration store; its records remain separate from real business records.
 
 ## Complete the evaluation form
 
@@ -530,10 +566,10 @@ People using the same running StockCast website and the same store share its sav
 1. Rate the statements based on your actual experience. Choose from **Strongly disagree** to **Strongly agree**, or **Not applicable** for a feature you have not used.
 2. Choose **Save draft** if you want to continue later in this browser and account.
 3. Review your answers before choosing **Submit**. A final submission cannot be edited, and each account can submit once per questionnaire version.
-4. Wait for **Final submission saved to the server**, then check the submitted feedback below.
+4. Wait for **Feedback submitted**, then check the submitted feedback below.
 5. Use **Refresh submitted feedback** to read the saved result again. Owners can choose **Download submitted CSV** for the store's submissions.
 
-Save draft stores answers only in this browser; it does not submit feedback. Staff can view their own submission; owners can view their store's summaries. Unanswered and Not applicable items are excluded from rating averages. Feedback from demonstration records is labelled **Test feedback**. The browser-only demonstration can save drafts but cannot submit a final server record.
+Save draft keeps answers on this device; it does not submit feedback. Staff can view their own submission; owners can view their store's summaries. Unanswered and Not applicable items are excluded from rating averages. Feedback from demonstration records is labelled **Test feedback**. Demo mode supports drafts only.
 
 ## Get help with a problem
 

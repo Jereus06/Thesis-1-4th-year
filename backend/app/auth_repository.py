@@ -4,6 +4,9 @@ Existing inventory and forecast operations remain in Repository. Public signups
 reserve an email across businesses without changing historical email constraints.
 """
 
+import base64
+import binascii
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -68,23 +71,136 @@ class AuthRepository(Repository):
         ).fetchone()
         return self._principal(row) if row else None
 
-    def issue_session(self, user: Principal, hours: int) -> tuple[str, str, Principal]:
+    def issue_session(
+        self, user: Principal, hours: int, *, record_sign_in: bool = True
+    ) -> tuple[str, str, Principal]:
         # Recheck membership before creating a session, including after OAuth.
-        row = self.conn.execute(
-            """SELECT u.* FROM users u JOIN businesses b ON b.id=u.business_id
-               WHERE u.id=%s AND u.business_id=%s AND u.is_active AND b.is_active""",
-            (user.user_id, user.business_id),
-        ).fetchone()
-        if not row:
-            raise HTTPException(401, "Sign in is required")
-        session, csrf = new_token(), new_token()
-        expires = datetime.now(UTC) + timedelta(hours=hours)
+        with self.conn.transaction():
+            row = self.conn.execute(
+                """SELECT u.* FROM users u JOIN businesses b ON b.id=u.business_id
+                   WHERE u.id=%s AND u.business_id=%s AND u.is_active AND b.is_active""",
+                (user.user_id, user.business_id),
+            ).fetchone()
+            if not row:
+                raise HTTPException(401, "Sign in is required")
+            session, csrf = new_token(), new_token()
+            expires = datetime.now(UTC) + timedelta(hours=hours)
+            self.conn.execute(
+                """INSERT INTO sessions(user_id,token_hash,csrf_token_hash,expires_at)
+                   VALUES(%s,%s,%s,%s)""",
+                (row["id"], token_hash(session), token_hash(csrf), expires),
+            )
+            signed_in_user = self._principal(row)
+            if record_sign_in:
+                self._record_account_activity(signed_in_user, "signed_in")
+            return session, csrf, signed_in_user
+
+    def _record_account_activity(self, user: Principal, event: str) -> None:
         self.conn.execute(
-            """INSERT INTO sessions(user_id,token_hash,csrf_token_hash,expires_at)
-               VALUES(%s,%s,%s,%s)""",
-            (row["id"], token_hash(session), token_hash(csrf), expires),
+            """INSERT INTO account_activity_events
+               (business_id,user_id,display_name,email,role,event)
+               VALUES(%s,%s,%s,%s,%s,%s)""",
+            (user.business_id, user.user_id, user.display_name, user.email, user.role, event),
         )
-        return session, csrf, self._principal(row)
+
+    def sign_out(self, session: str) -> None:
+        with self.conn.transaction():
+            row = self.conn.execute(
+                """DELETE FROM sessions s USING users u
+                   WHERE s.token_hash=%s AND u.id=s.user_id
+                   RETURNING u.id,u.business_id,u.display_name,u.email,u.role""",
+                (token_hash(session),),
+            ).fetchone()
+            if row:
+                self._record_account_activity(self._principal(row), "signed_out")
+
+    def account_activity(
+        self,
+        owner: Principal,
+        *,
+        limit: int = 50,
+        before: str | None = None,
+        event: str | None = None,
+        search: str | None = None,
+    ) -> dict[str, Any]:
+        if owner.role != "owner":
+            raise HTTPException(403, "Owner role required")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise HTTPException(422, "Activity limit must be between 1 and 100")
+        if event is not None and (
+            not isinstance(event, str) or event not in {"signed_in", "signed_out"}
+        ):
+            raise HTTPException(422, "Unsupported account activity event")
+        if search is not None and (not isinstance(search, str) or len(search) > 160):
+            raise HTTPException(422, "Activity search must contain at most 160 characters")
+
+        clauses = ["business_id=%s"]
+        params: list[Any] = [owner.business_id]
+        if event is not None:
+            clauses.append("event=%s")
+            params.append(event)
+        if search and search.strip():
+            # Literal substring matching also keeps SQL wildcard input literal.
+            clauses.append(
+                "(strpos(lower(display_name),lower(%s))>0 OR strpos(lower(email),lower(%s))>0)"
+            )
+            params.extend([search.strip(), search.strip()])
+        if before is not None:
+            try:
+                if not isinstance(before, str) or not 1 <= len(before) <= 1024:
+                    raise ValueError("Invalid cursor length")
+                encoded = before.encode("ascii")
+                decoded = base64.b64decode(
+                    encoded + b"=" * (-len(encoded) % 4), altchars=b"-_", validate=True
+                )
+                cursor = json.loads(decoded)
+                if not isinstance(cursor, dict) or set(cursor) != {"occurredAt", "id"}:
+                    raise ValueError("Invalid cursor fields")
+                if not isinstance(cursor["occurredAt"], str) or not isinstance(
+                    cursor["id"], str
+                ):
+                    raise ValueError("Invalid cursor values")
+                occurred_at = datetime.fromisoformat(cursor["occurredAt"])
+                if occurred_at.tzinfo is None:
+                    raise ValueError("Cursor timestamp requires a timezone")
+                cursor_id = UUID(cursor["id"])
+                occurred_at = occurred_at.astimezone(UTC)
+            except (ValueError, TypeError, UnicodeError, binascii.Error, OverflowError) as error:
+                raise HTTPException(422, "Account activity cursor is invalid") from error
+            clauses.append("(occurred_at,id)<(%s,%s)")
+            params.extend([occurred_at, cursor_id])
+        params.append(limit + 1)
+        rows = self.conn.execute(
+            """SELECT id,business_id,user_id,display_name,email,role,event,occurred_at
+               FROM account_activity_events WHERE """
+            + " AND ".join(clauses)
+            + " ORDER BY occurred_at DESC,id DESC LIMIT %s",
+            params,
+        ).fetchall()
+        visible = rows[:limit]
+        events = [
+            {
+                "id": str(row["id"]),
+                "businessId": str(row["business_id"]),
+                "userId": str(row["user_id"]),
+                "displayName": row["display_name"],
+                "email": row["email"],
+                "role": row["role"],
+                "event": row["event"],
+                "occurredAt": row["occurred_at"].astimezone(UTC).isoformat(),
+            }
+            for row in visible
+        ]
+        next_cursor = None
+        if len(rows) > limit:
+            last = events[-1]
+            cursor_payload = json.dumps(
+                {"occurredAt": last["occurredAt"], "id": last["id"]}, separators=(",", ":")
+            ).encode("utf-8")
+            next_cursor = (
+                base64.urlsafe_b64encode(cursor_payload).rstrip(b"=").decode("ascii")
+            )
+        return {"events": events, "nextCursor": next_cursor}
 
     def email_exists(self, email: str) -> bool:
         return (

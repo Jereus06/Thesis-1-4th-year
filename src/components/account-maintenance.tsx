@@ -167,10 +167,7 @@ export function AccountMaintenance() {
     <div className="grid gap-4 rounded-xl border border-border p-4">
       <div>
         <p className="font-medium">Account maintenance</p>
-        <p className="text-sm text-muted">
-          Changing your password ends every active session. Recovery and invitation links are
-          single-use and expire.
-        </p>
+        <p className="text-sm text-muted">Changing your password signs you out on all devices.</p>
       </div>
       <form onSubmit={changePassword} className="grid gap-3">
         <input
@@ -250,7 +247,7 @@ export function AccountMaintenance() {
         <>
           <div className="border-t border-border pt-4">
             <p className="font-medium">Invite staff</p>
-            <p className="text-sm text-muted">Requires private SMTP configuration on the server.</p>
+            <p className="text-sm text-muted">Invite a staff member to join your store by email.</p>
           </div>
           <form onSubmit={invite} className="grid gap-3">
             <fieldset disabled={busy} className="grid gap-2 sm:grid-cols-2">

@@ -60,28 +60,23 @@ export function AccountAccessCard() {
             <dt className="text-muted">Access</dt>
             <dd className="capitalize">{session.role}</dd>
           </div>
-          <div>
-            <dt className="text-muted">Business ID</dt>
-            <dd className="break-all font-mono text-xs">{session.businessId}</dd>
-          </div>
         </dl>
+        <details className="text-sm">
+          <summary className="cursor-pointer text-muted">Store reference</summary>
+          <dl className="mt-2">
+            <dt className="text-xs text-muted">Business ID</dt>
+            <dd className="mt-1 break-all font-mono text-xs">{session.businessId}</dd>
+          </dl>
+        </details>
         {options?.googleEnabled && (
           <>
-            <p className="text-sm text-muted">
-              Connect your Google account so you can use Continue with Google next time. Your store
-              and account permissions stay with this account.
-            </p>
+            <p className="text-sm text-muted">Connect your Google account for quicker sign-in.</p>
             <GoogleAuthButton
               label="Connect Google account"
               onClick={() => void connectGoogle()}
               busy={busy}
             />
           </>
-        )}
-        {options && !options.googleEnabled && (
-          <p className="text-sm text-muted">
-            Google sign-in has not been enabled by this installation's administrator.
-          </p>
         )}
         {error && (
           <p role="alert" className="text-sm text-danger">

@@ -132,8 +132,7 @@ export function CsvImportReview({
     <div className="grid gap-4 rounded-xl border border-border p-3" aria-label="CSV import setup">
       <p className="font-medium">Automatic CSV preview</p>
       <p className="text-sm text-muted">
-        StockCast reads the columns it needs, matches existing products, and leaves extra columns
-        out. The converted records are shown below. Adjust import is optional.
+        Review the matched products below. Use Adjust import if anything needs changing.
       </p>
       <p className="text-xs text-muted" aria-label="CSV formats used">
         {kind === "sales" &&
@@ -465,9 +464,7 @@ export function CsvImportReview({
         </div>
       )}
       <p className="text-xs text-muted">
-        Converted preview shows at most the first 50 data records; long text is shortened for
-        display. Required values are checked throughout the file. Unreadable values are blank in
-        this preview.
+        Preview shows up to 50 rows; long text is shortened. All rows are checked before upload.
       </p>
       {(guide.configurationErrors.length > 0 || guide.issueCount > 0) && (
         <details className="rounded-lg border border-border p-3">

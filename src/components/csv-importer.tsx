@@ -536,11 +536,10 @@ export function CsvImporter(props: ImporterProps) {
           <summary className="cursor-pointer text-sm">View original file</summary>
           <p className="text-xs text-muted">
             {summary.previewTruncated
-              ? `Truncated preview: first ${summary.preview.length} of ${summary.logicalRecordCount.toLocaleString()} logical CSV records (including any header).`
-              : `Preview: all ${summary.logicalRecordCount.toLocaleString()} logical CSV records (including any header).`}{" "}
-            The complete file is retained for import.
+              ? `Preview: first ${summary.preview.length} of ${summary.logicalRecordCount.toLocaleString()} rows, including the header.`
+              : `Preview: all ${summary.logicalRecordCount.toLocaleString()} rows, including the header.`}
             {summary.previewValuesTruncated &&
-              " Long preview values or extra columns are shortened; original values are retained."}
+              " Long text and extra columns are shortened in this preview."}
           </p>
           <div className="max-h-72 overflow-auto rounded-lg border border-border">
             <table className="w-full text-left font-mono text-xs" aria-label="Uploaded CSV preview">
@@ -570,13 +569,7 @@ export function CsvImporter(props: ImporterProps) {
       )}
       <p className="text-xs text-muted">
         Maximum {CSV_MAX_SOURCE_BYTES / (1024 * 1024)} MiB per file or pasted CSV.
-        {rowLimit !== null && (
-          <>
-            {" "}
-            Maximum {rowLimit.toLocaleString()} data rows per import. Sources within the size limit
-            but above the row limit can be previewed; no rows are submitted.
-          </>
-        )}
+        {rowLimit !== null && <> Maximum {rowLimit.toLocaleString()} data rows per import.</>}
       </p>
     </div>
   );

@@ -125,6 +125,14 @@ stores checksums, and rejects changes to previously applied migration files.
 
 ## Authentication contract
 
+Owner-only `GET /api/v1/auth/activity` reads durable sign-in/sign-out events for the authenticated
+owner's business, with literal actor search, event filters, and bounded cursor pagination.
+Migration `010_account_activity` adds the event table without changing migrations 001-009.
+Successful session starts and explicit session deletion each save their event atomically;
+Google linking, expiry, recovery, and deactivation do not create false access events. History
+begins when logging is enabled. The owner interface is Inventory > Account & settings >
+Sign-in activity. See the [account activity contract](docs/ACCOUNT_ACTIVITY_CONTRACT.md).
+
 `GET /api/v1/auth/members` authenticates the session cookie and lists only the owner's business.
 It does not require a CSRF header, matching the browser's authenticated read requests. Staff are
 denied owner management. Account mutations, including staff activation/deactivation, password

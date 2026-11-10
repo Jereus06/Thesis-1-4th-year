@@ -831,7 +831,7 @@ export function validateGuidedCsv(
     const text = (key: string, max: number) =>
       check(key, () => {
         const raw = value(key);
-        if (!raw) throw new Error("Required value is missing; no default has been invented.");
+        if (!raw) throw new Error("Required value is missing.");
         if (Array.from(raw).length > max) throw new Error(`Allows at most ${max} characters.`);
         return raw;
       });

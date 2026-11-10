@@ -100,12 +100,12 @@ function Overview() {
         />
         <Kpi
           icon={Scale}
-          label={ready ? `${winner} MAE` : "Holdout MAE"}
+          label={ready ? `${winner} MAE` : "Forecast error"}
           value={ready ? (Number.isFinite(winnerMae) ? metric(winnerMae) : "") : null}
           hint={
             mixedUnits
               ? "Choose a product in Forecasts to see its score"
-              : "Same holdout for MA, XGBoost, and ensemble"
+              : "Average error in past sales estimates"
           }
           action={
             <Button size="sm" className="mt-2 h-7 gap-1 px-2 text-xs" asChild>
@@ -121,7 +121,7 @@ function Overview() {
           value={result ? (hasDisplayedHorizon ? `${displayedHorizon} days` : "Unavailable") : null}
           hint={
             result
-              ? `${result.diagnostics.trainedProductCount} ML SKUs · top ${result.diagnostics.topN}`
+              ? `${result.diagnostics.trainedProductCount} products using XGBoost`
               : "Waiting for forecasts"
           }
           action={
@@ -142,9 +142,6 @@ function Overview() {
           <CardHeader className="flex flex-row items-start justify-between gap-3">
             <div>
               <CardTitle>Restock queue</CardTitle>
-              <CardDescription>
-                Reorder point = forecasted demand during lead time + safety stock.
-              </CardDescription>
             </div>
             <Button variant="ghost" size="sm" asChild>
               <Link to="/restock">
@@ -169,7 +166,7 @@ function Overview() {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{row.product.name}</p>
                     <p className="text-xs text-muted">
-                      On hand {num(row.product.currentStock)} {row.product.unit} · ROP{" "}
+                      On hand {num(row.product.currentStock)} {row.product.unit} · threshold{" "}
                       {num(Math.ceil(row.reorderPoint))} · order {num(row.reorderQty)}
                     </p>
                   </div>
@@ -187,7 +184,7 @@ function Overview() {
                     : unavailableCount
                       ? "Current reorder advice is unavailable for part of the catalog. Check Forecasts before planning restocks."
                       : zeroDemand.length === available.length && available.length > 0
-                        ? "Usable observations show zero demand. Days of cover cannot be calculated from a zero estimate."
+                        ? "No sales are currently expected. How long stock will last cannot be estimated."
                         : "No current reorder recommendations. Check the watch list before planning purchases."}
               </p>
             )}
@@ -196,8 +193,8 @@ function Overview() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Model comparison</CardTitle>
-            <CardDescription>XGBoost is not assumed to win.</CardDescription>
+            <CardTitle>Forecast accuracy</CardTitle>
+            <CardDescription>Lower error means closer estimates.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {!ready || !result ? (
@@ -243,7 +240,10 @@ function Overview() {
                     RMSE.
                   </p>
                 )}
-                <p className="text-xs text-muted">{result?.diagnostics.disclaimer ?? DISCLAIMER}</p>
+                <p className="text-xs text-muted">
+                  {mode === "browser-demo" ? "Sample data for demonstration. " : ""}
+                  {DISCLAIMER}
+                </p>
               </>
             )}
             <Button variant="outline" asChild className="w-full">

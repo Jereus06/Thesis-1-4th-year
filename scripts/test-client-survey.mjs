@@ -399,7 +399,7 @@ test("Save draft is local; failed durable submission retains frozen answers and 
   await h.ready();
   assert.equal(h.calls.submitSurvey.length, 2);
   assert.equal(JSON.stringify(h.calls.submitSurvey[1][1]), JSON.stringify(attempted));
-  assert.ok(h.text().includes("Final submission saved to the server"));
+  assert.ok(h.text().includes("Feedback submitted."));
   assert.equal(h.button("Already submitted").props.disabled, true);
   h.unmount();
 });
@@ -414,10 +414,8 @@ test("owner summary/CSV and server means remain separate from staff own feedback
   const owner = await mount({ overrides: { surveySummary: () => authoritative } });
   await owner.ready();
   assert.ok(owner.text().includes("Weighted mean 3.00 / 5"));
-  assert.ok(
-    owner.text().includes("0 rated, 0 Not applicable, 12 unanswered in your browser draft"),
-  );
-  assert.ok(owner.text().includes("1 test submissions"));
+  assert.ok(owner.text().includes("0 rated, 0 Not applicable, 12 unanswered"));
+  assert.ok(owner.text().includes("1 test responses"));
   assert.ok(
     owner
       .nodes()
@@ -433,7 +431,7 @@ test("owner summary/CSV and server means remain separate from staff own feedback
   const demo = await mount({ mode: "browser-demo" });
   assert.equal(demo.button("Submit").props.disabled, true);
   assert.equal(demo.calls.surveySummary.length, 0);
-  assert.ok(demo.text().includes("Server collection and submission are unavailable"));
+  assert.ok(demo.text().includes("Demo mode: you can save a draft, but cannot submit feedback."));
   demo.unmount();
 });
 
@@ -475,7 +473,7 @@ test("a committed submission stays final when its summary refresh fails", async 
   h.answer("fs_1", "4");
   h.button("Submit").props.onClick();
   await h.ready();
-  assert.ok(h.text().includes("Final submission saved to the server"));
+  assert.ok(h.text().includes("Feedback submitted."));
   assert.ok(h.text().includes("Summary refresh unavailable"));
   assert.equal(h.button("Already submitted").props.disabled, true);
   assert.equal(h.calls.submitSurvey.length, 1);
@@ -507,7 +505,7 @@ test("blocked browser storage retains answers on-page; an account change suppres
   h.state.session = { ...session, role: "staff" };
   pending.resolve(submission(attempted));
   await h.ready();
-  assert.equal(h.text().includes("Final submission saved to the server"), false);
+  assert.equal(h.text().includes("Feedback submitted."), false);
   assert.equal(h.notices.length, 0);
   h.unmount();
 });
@@ -522,10 +520,9 @@ test("an earlier demo-origin final record remains test feedback after current bu
     overrides: { surveySubmissions: () => [final], surveySummary: () => statistics },
   });
   await h.ready();
-  assert.ok(
-    h.text().includes("Aggregates containing test feedback are not actual client findings"),
-  );
-  assert.ok(h.text().includes("Test feedback. Server time: 2026-10-05T08:00:00Z"));
+  assert.ok(h.text().includes("These averages include test feedback."));
+  assert.ok(h.text().includes("Test feedback."));
+  assert.ok(h.text().includes(new Date(final.submittedAt).toLocaleString()));
   assert.equal(h.button("Already submitted").props.disabled, true);
   h.unmount();
 });

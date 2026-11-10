@@ -27,7 +27,7 @@ const server = await createServer({
       "zustand/middleware",
     ],
   },
-  server: { host: "127.0.0.1", port: 5199, strictPort: true },
+  server: { host: "127.0.0.1", port: 5199, strictPort: true, hmr: false, watch: null },
 });
 const origin = "http://127.0.0.1:5199";
 const owner = {
@@ -50,6 +50,13 @@ const requests = [];
 const replies = new Map();
 const pendingGates = [];
 let currentSession = null;
+let pendingGoogle = null;
+let currentBusiness = {
+  id: owner.businessId,
+  name: "Synthetic Auth Store",
+  location: "Synthetic test setting",
+  dataOrigin: "demo",
+};
 let failNextSettingsRead = false;
 let browser;
 let page;
@@ -108,8 +115,23 @@ try {
       if (reply.gate) await reply.gate.promise;
       if (reply.status >= 400)
         return failure(reply.status, reply.message ?? "Synthetic request failure");
-      if (["/auth/sign-in", "/auth/sign-up", "/auth/staff/invitations/accept"].includes(path))
+      if (
+        [
+          "/auth/sign-in",
+          "/auth/sign-up",
+          "/auth/google/complete",
+          "/auth/staff/invitations/accept",
+        ].includes(path)
+      )
         currentSession = reply.data;
+      if (["/auth/sign-up", "/auth/google/complete"].includes(path))
+        currentBusiness = {
+          id: owner.businessId,
+          name: body.businessName,
+          location: body.businessLocation ?? null,
+          dataOrigin: body.dataOrigin,
+        };
+      if (path === "/auth/google/complete") pendingGoogle = null;
       if (["/auth/sign-out", "/auth/password/recovery/complete"].includes(path))
         currentSession = null;
       return json(reply.data, reply.status);
@@ -117,14 +139,8 @@ try {
     if (path === "/auth/me")
       return currentSession ? json(currentSession) : failure(401, "Sign in is required");
     if (path === "/auth/options") return json({ signUpEnabled: true, googleEnabled: false });
-    if (path === "/auth/google/pending") return json(null);
-    if (path === `/businesses/${owner.businessId}`)
-      return json({
-        id: owner.businessId,
-        name: "Synthetic Auth Store",
-        location: "Synthetic test setting",
-        dataOrigin: "demo",
-      });
+    if (path === "/auth/google/pending") return json(pendingGoogle);
+    if (path === `/businesses/${owner.businessId}`) return json(currentBusiness);
     if (
       path.endsWith("/products") ||
       path.endsWith("/sales") ||
@@ -148,6 +164,8 @@ try {
         timezone: "Asia/Manila",
       });
     }
+    if (path.endsWith("/forecast-status"))
+      return json({ revision: "synthetic-auth-stable-revision" });
     if (path.endsWith("/forecast-dashboard"))
       return json({
         stale: false,
@@ -323,8 +341,23 @@ try {
   await signup.getByLabel("Your name", { exact: true }).fill("Synthetic Auth Owner");
   await signup.getByLabel("Email", { exact: true }).fill(owner.email);
   await signup.getByLabel("Password", { exact: true }).fill(password);
-  await signup.getByLabel("Confirm password", { exact: true }).fill(`${password} mismatch`);
+  await signup.getByLabel("Confirm password", { exact: true }).fill(password);
   await signup.getByLabel("Store name", { exact: true }).fill("Synthetic Auth Store");
+  assert.equal(await signup.locator("select").count(), 0);
+  assert.equal(await signup.getByText("Test records", { exact: true }).count(), 0);
+  assert.equal(await signup.getByText("Records you plan to use", { exact: true }).count(), 0);
+  const permission = signup.getByRole("checkbox", {
+    name: "I have permission to manage this store's records.",
+  });
+  assert.equal(await permission.isChecked(), false);
+  await signup.getByRole("button", { name: "Create my store", exact: true }).click();
+  assert.equal(count("/auth/sign-up"), 0);
+  assert.equal(await permission.evaluate((input) => input.validity.valueMissing), true);
+  passed(
+    "Account creation has no test-record selector and requires an unchecked store-permission confirmation before sending any request.",
+  );
+  await permission.check();
+  await signup.getByLabel("Confirm password", { exact: true }).fill(`${password} mismatch`);
   await signup.getByRole("button", { name: "Create my store", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: "Passwords do not match." }).waitFor();
   assert.equal(count("/auth/sign-up"), 0);
@@ -333,16 +366,6 @@ try {
   );
 
   await signup.getByLabel("Confirm password", { exact: true }).fill(password);
-  await signup.getByLabel("Records you plan to use", { exact: true }).selectOption("partner");
-  await signup.getByRole("button", { name: "Create my store", exact: true }).click();
-  assert.equal(
-    count("/auth/sign-up"),
-    0,
-    "Real-business provenance requires explicit authorization",
-  );
-  await signup
-    .getByRole("checkbox", { name: "I have permission to store this business's records." })
-    .check();
   queue("/auth/sign-up", { status: 409, message: "Synthetic account already exists." });
   await signup.getByRole("button", { name: "Create my store", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: "Synthetic account already exists." }).waitFor();
@@ -358,7 +381,6 @@ try {
     "Real-business signup requires permission; a server rejection preserves store details and unlocks retry.",
   );
 
-  await signup.getByLabel("Records you plan to use", { exact: true }).selectOption("demo");
   const signupGate = deferred();
   const beforeSignup = count("/auth/sign-up");
   const signupReceived = queue("/auth/sign-up", { data: owner, status: 201, gate: signupGate });
@@ -366,11 +388,28 @@ try {
   await page.getByRole("button", { name: /Creating your store/ }).waitFor();
   await signupReceived;
   assert.equal(count("/auth/sign-up"), beforeSignup + 1);
+  assert.deepEqual(requests.at(-1).body, {
+    businessName: "Synthetic Auth Store",
+    dataOrigin: "partner",
+    displayName: "Synthetic Auth Owner",
+    email: owner.email,
+    password,
+  });
   assert.equal(await signup.getByLabel("Store name", { exact: true }).isDisabled(), true);
   signupGate.resolve();
   await page.getByRole("button", { name: "Sign out", exact: true }).waitFor();
+  const newStore = await page.evaluate(async () => {
+    const state = (await import("/src/lib/store.ts")).useAppStore.getState();
+    return {
+      origin: state.dataOrigin,
+      products: state.products.length,
+      sales: state.sales.length,
+      movements: state.inventoryMovements.length,
+    };
+  });
+  assert.deepEqual(newStore, { origin: "partner", products: 0, sales: 0, movements: 0 });
   passed(
-    "Account creation locks its fields, sends one request for rapid submits and opens the returned empty store.",
+    "Account creation locks its fields, sends one partner-store request for rapid submits and opens the returned empty catalog without adding sample records.",
   );
   await signOutSuccessfully();
 
@@ -380,6 +419,8 @@ try {
   await signup.getByLabel("Password", { exact: true }).fill(password);
   await signup.getByLabel("Confirm password", { exact: true }).fill(password);
   await signup.getByLabel("Store name", { exact: true }).fill("Synthetic Created Once Store");
+  assert.equal(await permission.isChecked(), false);
+  await permission.check();
   const beforeCreatedOnce = count("/auth/sign-up");
   queue("/auth/sign-up", { data: owner, status: 201 });
   failNextSettingsRead = true;
@@ -400,6 +441,61 @@ try {
   );
   passed(
     "A saved signup followed by a failed store read clears secrets, reports that the account exists and recovers on reload without repeating account creation.",
+  );
+  await signOutSuccessfully();
+
+  pendingGoogle = { email: "google-owner@example.test", displayName: "Synthetic Google Owner" };
+  await navigate();
+  const googleSetup = page.locator("#store-setup-form");
+  await googleSetup.waitFor();
+  assert.equal(await googleSetup.locator("select").count(), 0);
+  assert.equal(await googleSetup.locator('input[type="password"]').count(), 0);
+  await googleSetup.getByLabel("Store name", { exact: true }).fill("  Synthetic Google Store  ");
+  await googleSetup.getByLabel("Store location", { exact: false }).fill("  Synthetic location  ");
+  const googlePermission = googleSetup.getByRole("checkbox", {
+    name: "I have permission to manage this store's records.",
+  });
+  assert.equal(await googlePermission.isChecked(), false);
+  await googleSetup.getByRole("button", { name: "Create my store", exact: true }).click();
+  assert.equal(count("/auth/google/complete"), 0);
+  await googlePermission.check();
+  queue("/auth/google/complete", {
+    status: 409,
+    message: "Synthetic store setup could not finish.",
+  });
+  await googleSetup.getByRole("button", { name: "Create my store", exact: true }).click();
+  await page
+    .getByRole("alert")
+    .filter({ hasText: "Synthetic store setup could not finish." })
+    .waitFor();
+  assert.equal(
+    await googleSetup.getByLabel("Store name", { exact: true }).inputValue(),
+    "  Synthetic Google Store  ",
+  );
+  assert.equal(
+    await googleSetup.getByRole("button", { name: "Create my store", exact: true }).isEnabled(),
+    true,
+  );
+  const googleGate = deferred();
+  const beforeGoogleSetup = count("/auth/google/complete");
+  const googleReceived = queue("/auth/google/complete", {
+    data: owner,
+    status: 201,
+    gate: googleGate,
+  });
+  await doubleSubmit(googleSetup);
+  await googleReceived;
+  assert.equal(count("/auth/google/complete"), beforeGoogleSetup + 1);
+  assert.deepEqual(requests.at(-1).body, {
+    businessName: "Synthetic Google Store",
+    businessLocation: "Synthetic location",
+    dataOrigin: "partner",
+  });
+  assert.equal(await googleSetup.getByLabel("Store name", { exact: true }).isDisabled(), true);
+  googleGate.resolve();
+  await page.getByRole("button", { name: "Sign out", exact: true }).waitFor();
+  passed(
+    "First Google store setup removes test-mode choices, requires permission, preserves details after rejection and sends one partner-store request with trimmed store details on retry.",
   );
   await signOutSuccessfully();
 
@@ -474,6 +570,11 @@ try {
 
   await navigate("/?reset=synthetic-reset-token-with-sufficient-length");
   await page.getByRole("heading", { name: "Choose a new password", exact: true }).waitFor();
+  await page.waitForFunction(() => !new URL(location.href).searchParams.has("reset"));
+  await page.evaluate(async () => {
+    const { useAppStore } = await import("/src/lib/store.ts");
+    useAppStore.setState({ apiError: "Synthetic rerender after removing the reset URL token" });
+  });
   const tokenForm = () =>
     page.locator("form").filter({ has: page.getByLabel("New password", { exact: true }) });
   await tokenForm().getByLabel("New password", { exact: true }).fill(password);
@@ -578,6 +679,11 @@ try {
       dimensions.body <= dimensions.viewport + 1,
       `${screen} must not overflow at 320px: ${JSON.stringify(dimensions)}`,
     );
+    if (screen === "sign-up")
+      await page.screenshot({
+        path: resolve(output, "auth-mobile-sign-up-passed.png"),
+        fullPage: true,
+      });
   }
   passed(
     "Sign-in, account creation and password recovery fit a 320-pixel mobile viewport without horizontal scrolling.",

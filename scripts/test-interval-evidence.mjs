@@ -90,20 +90,17 @@ test("available intervals show saved calibration evidence and measured coverage 
     "Forecast range available",
     "10 observations",
     "2026-08-21 to 2026-08-30",
-    "Validation residual quantiles for Ensemble",
     "80% target",
     "75.0% of actual sales inside the bounds",
-    "20 final-test observations",
-    "Method selection records",
-    "-3.00 to 2.00 units",
-    "Fixed 10th and 90th residual offsets",
-    "clipped at zero",
-    "observed sales, not unmet demand",
-    "does not guarantee future coverage",
-    "never tune these bounds",
+    "20 tested sales records",
+    "Future sales may fall outside this range",
+    "Sales during stockouts may understate demand",
   ])
     assert.ok(html.includes(expected), expected);
-  assert.doesNotMatch(html, /not been calibrated|probability of correctness/);
+  assert.doesNotMatch(
+    html,
+    /not been calibrated|probability of correctness|residual|Method selection records|Range calculation|Saved error adjustments/,
+  );
 });
 
 test("insufficient calibration remains explicitly unavailable without inventing evidence", () => {
@@ -121,8 +118,7 @@ test("insufficient calibration remains explicitly unavailable without inventing 
     "Not enough records to estimate a range",
     "0 observations",
     "at least 10 required",
-    "Not saved / no calibration sample",
-    "Method not saved",
+    "Dates unavailable",
     "Target not saved",
     "Past test coverage",
     "Not available",
@@ -135,7 +131,7 @@ test("insufficient calibration remains explicitly unavailable without inventing 
 test("legacy bounds do not establish calibration when metadata is missing", () => {
   const html = renderEvidence(forecast({ interval: undefined }));
   assert.match(html, /Forecast range could not be checked/);
-  assert.match(html, /Existing bounds alone do not establish calibrated coverage/);
+  assert.match(html, /This range has not been checked against past sales/);
   assert.doesNotMatch(html, /Validation-calibrated|80% target|10 observations/);
   assert.doesNotMatch(html, /Calibration uses separate late-validation/);
 });
@@ -151,7 +147,7 @@ test("unfamiliar saved protocols do not inherit the current calibration method o
     }),
   );
   assert.match(html, /Forecast range unavailable/);
-  assert.match(html, /calibration protocol is not saved or recognized/);
+  assert.match(html, /Range accuracy could not be verified/);
   assert.doesNotMatch(
     html,
     /Calibration uses separate late-validation|at least 10 required|80% target/,
@@ -161,7 +157,7 @@ test("unfamiliar saved protocols do not inherit the current calibration method o
 test("baseline forecasts distinguish missing intervals from missing point forecasts", () => {
   const html = renderEvidence(forecast({ trainedWithMl: false, interval: undefined }));
   assert.match(html, /Forecast range unavailable/);
-  assert.match(html, /point forecast can still be available without an interval/);
+  assert.match(html, /A sales estimate may be available even when a range is unavailable/);
 });
 
 test("expired future intervals retain archived calibration evidence", () => {
@@ -210,7 +206,7 @@ test("calibration availability and missing current bounds remain separate", () =
 test("browser bands stay illustrative even if a fixture has saved calibration metadata", () => {
   const html = renderEvidence(forecast(), "browser-demo");
   assert.match(html, /Demo forecast range/);
-  assert.match(html, /has not been validated and does not guarantee future sales/);
+  assert.match(html, /Sample range for demonstration; accuracy has not been checked/);
   assert.doesNotMatch(html, /80% target|10 observations|75\.0% of actual/);
   assert.equal(
     intervalAvailability(

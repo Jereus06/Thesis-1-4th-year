@@ -9,7 +9,7 @@ from typing import Literal
 from uuid import UUID
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import EmailStr, Field, field_validator
 
@@ -226,6 +226,26 @@ def create_auth_router(repo_dependency) -> APIRouter:
     def members(request: Request, repository: AuthRepository = Depends(repo_dependency)):
         return {"data": repository.list_members(authenticated(request, repository))}
 
+    @router.get("/activity")
+    def account_activity(
+        request: Request,
+        response: Response,
+        limit: int = Query(default=50, ge=1, le=100),
+        before: str | None = Query(default=None, min_length=1, max_length=1024),
+        event: Literal["signed_in", "signed_out"] | None = None,
+        search: str | None = Query(default=None, max_length=160),
+        repository: AuthRepository = Depends(repo_dependency),
+    ):
+        user = authenticated(request, repository)
+        if user.role != "owner":
+            raise HTTPException(403, "Owner role required")
+        response.headers["Cache-Control"] = "no-store"
+        return {
+            "data": repository.account_activity(
+                user, limit=limit, before=before, event=event, search=search
+            )
+        }
+
     @router.post("/staff/invitations", status_code=201)
     def invite_staff(
         data: StaffInvite,
@@ -398,7 +418,9 @@ def create_auth_router(repo_dependency) -> APIRouter:
                     return redirect(auth_error="google_link_expired")
                 repository.link_identity(identity["subject"], user.user_id)
                 # Refresh this authenticated user's session after the cross-site callback.
-                session, csrf, user = repository.issue_session(user, config.session_hours)
+                session, csrf, user = repository.issue_session(
+                    user, config.session_hours, record_sign_in=False
+                )
                 response = redirect(auth="google-linked")
                 set_session(response, session, csrf, config)
                 return response

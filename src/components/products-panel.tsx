@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useRef, useState, type FormEvent } from "react";
-import { Search } from "lucide-react";
+import { ChevronDown, Layers3, Package2, Plus, Search, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { ReceiveStockDialog } from "@/components/receive-stock-dialog";
 import { CsvImporter } from "@/components/csv-importer";
@@ -17,9 +17,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { num, peso } from "@/lib/format";
+import { num, peso, quantity } from "@/lib/format";
 import { CSV_API_ROW_LIMITS } from "@/lib/csv-preparation";
 import { usePermissions } from "@/lib/permissions";
+import { generateProductSku } from "@/lib/product-sku";
 import { useAppStore } from "@/lib/store";
 import type { SessionUser } from "@/lib/api";
 import type { InventoryImportRow, Product } from "@/lib/types";
@@ -101,7 +102,7 @@ export function ProductsPanel() {
   );
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
       <ImportRefreshNotice />
       {(stockRefreshError?.startsWith("Stock count saved.") ||
         stockRefreshError?.startsWith("Product saved.")) && (
@@ -109,40 +110,85 @@ export function ProductsPanel() {
           {stockRefreshError}
         </p>
       )}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative min-w-48 flex-1 sm:max-w-sm">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
-          <Input
-            className="pl-9"
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search by product, SKU, or category"
-            aria-label="Search inventory products"
-          />
+      <div className="relative overflow-hidden rounded-3xl bg-primary text-primary-foreground">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-32 -right-16 size-80 rounded-full border border-white/10"
+        />
+        <div className="relative flex flex-wrap items-center justify-between gap-5 p-5 sm:p-7">
+          <div>
+            <p className="mb-2 flex items-center gap-2 text-xs font-medium tracking-[0.18em] text-white/70 uppercase">
+              <Package2 className="size-4" aria-hidden="true" /> Product catalog
+            </p>
+            <h2 className="font-display text-3xl font-medium tracking-tight">Products</h2>
+            <p className="mt-2 text-sm text-white/75">
+              Browse your categories and keep every item up to date.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-sm">
+            <span className="rounded-xl border border-white/15 bg-white/10 px-4 py-2.5">
+              <span className="font-semibold tabular">{num(activeCount)}</span>{" "}
+              <span className="text-white/75">active</span>
+            </span>
+            <span className="rounded-xl border border-white/15 bg-white/5 px-4 py-2.5">
+              <span className="font-semibold tabular">{num(products.length - activeCount)}</span>{" "}
+              <span className="text-white/75">inactive</span>
+            </span>
+          </div>
         </div>
-        <Select
-          className="w-auto"
-          value={status}
-          onChange={(event) => setStatus(event.target.value)}
-          aria-label="Filter products by active status"
-        >
-          <option value="active">Active ({activeCount})</option>
-          <option value="inactive">Inactive ({products.length - activeCount})</option>
-          <option value="all">All products ({products.length})</option>
-        </Select>
-        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+      </div>
+      <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-border bg-surface p-4 sm:p-5">
+        <div className="grid min-w-0 flex-[1_1_18rem] gap-2">
+          <Label htmlFor="inventory-product-search" className="text-xs text-muted">
+            Find a product
+          </Label>
+          <div className="relative">
+            <Search
+              className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted"
+              aria-hidden="true"
+            />
+            <Input
+              id="inventory-product-search"
+              className="rounded-xl pl-10"
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search by product, SKU, or category"
+              aria-label="Search inventory products"
+            />
+          </div>
+        </div>
+        <div className="grid flex-[1_1_10rem] gap-2 sm:flex-none">
+          <Label htmlFor="inventory-product-status" className="text-xs text-muted">
+            Product status
+          </Label>
+          <Select
+            id="inventory-product-status"
+            className="rounded-xl sm:min-w-44"
+            value={status}
+            onChange={(event) => setStatus(event.target.value)}
+            aria-label="Filter products by active status"
+          >
+            <option value="active">Active ({activeCount})</option>
+            <option value="inactive">Inactive ({products.length - activeCount})</option>
+            <option value="all">All products ({products.length})</option>
+          </Select>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           {canImportRecords && (
             <Button
               variant="outline"
+              className="rounded-xl"
               disabled={busy}
               onClick={() => setImportOpen((value) => !value)}
             >
+              <Upload aria-hidden="true" />
               {importOpen ? "Close import" : "Import inventory"}
             </Button>
           )}
           {canManageProducts && (
-            <Button variant="outline" disabled={busy} onClick={() => setAdding(true)}>
+            <Button className="rounded-xl" disabled={busy} onClick={() => setAdding(true)}>
+              <Plus aria-hidden="true" />
               Add product
             </Button>
           )}
@@ -159,8 +205,8 @@ export function ProductsPanel() {
           </CardHeader>
           <CardContent className="grid gap-3">
             <p className="text-xs text-muted">
-              Upload your file to automatically find products and stock counts. Unused columns and
-              report rows are ignored; existing products keep their saved details by default.
+              Review products and stock counts before importing. Existing products keep their saved
+              details by default.
             </p>
             <InventoryCsvImporter
               key={session ? `${session.businessId}:${session.userId}` : "browser-demo"}
@@ -217,7 +263,7 @@ export function ProductsPanel() {
               {adding
                 ? "Add catalog details and the opening stock balance."
                 : action?.kind === "edit"
-                  ? "Maintain the product details used in your catalog and restocking decisions."
+                  ? "Update this product's catalog details."
                   : action?.kind === "count"
                     ? "Enter the verified on-hand balance. Changes are recorded as stock-count adjustments."
                     : action?.kind === "delete"
@@ -325,19 +371,28 @@ const ProductCards = memo(function ProductCards({
           />
         ));
         return (
-          <details key={group.name} className="rounded-xl border border-border">
-            <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-4 font-medium [&::-webkit-details-marker]:hidden">
-              <span>
-                {group.name}
-                <span className="ml-2 text-sm font-normal text-muted">
-                  ({group.products.length} {group.products.length === 1 ? "item" : "items"})
-                </span>
+          <details
+            key={group.name}
+            className="group/category overflow-hidden rounded-2xl border border-border bg-surface transition-colors open:border-primary/25"
+          >
+            <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl p-4 transition-colors hover:bg-primary/5 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-primary group-open/category:rounded-b-none group-open/category:bg-primary group-open/category:text-primary-foreground group-open/category:hover:bg-primary group-open/category:focus-visible:outline-white/80 sm:gap-4 sm:px-5 [&::-webkit-details-marker]:hidden">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary group-open/category:bg-white/15 group-open/category:text-white">
+                <Layers3 className="size-5" aria-hidden="true" />
               </span>
-              <span className="text-muted" aria-hidden="true">
-                ▾
+              <span className="min-w-0 flex-1 font-display text-lg font-medium break-words sm:text-xl">
+                {group.name}
+              </span>
+              <span className="shrink-0 rounded-full bg-surface-2 px-2.5 py-1 text-xs text-muted group-open/category:bg-white/15 group-open/category:text-white/90 sm:px-3">
+                {group.products.length} {group.products.length === 1 ? "item" : "items"}
+              </span>
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted group-open/category:bg-white/10 group-open/category:text-white">
+                <ChevronDown
+                  className="size-4 transition-transform duration-200 group-open/category:rotate-180 motion-reduce:transition-none"
+                  aria-hidden="true"
+                />
               </span>
             </summary>
-            <div className="grid gap-3 border-t border-border p-3">{content}</div>
+            <div className="grid gap-3 bg-primary/[0.025] p-3 sm:p-4">{content}</div>
           </details>
         );
       })}
@@ -372,38 +427,43 @@ const ProductCard = memo(function ProductCard({
   onAction: (action: ProductAction) => void;
 }) {
   return (
-    <Card>
-      <CardContent className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-center">
-        <div className="grid gap-2">
+    <Card className="shadow-none">
+      <CardContent className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center sm:p-5">
+        <div className="grid min-w-0 gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="font-medium">{product.name}</p>
+            <p className="font-medium break-words">{product.name}</p>
             <Badge variant={product.isActive === false ? "outline" : "success"}>
               {product.isActive === false ? "Inactive" : "Active"}
             </Badge>
           </div>
-          <p className="text-xs text-muted">
+          <p className="text-xs leading-relaxed break-words text-muted">
             {product.sku} · {product.category} · {peso(product.unitCost)} / {product.unit}
           </p>
-          <dl className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
-            <div>
-              <dt className="inline text-muted">On hand: </dt>
-              <dd className="inline tabular">
-                {num(product.currentStock)} {product.unit}
+          <dl className="grid grid-cols-3 gap-2 rounded-xl bg-surface-2/70 p-3 text-center text-sm">
+            <div className="min-w-0">
+              <dt className="text-xs text-muted">On hand</dt>
+              <dd className="mt-1 font-medium break-words text-primary tabular">
+                {quantity(product.currentStock)}{" "}
+                <span className="text-xs font-normal text-muted">{product.unit}</span>
               </dd>
             </div>
-            <div>
-              <dt className="inline text-muted">Lead time: </dt>
-              <dd className="inline tabular">{num(product.leadTimeDays)} days</dd>
+            <div className="min-w-0">
+              <dt className="text-xs text-muted">Lead time</dt>
+              <dd className="mt-1 font-medium tabular">
+                {num(product.leadTimeDays)}{" "}
+                <span className="text-xs font-normal text-muted">days</span>
+              </dd>
             </div>
-            <div>
-              <dt className="inline text-muted">Safety stock: </dt>
-              <dd className="inline tabular">
-                {num(product.safetyStock)} {product.unit}
+            <div className="min-w-0">
+              <dt className="text-xs text-muted">Safety stock</dt>
+              <dd className="mt-1 font-medium break-words tabular">
+                {quantity(product.safetyStock)}{" "}
+                <span className="text-xs font-normal text-muted">{product.unit}</span>
               </dd>
             </div>
           </dl>
         </div>
-        <div className="flex flex-wrap gap-2 sm:max-w-80 sm:justify-end">
+        <div className="flex flex-wrap gap-2 border-t border-border/70 pt-4 lg:max-w-80 lg:justify-end lg:border-t-0 lg:pt-0">
           {canReceiveStock && product.isActive !== false && (
             <Button variant="outline" disabled={busy} onClick={() => onDelivery(product.id)}>
               Record delivery
@@ -461,9 +521,9 @@ function ProductDetailsForm({
   const { canManageProducts } = usePermissions();
   const categories = useMemo(
     () =>
-      [...new Set(["Staples", ...products.map((item) => item.category.trim()).filter(Boolean)])].sort(
-        (a, b) => a.localeCompare(b, "en"),
-      ),
+      [
+        ...new Set(["Staples", ...products.map((item) => item.category.trim()).filter(Boolean)]),
+      ].sort((a, b) => a.localeCompare(b, "en")),
     [products],
   );
   const [draft, setDraft] = useState({
@@ -484,16 +544,29 @@ function ProductDetailsForm({
   const prefix = product?.id ?? "new-product";
   const submitting = useRef(false);
   const retry = useRef<{ signature: string; sku: string; key: string } | null>(null);
-  const edit = (key: keyof typeof draft, value: string) =>
-    setDraft((current) => ({ ...current, [key]: value }));
+  const [reservedSkus, setReservedSkus] = useState<string[]>([]);
+  const generatedSku = useMemo(
+    () => generateProductSku(draft.category, products, reservedSkus),
+    [draft.category, products, reservedSkus],
+  );
+  const displayedSku =
+    product || draft.sku.trim() ? draft.sku : (retry.current?.sku ?? generatedSku);
+  const edit = (key: keyof typeof draft, value: string) => {
+    retry.current = null;
+    setDraft((current) => ({
+      ...current,
+      [key]: value,
+      ...(!product && key === "category" ? { sku: "" } : {}),
+    }));
+  };
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (submitting.current || !canManageProducts) return;
     setError(null);
     try {
-      const sku = draft.sku.trim();
-      if (product && !sku) throw new Error("SKU is required.");
+      const sku = displayedSku.trim();
+      if (!sku) throw new Error("SKU is required.");
       for (const [label, value] of [
         ["Name", draft.name],
         ["Category", draft.category],
@@ -527,10 +600,11 @@ function ProductDetailsForm({
       if (!product && !retrying)
         retry.current = {
           signature,
-          sku: sku || `SKU-${crypto.randomUUID()}`,
+          sku,
           key: crypto.randomUUID(),
         };
       submitting.current = true;
+      if (!product && !retrying) setReservedSkus((current) => [...current, sku]);
       setSaving(true);
       onPendingChange(true);
       if (product) await updateProduct(product.id, details);
@@ -559,10 +633,10 @@ function ProductDetailsForm({
       <fieldset disabled={saving} className="grid gap-3 sm:grid-cols-2">
         <TextField
           id={`${prefix}-sku`}
-          label={product ? "SKU" : "SKU (optional)"}
-          value={draft.sku}
+          label="SKU"
+          value={displayedSku}
           onChange={(value) => edit("sku", value)}
-          required={!!product}
+          required
           maxLength={100}
         />
         <TextField
@@ -658,7 +732,10 @@ function ProductDetailsForm({
         />
       </fieldset>
       {!product && (
-        <p className="text-xs text-muted">Leave SKU blank to generate one automatically.</p>
+        <p className="text-xs text-muted">
+          SKU is generated from the category and updates when it changes. You can enter your own
+          code.
+        </p>
       )}
       {product && (
         <p className="text-xs text-muted">
@@ -728,7 +805,7 @@ function StockCountForm({
       <div className="rounded-xl bg-surface-2 p-3 text-sm">
         <p className="font-medium">{product.name}</p>
         <p className="text-muted">
-          Current balance: {num(product.currentStock)} {product.unit}
+          Current balance: {quantity(product.currentStock)} {product.unit}
         </p>
       </div>
       <fieldset disabled={saving}>
@@ -800,7 +877,7 @@ function ProductDeleteForm({
     <form onSubmit={submit} className="grid gap-4">
       <p className="text-sm">
         <span className="font-medium">{product.name}</span> · {product.sku} · On hand{" "}
-        {num(product.currentStock, 3)} {product.unit}
+        {quantity(product.currentStock)} {product.unit}
       </p>
       <p className="text-sm text-muted">This cannot be undone.</p>
       {error && (
@@ -854,7 +931,7 @@ function ProductStatusForm({
     <form onSubmit={submit} className="grid gap-4">
       <p className="text-sm">
         <span className="font-medium">{product.name}</span> · {product.sku} · On hand{" "}
-        {num(product.currentStock, 3)} {product.unit}
+        {quantity(product.currentStock)} {product.unit}
       </p>
       {error && (
         <p className="text-sm text-danger" role="alert">

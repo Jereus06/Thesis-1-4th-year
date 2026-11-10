@@ -16,15 +16,13 @@ function TabsList({ className, ...props }: React.ComponentProps<typeof TabsPrimi
   );
 }
 
-function TabsTrigger({
-  className,
-  ...props
-}: React.ComponentProps<typeof TabsPrimitive.Trigger>) {
+function TabsTrigger({ className, ...props }: React.ComponentProps<typeof TabsPrimitive.Trigger>) {
   return (
     <TabsPrimitive.Trigger
       className={cn(
-        "inline-flex h-9 min-h-9 items-center justify-center rounded-lg px-3 text-sm font-medium",
-        "transition-colors data-[state=active]:bg-surface data-[state=active]:text-fg",
+        "inline-flex h-9 min-h-9 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium",
+        "transition-colors hover:text-primary data-[state=active]:bg-surface data-[state=active]:text-primary data-[state=active]:shadow-sm",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary [&_svg]:shrink-0",
         className,
       )}
       {...props}
@@ -32,10 +30,7 @@ function TabsTrigger({
   );
 }
 
-function TabsContent({
-  className,
-  ...props
-}: React.ComponentProps<typeof TabsPrimitive.Content>) {
+function TabsContent({ className, ...props }: React.ComponentProps<typeof TabsPrimitive.Content>) {
   return <TabsPrimitive.Content className={cn("mt-4 outline-none", className)} {...props} />;
 }
 

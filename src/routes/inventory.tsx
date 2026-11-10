@@ -1,9 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AccountAccessCard } from "@/components/account-access-card";
+import { AccountActivityCard } from "@/components/account-activity-card";
 import { AccountMaintenance } from "@/components/account-maintenance";
 import { ProductsPanel } from "@/components/products-panel";
 import { StockMovementsPanel } from "@/components/stock-movements-panel";
 import { SalesLedgerCard } from "@/components/sales-ledger-card";
+import { DailySalesPanel } from "@/components/daily-sales-panel";
+import { LowStockPanel } from "@/components/low-stock-panel";
+import {
+  ArrowRightLeft,
+  Boxes,
+  CalendarDays,
+  PackageMinus,
+  ReceiptText,
+  Settings2,
+  UserRound,
+} from "lucide-react";
 import { CsvImporter } from "@/components/csv-importer";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -24,25 +36,58 @@ export const Route = createFileRoute("/inventory")({ component: InventoryPage })
 function InventoryPage() {
   const { canManageSettings } = usePermissions();
   const mode = useAppStore((s) => s.dataMode);
+  const session = useAppStore((s) => s.session);
   return (
     <div className="page-enter mx-auto flex max-w-6xl flex-col gap-6">
       <header>
         <h1 className="font-display text-3xl font-medium tracking-tight">Inventory & records</h1>
       </header>
       <Tabs defaultValue="products">
-        <TabsList className="w-full justify-start overflow-x-auto">
-          <TabsTrigger value="products">Products</TabsTrigger>
-          <TabsTrigger value="sales">Sales ledger</TabsTrigger>
-          <TabsTrigger value="movements">Stock movements</TabsTrigger>
+        <TabsList className="w-full justify-start overflow-x-auto [&>button]:shrink-0">
+          <TabsTrigger value="products">
+            <Boxes className="size-4" aria-hidden="true" />
+            Products
+          </TabsTrigger>
+          <TabsTrigger value="low-stock" className="gap-2">
+            <PackageMinus className="size-4" aria-hidden="true" />
+            Low stock
+          </TabsTrigger>
+          <TabsTrigger value="sales">
+            <ReceiptText className="size-4" aria-hidden="true" />
+            Sales ledger
+          </TabsTrigger>
+          <TabsTrigger value="daily-sales" className="gap-2">
+            <CalendarDays className="size-4" aria-hidden="true" />
+            Daily sales
+          </TabsTrigger>
+          <TabsTrigger value="movements">
+            <ArrowRightLeft className="size-4" aria-hidden="true" />
+            Stock movements
+          </TabsTrigger>
           <TabsTrigger value="settings">
+            {canManageSettings ? (
+              <Settings2 className="size-4" aria-hidden="true" />
+            ) : (
+              <UserRound className="size-4" aria-hidden="true" />
+            )}
             {canManageSettings ? "Account & settings" : "Account"}
           </TabsTrigger>
         </TabsList>
         <TabsContent value="products">
           <ProductsPanel />
         </TabsContent>
+        <TabsContent value="low-stock">
+          <LowStockPanel
+            key={session ? `${session.businessId}:${session.userId}` : "browser-demo"}
+          />
+        </TabsContent>
         <TabsContent value="sales">
           <SalesPanel />
+        </TabsContent>
+        <TabsContent value="daily-sales">
+          <DailySalesPanel
+            key={session ? `${session.businessId}:${session.userId}` : "browser-demo"}
+          />
         </TabsContent>
         <TabsContent value="movements">
           <StockMovementsPanel />
@@ -50,6 +95,11 @@ function InventoryPage() {
         <TabsContent value="settings">
           <div className="grid gap-6">
             <AccountAccessCard />
+            {mode === "api" && canManageSettings && (
+              <AccountActivityCard
+                key={session ? `${session.businessId}:${session.userId}` : "signed-out"}
+              />
+            )}
             {canManageSettings && <SettingsPanel />}
             {mode === "api" && <AccountMaintenance />}
           </div>
@@ -122,8 +172,7 @@ function SalesImportCard() {
       <CardHeader>
         <CardTitle>Import CSV</CardTitle>
         <CardDescription>
-          Upload your file to automatically find sale dates, products, and quantities. Extra columns
-          are ignored. The prepared records appear below, ready to import when valid.
+          Upload a sales file and review the records before importing.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
@@ -241,10 +290,7 @@ function SettingsPanel() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Store & model settings</CardTitle>
-        <CardDescription>
-          Business planning settings are separated from advanced forecasting controls.
-        </CardDescription>
+        <CardTitle>Store & forecast settings</CardTitle>
       </CardHeader>
       <CardContent className="grid max-w-xl gap-4">
         <div className="grid gap-1.5">
@@ -338,8 +384,7 @@ function SettingsPanel() {
               {history.limited && (
                 <p className="mt-2 text-sm text-warning">
                   Only about {history.weeks} week{history.weeks === 1 ? "" : "s"} of sales are
-                  available. XGBoost eligibility may be unavailable and a simpler forecasting method
-                  may be used.
+                  available. More sales history can improve your forecasts.
                 </p>
               )}
             </>
@@ -352,9 +397,6 @@ function SettingsPanel() {
         <div className="grid gap-4 rounded-xl border border-border p-4">
           <div>
             <p className="font-medium">Advanced forecasting settings</p>
-            <p className="text-sm text-muted">
-              Model controls for forecast experiments and eligibility.
-            </p>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="settings-ma-window">Moving Average window (days)</Label>
@@ -372,7 +414,7 @@ function SettingsPanel() {
               ))}
             </Select>
             <p id="settings-ma-window-help" className="text-xs text-muted">
-              Sales days used for each average. Accuracy is checked on a separate past test period.
+              Sales days used for each average.
             </p>
             <p id="settings-ma-window-status" className="text-xs text-muted" role="status">
               {draft.maWindow !== settings.maWindow
@@ -381,7 +423,7 @@ function SettingsPanel() {
             </p>
           </div>
           <div className="grid gap-1.5">
-            <Label>ML product limit</Label>
+            <Label>Forecast product limit</Label>
             <Select
               value={String(draft.topNProducts)}
               disabled={saving}
@@ -394,8 +436,7 @@ function SettingsPanel() {
               ))}
             </Select>
             <p className="text-xs text-muted">
-              This is the maximum ML scope. Products must still pass data sufficiency and
-              eligibility checks.
+              Maximum products considered for advanced forecasts. Each needs enough sales history.
             </p>
           </div>
         </div>

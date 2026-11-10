@@ -18,6 +18,7 @@ TABLES = (
     "forecast_metrics",
     "reorder_recommendations",
     "sessions",
+    "account_activity_events",
     "idempotency_keys",
     "google_identities",
     "oauth_flows",

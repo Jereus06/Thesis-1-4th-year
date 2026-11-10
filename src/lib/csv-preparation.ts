@@ -274,8 +274,8 @@ export async function prepareCsv(
         summary.limitExceeded = true;
         limitMessage =
           `This CSV contains ${summary.rowCount.toLocaleString("en-US")} ${request.kind} rows. ` +
-          `The existing import limit is ${request.rowLimit.toLocaleString("en-US")} rows per request. ` +
-          "Choose a smaller source file; no rows have been submitted.";
+          `You can import up to ${request.rowLimit.toLocaleString("en-US")} rows at a time. ` +
+          "Choose a smaller file; no rows have been submitted.";
       }
       if (guided) {
         if (guided.configurationErrors.length) throw new Error(guided.configurationErrors[0]);

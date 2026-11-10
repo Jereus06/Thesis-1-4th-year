@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
-import { num } from "@/lib/format";
+import { num, quantity } from "@/lib/format";
 import { usePermissions } from "@/lib/permissions";
 import { isImportedSale } from "@/lib/sales-import";
 import { useAppStore } from "@/lib/store";
@@ -88,8 +88,7 @@ export function SalesLedgerCard() {
         <CardTitle>Recent sales</CardTitle>
         <ImportRefreshNotice />
         <CardDescription>
-          {num(sales.length)} sales rows ·{" "}
-          {session ? "saved in PostgreSQL" : "browser demonstration"}
+          {num(sales.length)} sales records{!session && " · Demo records"}
         </CardDescription>
         <div className="flex flex-wrap gap-2">
           {canRecordSales && (
@@ -132,7 +131,7 @@ export function SalesLedgerCard() {
                 <th scope="col" className="pb-2 font-medium">
                   Product
                 </th>
-                <th scope="col" className="pb-2 font-medium">
+                <th scope="col" className="px-4 pb-2 text-center font-medium">
                   Qty
                 </th>
                 <th scope="col" className="pb-2 pl-3 font-medium">
@@ -150,7 +149,7 @@ export function SalesLedgerCard() {
                 <tr key={sale.id} className="border-t border-border">
                   <td className="py-2 pr-3 tabular">{sale.date}</td>
                   <td className="pr-3">{nameById[sale.productId] ?? sale.productId}</td>
-                  <td className="tabular">{num(sale.qty)}</td>
+                  <td className="px-4 text-center tabular">{quantity(sale.qty)}</td>
                   <td className="pl-3 text-muted">
                     {isImportedSale(sale)
                       ? "Imported"
@@ -168,7 +167,7 @@ export function SalesLedgerCard() {
                           size="sm"
                           className="text-danger"
                           disabled={deleting}
-                          aria-label={`Delete ${isImportedSale(sale) ? "imported" : "recorded"} sale for ${nameById[sale.productId] ?? sale.productId} on ${sale.date}, quantity ${num(sale.qty)}`}
+                          aria-label={`Delete ${isImportedSale(sale) ? "imported" : "recorded"} sale for ${nameById[sale.productId] ?? sale.productId} on ${sale.date}, quantity ${quantity(sale.qty)}`}
                           onClick={() => selectDeletion({ kind: "single", sale })}
                         >
                           <Trash2 aria-hidden="true" />
@@ -241,10 +240,10 @@ export function SalesLedgerCard() {
               </DialogTitle>
               <DialogDescription>
                 {selection?.kind === "single"
-                  ? `Permanently remove ${num(selection.sale.qty)} sold for ${nameById[selection.sale.productId] ?? selection.sale.productId} on ${selection.sale.date}.`
+                  ? `Permanently remove ${quantity(selection.sale.qty)} sold for ${nameById[selection.sale.productId] ?? selection.sale.productId} on ${selection.sale.date}.`
                   : `Permanently remove all ${num(importedCount)} imported sales rows from this store, including rows on other pages.`}{" "}
                 {recordedSelection
-                  ? `This restores ${num(selection.sale.qty)} to current stock and saves an adjustment in Stock movements.`
+                  ? `This restores ${quantity(selection.sale.qty)} to current stock and saves an adjustment in Stock movements.`
                   : "Current stock stays the same."}{" "}
                 Refresh forecasts after deleting sales history.
               </DialogDescription>

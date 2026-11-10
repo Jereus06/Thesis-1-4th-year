@@ -6,8 +6,8 @@ const labels = {
     "Tested on past sales",
     "Past test results are available. Future sales can still differ.",
   ],
-  basic: ["Basic estimate", "Uses recent usable sales. No saved past test is available."],
-  untested: ["Not tested yet", "No usable saved past test is available for this estimate."],
+  basic: ["Basic estimate", "Based on recent sales; accuracy has not been checked yet."],
+  untested: ["Not tested yet", "Accuracy has not been checked yet."],
   needs_refresh: ["Refresh needed", "Records or settings changed after this estimate was saved."],
   unavailable: ["No current estimate", "Review the sales history and the reason shown below."],
   expired: ["Expired forecast", "The saved forecast period has ended."],
@@ -24,7 +24,7 @@ export function ForecastEvidenceBadge({
 }) {
   if (demonstration)
     return (
-      <Badge variant="outline" title="Synthetic demonstration; not measured client accuracy.">
+      <Badge variant="outline" title="Sample data for demonstration.">
         Demonstration
       </Badge>
     );

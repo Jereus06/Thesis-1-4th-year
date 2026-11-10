@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
-import { Search } from "lucide-react";
+import { ArrowLeftRight, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { api, type SessionUser } from "@/lib/api";
 import { businessDateISO } from "@/lib/dates";
-import { num } from "@/lib/format";
+import { quantity as formatQuantity } from "@/lib/format";
 import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
 import type { InventoryMovement, Product, StockMovementInput } from "@/lib/types";
@@ -87,20 +87,33 @@ export function StockMovementsPanel() {
 
   return (
     <div className="grid gap-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Returns & write-offs</CardTitle>
-          <CardDescription>
-            Record items returned to usable stock or remove damaged, expired, or lost items. Each
-            saved movement keeps its quantity, balance, note, and recording user in the audit
-            ledger.
-          </CardDescription>
+      <Card className="relative overflow-hidden rounded-3xl border-primary bg-primary text-primary-foreground">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-28 -right-14 size-80 rounded-full border border-white/10"
+        />
+        <CardHeader className="relative p-5 pb-0 sm:p-7 sm:pb-0">
+          <div className="flex items-start gap-4">
+            <span
+              className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white"
+              aria-hidden="true"
+            >
+              <ArrowLeftRight className="size-6" />
+            </span>
+            <div>
+              <CardTitle className="text-2xl sm:text-3xl">Returns & write-offs</CardTitle>
+              <CardDescription className="mt-2 max-w-xl text-white/75">
+                Return usable items to stock or remove damaged, expired, or lost items.
+              </CardDescription>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent className="grid gap-3">
+        <CardContent className="relative grid gap-3 p-5 sm:p-7">
           <div className="flex flex-wrap gap-2">
             {canRecordReturns && (
               <Button
                 variant="outline"
+                className="rounded-full border-white/20 bg-surface text-primary hover:bg-white focus-visible:ring-white/60"
                 disabled={!activeProducts.length || saving}
                 onClick={() => setMovementType("return")}
               >
@@ -110,6 +123,7 @@ export function StockMovementsPanel() {
             {canWriteOffStock && (
               <Button
                 variant="outline"
+                className="rounded-full border-white/30 bg-white/10 text-white hover:bg-white/20 focus-visible:ring-white/60"
                 disabled={!activeProducts.length || saving}
                 onClick={() => setMovementType("write_off")}
               >
@@ -118,20 +132,17 @@ export function StockMovementsPanel() {
             )}
           </div>
           {!activeProducts.length && (
-            <p className="text-sm text-muted">
+            <p className="text-sm text-white/75">
               An active product is required to record a movement.
             </p>
           )}
           {canRecordReturns && !canWriteOffStock && (
-            <p className="text-sm text-muted">
+            <p className="text-sm text-white/75">
               Owners record write-offs and stock count adjustments.
             </p>
           )}
           {mode === "browser-demo" && (
-            <p className="text-sm text-muted">
-              Browser demonstration: new movements are saved on this browser. Older demonstration
-              records may have no saved movement audit.
-            </p>
+            <p className="text-sm text-white/75">Demo records · saved on this device.</p>
           )}
         </CardContent>
       </Card>
@@ -142,8 +153,8 @@ export function StockMovementsPanel() {
             <div className="grid gap-1">
               <CardTitle>Stock movement ledger</CardTitle>
               <CardDescription>
-                Saved balances are the on-hand stock immediately after each movement was recorded. A
-                backdated movement updates current stock and does not rewrite earlier balances.
+                Balances show stock after each entry was saved. A backdated entry does not change
+                earlier saved balances.
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -170,7 +181,7 @@ export function StockMovementsPanel() {
               <Input
                 type="search"
                 className="pl-9"
-                placeholder="Search product, date, note, or user ID"
+                placeholder="Search product, date or note"
                 aria-label="Search stock movements"
                 value={query}
                 onChange={(event) => {
@@ -210,7 +221,7 @@ export function StockMovementsPanel() {
             <>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[48rem] text-left text-sm">
-                  <caption className="sr-only">Audited inventory stock movements</caption>
+                  <caption className="sr-only">Inventory stock movements</caption>
                   <thead className="border-b border-border text-xs text-muted">
                     <tr>
                       <th scope="col" className="p-3 pl-0 font-medium">
@@ -219,14 +230,14 @@ export function StockMovementsPanel() {
                       <th scope="col" className="p-3 font-medium">
                         Product
                       </th>
-                      <th scope="col" className="p-3 text-right font-medium">
+                      <th scope="col" className="p-3 text-center font-medium">
                         Change
                       </th>
-                      <th scope="col" className="p-3 text-right font-medium">
+                      <th scope="col" className="p-3 text-center font-medium">
                         Saved balance
                       </th>
                       <th scope="col" className="p-3 pr-0 font-medium">
-                        Audit details
+                        Details
                       </th>
                     </tr>
                   </thead>
@@ -302,7 +313,7 @@ export function StockMovementsPanel() {
             </DialogTitle>
             <DialogDescription>
               {movementType === "write_off"
-                ? "Removes unusable or lost stock. The reason is saved with the audit record."
+                ? "Removes unusable or lost stock. Include the reason for the write-off."
                 : "Adds returned items to usable on-hand stock. Sales history remains unchanged."}
             </DialogDescription>
           </DialogHeader>
@@ -347,37 +358,27 @@ function MovementRow({
           </Badge>
         )}
       </td>
-      <td className="p-3 text-right tabular-nums">
+      <td className="p-3 text-center tabular-nums">
         <span className={movement.quantityDelta < 0 ? "text-danger" : "text-primary"}>
           {movement.quantityDelta > 0 ? "+" : ""}
-          {num(movement.quantityDelta, 3)}
+          {formatQuantity(movement.quantityDelta)}
         </span>
         <p className="mt-1 text-xs text-muted">{product?.unit ?? "units"}</p>
       </td>
-      <td className="p-3 text-right tabular-nums">{num(movement.balanceAfter, 3)}</td>
+      <td className="p-3 text-center tabular-nums">{formatQuantity(movement.balanceAfter)}</td>
       <td className="max-w-xs p-3 pr-0">
-        <Badge variant={movement.dataOrigin === "demo" ? "warning" : "outline"}>
-          {movement.dataOrigin === "demo" ? "Test/demo records" : "Business records"}
-        </Badge>
+        {movement.dataOrigin === "demo" && <Badge variant="warning">Demo record</Badge>}
         {movement.note && <p className="mt-2 whitespace-pre-wrap break-words">{movement.note}</p>}
-        <details className="mt-2 text-xs text-muted">
-          <summary className="cursor-pointer">
-            Recorded by{" "}
-            {movement.recordedBy
-              ? movement.recordedBy === currentUserId
-                ? `${currentUserName ?? "You"} (you)`
-                : movement.recordedBy === "browser-demo"
-                  ? "demo user"
-                  : `user ${movement.recordedBy.slice(0, 8)}`
-              : "not recorded"}
-          </summary>
-          <div className="mt-2 grid gap-1 break-all">
-            <p>Movement ID: {movement.id}</p>
-            <p>Product ID: {movement.productId}</p>
-            <p>User ID: {movement.recordedBy ?? "Not recorded"}</p>
-            {movement.saleId && <p>Source sale ID: {movement.saleId}</p>}
-          </div>
-        </details>
+        <p className="mt-2 text-xs text-muted">
+          Recorded by{" "}
+          {movement.recordedBy
+            ? movement.recordedBy === currentUserId
+              ? `${currentUserName ?? "You"} (you)`
+              : movement.recordedBy === "browser-demo"
+                ? "demo user"
+                : `user ${movement.recordedBy.slice(0, 8)}`
+            : "not recorded"}
+        </p>
       </td>
     </tr>
   );
@@ -475,7 +476,7 @@ function StockMovementForm({
     }
     if (!retrying && movementType === "write_off" && quantity > selectedProduct.currentStock) {
       setError(
-        `Only ${num(selectedProduct.currentStock, 3)} ${selectedProduct.unit} are on hand. Reduce the write-off quantity.`,
+        `Only ${formatQuantity(selectedProduct.currentStock)} ${selectedProduct.unit} are on hand. Reduce the write-off quantity.`,
       );
       return;
     }
@@ -498,7 +499,7 @@ function StockMovementForm({
       if (useAppStore.getState().session !== session) return;
       retry.current = null;
       toast.success(
-        `${movementType === "write_off" ? "Wrote off" : "Returned"} ${num(quantity, 3)} ${selectedProduct.unit} of ${selectedProduct.name}.`,
+        `${movementType === "write_off" ? "Wrote off" : "Returned"} ${formatQuantity(quantity)} ${selectedProduct.unit} of ${selectedProduct.name}.`,
       );
       onDone();
     } catch (caught) {
@@ -545,7 +546,7 @@ function StockMovementForm({
             <p>
               {currentProduct ? (
                 <>
-                  On hand: {num(currentProduct.currentStock, 3)} {currentProduct.unit}
+                  On hand: {formatQuantity(currentProduct.currentStock)} {currentProduct.unit}
                 </>
               ) : (
                 "Current stock is unavailable."
@@ -562,7 +563,7 @@ function StockMovementForm({
             {previewBalance !== null && (
               <p className={previewBalance < 0 ? "mt-1 text-danger" : "mt-1 text-muted"}>
                 After {movementType === "write_off" ? "write-off" : "return"}:{" "}
-                {num(previewBalance, 3)} {selectedProduct.unit}
+                {formatQuantity(previewBalance)} {selectedProduct.unit}
               </p>
             )}
           </div>

@@ -61,8 +61,7 @@ function DataQualityPage() {
           <CardTitle>Review a date</CardTitle>
           <CardDescription>
             Choose a product, or select “All products” if this applies to the whole store. A
-            product's review takes priority for that date. Every change is saved in the change
-            history.
+            product's review takes priority for that date.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">

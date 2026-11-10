@@ -130,9 +130,6 @@ function ShellLayout({ children }: { children: ReactNode }) {
               <NavLink key={item.to} {...item} />
             ))}
           </nav>
-          <p className="px-5 pb-6 text-xs text-muted">
-            Forecasts are decision-support only, not guarantees.
-          </p>
         </aside>
 
         <div className="flex min-h-dvh flex-col pb-20 lg:pb-0">
@@ -192,14 +189,10 @@ function SidebarStore() {
   return (
     <div className="mx-4 rounded-xl bg-surface px-3 py-3">
       <p className="text-sm font-medium">{storeName}</p>
-      <p className="text-xs text-muted">{location}</p>
-      <p className="mt-2 text-xs text-muted">
-        {mode === "browser-demo"
-          ? "Browser demonstration"
-          : origin === "partner"
-            ? "Partner records"
-            : "Test records"}
-      </p>
+      {location && <p className="text-xs text-muted">{location}</p>}
+      {(mode === "browser-demo" || origin === "demo") && (
+        <p className="mt-2 text-xs text-muted">Demo store · Test records</p>
+      )}
     </div>
   );
 }

@@ -27,6 +27,35 @@ const server = await createServer({
       enforce: "pre",
       resolveId(id) {
         if (id === "@tanstack/react-router") return "\0demand-test-router";
+        if (id === "demand-test-ui") return "\0demand-test-ui";
+      },
+      transform(code, id) {
+        const path = id.replaceAll("\\", "/");
+        // SSR cannot click controls. Seed only their local open/search state so the
+        // same route assertions cover rows after expansion, alongside closed-state checks.
+        if (path.endsWith("/src/routes/restock.tsx")) {
+          const state = "const [expanded, setExpanded] = useState(false);";
+          assert.equal(code.split(state).length, 2, "locate the Restock disclosure state");
+          return `import { uiState } from "demand-test-ui";\n${code.replace(
+            state,
+            'const [expanded, setExpanded] = useState(uiState("restockExpanded", false));',
+          )}`;
+        }
+        if (path.endsWith("/src/routes/forecasts.tsx")) {
+          const openState = "const [open, setOpen] = useState(false);";
+          const queryState = 'const [query, setQuery] = useState("");';
+          assert.equal(code.split(openState).length, 2, "locate the product picker open state");
+          assert.equal(code.split(queryState).length, 2, "locate the product picker search state");
+          return `import { uiState } from "demand-test-ui";\n${code
+            .replace(
+              openState,
+              'const [open, setOpen] = useState(uiState("forecastPickerOpen", false));',
+            )
+            .replace(
+              queryState,
+              'const [query, setQuery] = useState(uiState("forecastQuery", ""));',
+            )}`;
+        }
       },
       load(id) {
         const path = id.replaceAll("\\", "/");
@@ -41,6 +70,12 @@ const server = await createServer({
         let state;
         export function setForecastState(value) { state = value; }
         export const useForecast = () => state;
+      `;
+        if (id === "\0demand-test-ui")
+          return `
+        let state = {};
+        export function setUiState(value) { state = value; }
+        export const uiState = (key, fallback) => state[key] ?? fallback;
       `;
         if (id === "\0demand-test-router")
           return `
@@ -67,6 +102,7 @@ const { Route: restockRoute } = await server.ssrLoadModule("/src/routes/restock.
 const { Route: forecastsRoute } = await server.ssrLoadModule("/src/routes/forecasts.tsx");
 const { setTestState } = await server.ssrLoadModule("/src/lib/store.ts");
 const { setForecastState } = await server.ssrLoadModule("/src/components/forecast-context.tsx");
+const { setUiState } = await server.ssrLoadModule("demand-test-ui");
 const { runPipeline } = await server.ssrLoadModule("/src/lib/forecast/pipeline.ts");
 const { defaultSettings } = await server.ssrLoadModule("/src/lib/data/seed.ts");
 const product = {
@@ -110,8 +146,12 @@ function renderPage(
     diagnostics = {},
     overallScores = {},
     settings = {},
+    restockExpanded = true,
+    forecastPickerOpen,
+    forecastQuery,
   } = {},
 ) {
+  setUiState({ restockExpanded, forecastPickerOpen, forecastQuery });
   setTestState({
     products: catalog,
     dataMode: mode,
@@ -169,9 +209,21 @@ function renderEvidence(props = {}) {
   return renderToStaticMarkup(createElement(DemandEvidence, props));
 }
 function selectedForecastProduct(markup) {
-  const select = markup.match(/<select\b[^>]*id="forecast-results"[^>]*>([\s\S]*?)<\/select>/)?.[1];
-  return select?.match(/<option value="([^"]*)" selected=""/s)?.[1];
+  const trigger = markup.match(
+    /<button\b[^>]*aria-haspopup="listbox"[^>]*>([\s\S]*?)<\/button>/,
+  )?.[1];
+  return trigger?.match(/<span\b[^>]*>([^<]*)<\/span>/)?.[1];
 }
+
+test("Restock sections start collapsed and reveal the matching products when expanded", () => {
+  const closed = renderPage(restockRoute, { restockExpanded: null });
+  assert.equal((closed.match(/aria-expanded="false"/g) ?? []).length, 5);
+  assert.doesNotMatch(closed, /Synthetic practice rice|>Record delivery<|>Stock on hand</);
+  const expanded = renderPage(restockRoute);
+  assert.equal((expanded.match(/aria-expanded="true"/g) ?? []).length, 5);
+  assert.match(expanded, /Enough stock[\s\S]*Synthetic practice rice/);
+  assertDeliveryEnabled(expanded);
+});
 
 test("staff retain delivery entry while forecast refresh controls belong to owners", () => {
   assertDeliveryEnabled(renderPage(restockRoute, { role: "staff" }));
@@ -377,8 +429,8 @@ test("zero usable demand differs from unavailable history on overview", () => {
   const markup = renderPage(overviewRoute, {
     rows: [{ ...baseRow, dailyDemand: 0, daysOfCover: Infinity }],
   });
-  assert.match(markup, /Usable observations show zero demand/);
-  assert.match(markup, /Days of cover cannot be calculated from a zero estimate/);
+  assert.match(markup, /No sales are currently expected/);
+  assert.match(markup, /How long stock will last cannot be estimated/);
   assert.doesNotMatch(markup, /Current reorder advice is unavailable/);
 });
 
@@ -460,9 +512,17 @@ test("unavailable history with a placeholder zero is never presented as usable z
   ];
   const overview = renderPage(overviewRoute, { rows });
   assert.match(overview, /Current reorder advice is unavailable/);
-  assert.doesNotMatch(overview, /Usable observations show zero demand/);
+  assert.doesNotMatch(overview, /No sales are currently expected/);
   const restock = renderPage(restockRoute, { rows });
-  assert.doesNotMatch(restock, /The current estimate is zero sales|>No sales expected<\/span>/);
+  const productSection = [...restock.matchAll(/<section\b[^>]*>([\s\S]*?)<\/section>/g)].find(
+    ([, content]) => content.includes(product.name),
+  )?.[1];
+  assert.ok(productSection);
+  assert.match(productSection, /Sales estimate unavailable/);
+  assert.doesNotMatch(
+    productSection,
+    /The current estimate is zero sales|>No sales expected<\/span>/,
+  );
   assertDeliveryEnabled(restock);
 });
 
@@ -831,7 +891,7 @@ test("Forecasts defaults to the saved first-ranked active product and has no Ove
   });
   assert.equal(
     selectedForecastProduct(markup),
-    top.id,
+    top.name,
     "saved rank wins over catalog order and sales quantities",
   );
   assert.match(markup, /Past test results for Saved top product/);
@@ -857,7 +917,7 @@ test("Forecasts skips inactive saved ranks and uses a stable forecast-bearing fa
     },
     overallScores: { byProduct },
   });
-  assert.equal(selectedForecastProduct(ranked), saved.id);
+  assert.equal(selectedForecastProduct(ranked), saved.name);
   for (const catalog of [
     [fresh, saved],
     [saved, fresh],
@@ -865,13 +925,13 @@ test("Forecasts skips inactive saved ranks and uses a stable forecast-bearing fa
     const legacy = renderPage(forecastsRoute, { catalog, overallScores: { byProduct } });
     assert.equal(
       selectedForecastProduct(legacy),
-      saved.id,
+      saved.name,
       "a saved forecast precedes an unforecasted product",
     );
     const untrained = renderPage(forecastsRoute, { catalog, result: false });
     assert.equal(
       selectedForecastProduct(untrained),
-      fresh.id,
+      fresh.name,
       "no saved ranking uses stable product codes",
     );
     assert.match(untrained, /No forecast yet/);
@@ -882,16 +942,60 @@ test("Forecasts skips inactive saved ranks and uses a stable forecast-bearing fa
 test("Forecasts has an explicit empty product selector for empty and entirely inactive catalogs", () => {
   for (const catalog of [[], [{ ...product, isActive: false }]]) {
     const markup = renderPage(forecastsRoute, { catalog });
-    assert.match(markup, /<select\b[^>]*id="forecast-results"[^>]*disabled=""/);
+    assert.match(markup, /<button\b[^>]*aria-haspopup="listbox"[^>]*disabled=""/);
     assert.match(markup, /No active products/);
     assert.doesNotMatch(markup, /Overall results|Past test results for|Expected daily sales:/);
   }
 });
 
+test("Forecasts searchable picker exposes the current selection and filters names and SKUs", () => {
+  const other = { ...product, id: "other-product", sku: "ZZZ-002", name: "Sample cooking oil" };
+  const inactive = {
+    ...product,
+    id: "inactive-product",
+    name: "Archived product",
+    isActive: false,
+  };
+  const options = { catalog: [product, other, inactive], forecast: { holdout: [], future: [] } };
+  const closed = renderPage(forecastsRoute, options);
+  assert.match(closed, /aria-haspopup="listbox" aria-expanded="false"/);
+  assert.equal(selectedForecastProduct(closed), product.name);
+  assert.doesNotMatch(closed, /role="listbox"|aria-label="Search forecast products"/);
+
+  const opened = renderPage(forecastsRoute, { ...options, forecastPickerOpen: true });
+  assert.match(opened, /aria-haspopup="listbox" aria-expanded="true"/);
+  assert.match(opened, /aria-label="Search forecast products"/);
+  const list = opened.match(/<div\b[^>]*role="listbox"[^>]*>([\s\S]*?)<\/div>/)?.[1];
+  assert.ok(list);
+  assert.equal((list.match(/role="option"/g) ?? []).length, 2);
+  assert.match(list, /role="option" aria-selected="true"[^>]*>Synthetic practice rice<\/button>/);
+  assert.match(list, /role="option" aria-selected="false"[^>]*>Sample cooking oil<\/button>/);
+  assert.doesNotMatch(list, /Archived product/);
+
+  for (const forecastQuery of ["cOoKiNg", "zzz-002"]) {
+    const filtered = renderPage(forecastsRoute, {
+      ...options,
+      forecastPickerOpen: true,
+      forecastQuery,
+    }).match(/<div\b[^>]*role="listbox"[^>]*>([\s\S]*?)<\/div>/)?.[1];
+    assert.ok(filtered);
+    assert.equal((filtered.match(/role="option"/g) ?? []).length, 1);
+    assert.match(filtered, />Sample cooking oil<\/button>/);
+    assert.doesNotMatch(filtered, /Synthetic practice rice|Archived product/);
+  }
+  const empty = renderPage(forecastsRoute, {
+    ...options,
+    forecastPickerOpen: true,
+    forecastQuery: "missing-product",
+  }).match(/<div\b[^>]*role="listbox"[^>]*>([\s\S]*?)<\/div>/)?.[1];
+  assert.match(empty, /No products match your search/);
+  assert.doesNotMatch(empty, /role="option"/);
+});
+
 test("Top products explains fewer eligible products without filling fake slots", () => {
   const markup = topPanel();
   assert.match(markup, /1 product shown/);
-  assert.match(markup, /Fewer products appear when fewer have enough usable history/);
+  assert.match(markup, /Products need enough sales history for XGBoost/);
   assert.match(markup, /2\.0 bag/);
   assert.match(topPanel({ scope: null }), /Refresh forecasts to see the selected products/);
   assert.match(
@@ -940,10 +1044,10 @@ test("Moving Average score descriptions retain saved settings during a replaceme
         overallScores: { maMae: 50.5, maRmse: 70.7 },
       });
       assert.match(markup, /Uses the previous 7 days of sales/);
-      assert.match(markup, /The accuracy test period is separate/);
+      assert.doesNotMatch(markup, /The accuracy test period is separate/);
       assert.match(
         markup,
-        /Saved window: 30 days\. Displayed results used 7 days\. New results appear after a forecast refresh using the saved setting finishes\./,
+        /Saved window: 30 days\. Displayed results used 7 days\. Refresh forecasts to apply the change\./,
       );
       assert.doesNotMatch(markup, /Uses the previous 30 days of sales/);
       assert.match(markup, /MAE 1\.2.*RMSE 1\.8/);
@@ -982,10 +1086,7 @@ test("a saved fourteen-day Moving Average can retain thirty tested days without 
       forecastConfidence,
     },
   });
-  assert.match(
-    markup,
-    /Uses the previous 14 days of sales for each average\. The accuracy test period is separate\./,
-  );
+  assert.match(markup, /Uses the previous 14 days of sales\./);
   assert.match(markup, /Tested on 30 past days\. Average error: 1\.2 units/);
   assert.match(markup, /High confidence/);
   assert.match(markup, /Small errors in tests across 30 days in a row/);

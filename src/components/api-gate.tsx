@@ -12,7 +12,6 @@ import { GoogleAuthButton } from "@/components/google-auth-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { api, type AuthOptions, type BusinessRegistration, type GooglePending } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 import { saveBrowserLogin } from "@/lib/browser-login";
@@ -63,8 +62,8 @@ export function ApiGate({ children }: { children: ReactNode }) {
   const [displayName, setDisplayName] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [businessLocation, setBusinessLocation] = useState("");
-  const [dataOrigin, setDataOrigin] = useState<BusinessRegistration["dataOrigin"]>("demo");
   const [authorized, setAuthorized] = useState(false);
+  const [resetToken] = useState(() => new URLSearchParams(window.location.search).get("reset"));
 
   useEffect(() => {
     if (mode !== "api") return;
@@ -103,7 +102,11 @@ export function ApiGate({ children }: { children: ReactNode }) {
     const url = new URL(window.location.href);
     if (!url.searchParams.has("reset")) return;
     url.searchParams.delete("reset");
-    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
   }, [mode]);
 
   function clearFeedback() {
@@ -138,8 +141,9 @@ export function ApiGate({ children }: { children: ReactNode }) {
       event.currentTarget.querySelector<HTMLInputElement>("#business-name")?.focus();
       return;
     }
-    if (creating && dataOrigin === "partner" && !authorized) {
-      setFormError("Confirm that you have permission to store these business records.");
+    if (creating && !authorized) {
+      setFormError("Confirm that you have permission to manage this store's records.");
+      event.currentTarget.querySelector<HTMLInputElement>("#store-permission")?.focus();
       return;
     }
     if (!pending && screen === "sign-up" && password !== confirmation) {
@@ -155,7 +159,7 @@ export function ApiGate({ children }: { children: ReactNode }) {
     const business: BusinessRegistration = {
       businessName: businessName.trim(),
       businessLocation: businessLocation.trim() || undefined,
-      dataOrigin,
+      dataOrigin: "partner",
     };
     try {
       if (recovering) {
@@ -216,7 +220,6 @@ export function ApiGate({ children }: { children: ReactNode }) {
   }
 
   if (mode === "browser-demo") return <>{children}</>;
-  const resetToken = new URLSearchParams(window.location.search).get("reset");
   const invitationToken = new URLSearchParams(window.location.search).get("invitation");
   if (resetToken || invitationToken)
     return (
@@ -253,9 +256,6 @@ export function ApiGate({ children }: { children: ReactNode }) {
         <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm sm:p-8">
           <div className="mb-6">
             <p className="font-display text-3xl italic tracking-tight">StockCast</p>
-            <p className="mt-1 text-sm text-muted">
-              Sales forecasts and inventory decisions for your store.
-            </p>
           </div>
           {!pending && !recovering && (
             <div
@@ -294,11 +294,11 @@ export function ApiGate({ children }: { children: ReactNode }) {
           </h1>
           <p className="mt-2 text-sm text-muted">
             {pending
-              ? `Google verified ${pending.email}. Choose your store details to finish.`
+              ? `Continue as ${pending.email}. Add your store details to finish.`
               : recovering
                 ? "Enter your account email to request a single-use password reset link."
                 : creating
-                  ? "Create your own store with an empty catalog, ready for your records."
+                  ? "Set up your store, then add your products and sales."
                   : "Sign in to open your store's products, sales, and forecasts."}
           </p>
           {optionsError && (
@@ -452,38 +452,17 @@ export function ApiGate({ children }: { children: ReactNode }) {
                       onChange={(event) => setBusinessLocation(event.target.value)}
                     />
                   </div>
-                  <div className="grid gap-1.5">
-                    <Label htmlFor="data-origin">Records you plan to use</Label>
-                    <Select
-                      id="data-origin"
-                      value={dataOrigin}
-                      onChange={(event) => {
-                        setDataOrigin(event.target.value as BusinessRegistration["dataOrigin"]);
-                        setAuthorized(false);
-                      }}
-                      aria-describedby="data-origin-help"
-                    >
-                      <option value="demo">Test records</option>
-                      <option value="partner">Authorized business records</option>
-                    </Select>
-                    <p id="data-origin-help" className="text-xs text-muted">
-                      Choose test records for practice, or authorized business records for real
-                      sales and stock you have permission to use. This labels your records; your
-                      store starts empty.
-                    </p>
-                  </div>
-                  {dataOrigin === "partner" && (
-                    <label className="flex items-start gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        className="mt-1 size-4 accent-primary"
-                        required
-                        checked={authorized}
-                        onChange={(event) => setAuthorized(event.target.checked)}
-                      />
-                      <span>I have permission to store this business's records.</span>
-                    </label>
-                  )}
+                  <label htmlFor="store-permission" className="flex items-start gap-2 text-sm">
+                    <input
+                      id="store-permission"
+                      type="checkbox"
+                      className="mt-1 size-4 accent-primary"
+                      required
+                      checked={authorized}
+                      onChange={(event) => setAuthorized(event.target.checked)}
+                    />
+                    <span>I have permission to manage this store's records.</span>
+                  </label>
                 </>
               )}
               {!creating && (
@@ -499,7 +478,7 @@ export function ApiGate({ children }: { children: ReactNode }) {
                       id="business-id"
                       name="business-id"
                       autoComplete="off"
-                      placeholder="Business UUID"
+                      placeholder="Enter your Business ID"
                       pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
                       value={businessId}
                       onChange={(event) => setBusinessId(event.target.value)}
@@ -507,7 +486,7 @@ export function ApiGate({ children }: { children: ReactNode }) {
                     />
                     <p id="business-id-help" className="text-xs text-muted">
                       Use this when your email has access to more than one business. Your Business
-                      ID is shown in Your account in Inventory.
+                      ID is in Store reference under Your account in Inventory.
                     </p>
                   </div>
                 </details>
@@ -572,13 +551,11 @@ export function ApiGate({ children }: { children: ReactNode }) {
               Back to sign in
             </Button>
           )}
-          <p className="mt-5 text-xs text-muted">
-            {recovering
-              ? "Reset links expire after 30 minutes and can be used only once."
-              : creating
-                ? "Your account will own this new store. Its Business ID is generated automatically."
-                : "An active session is restored automatically when you reopen this browser."}
-          </p>
+          {recovering && (
+            <p className="mt-5 text-xs text-muted">
+              Reset links expire after 30 minutes and can be used only once.
+            </p>
+          )}
         </div>
       </div>
     </main>

@@ -211,13 +211,13 @@ export function ClientSurveyForm({
         ...previous.filter((item) => item.submissionId !== record.submissionId),
       ]);
       setSubmitted(true);
-      toast.success("Submission saved to the server.");
+      toast.success("Feedback submitted.");
       await reload();
     } catch (error) {
       if (!isCurrent()) return;
       setFormError(
         (error instanceof Error ? error.message : "Submission could not be confirmed.") +
-          " Your draft is retained. Retry sends the same submission and answers; Refresh submitted feedback can check whether it was saved.",
+          " Your answers are kept. Try again, or refresh submitted feedback to check if it was saved.",
       );
     } finally {
       writePending.current = false;
@@ -230,25 +230,21 @@ export function ClientSurveyForm({
       <Card>
         <CardHeader>
           <CardTitle>{questionnaire.title}</CardTitle>
-          <CardDescription>{questionnaire.notice}</CardDescription>
+          <CardDescription>Share your experience using StockCast.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6">
           {testFeedback && (
             <p className="rounded-xl bg-surface-2 p-3 text-sm font-medium">
-              Test feedback: this store uses demonstration records. These responses are not actual
-              client findings.
+              Test feedback · Demo store
             </p>
           )}
           <p className="text-sm text-muted">
-            Save draft keeps answers in this browser for this account. Submit saves a final server
-            record with your authenticated role and submission time. Each account can submit once
-            for this questionnaire version; a final submission cannot be edited. Rate features you
-            have used, or choose Not applicable.
+            Rate features you have used, or choose Not applicable. Save a draft to finish later on
+            this device. You can submit once; submitted answers cannot be edited.
           </p>
-          <p className="text-xs text-muted">Questionnaire version: {questionnaire.version}</p>
           {mode === "browser-demo" && (
             <p role="status" className="text-sm text-muted">
-              Browser demonstration: drafts only. Server collection and submission are unavailable.
+              Demo mode: you can save a draft, but cannot submit feedback.
             </p>
           )}
           {questionnaire.characteristics.map((characteristic) => (
@@ -301,13 +297,11 @@ export function ClientSurveyForm({
           ))}
           <p role="status" className="text-sm text-muted">
             {counts.rated} rated, {counts.notApplicable} Not applicable, {counts.unanswered}{" "}
-            unanswered in your browser draft. Unanswered and Not applicable do not contribute to
-            means.
+            unanswered. Unanswered and Not applicable responses are excluded from averages.
           </p>
           {draft.lockedForRetry && !ownSubmission && (
             <p className="text-sm text-muted">
-              Answers are held unchanged until this submission is confirmed, so retry can safely
-              send the same record.
+              Your submission is awaiting confirmation. Retry or refresh to check its status.
             </p>
           )}
           <div className="flex flex-wrap gap-2">
@@ -338,7 +332,7 @@ export function ClientSurveyForm({
           )}
           {submitted && (
             <p role="status" className="text-sm text-primary">
-              Final submission saved to the server.
+              Feedback submitted.
             </p>
           )}
           {formError && (
@@ -357,10 +351,7 @@ export function ClientSurveyForm({
         <Card>
           <CardHeader>
             <CardTitle>{owner ? "Store submitted feedback" : "Your submitted feedback"}</CardTitle>
-            <CardDescription>
-              These counts and means come from durable server submissions, separate from browser
-              drafts.
-            </CardDescription>
+            <CardDescription>Submitted responses and average ratings.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
             <div className="flex flex-wrap gap-2">
@@ -404,10 +395,10 @@ export function ClientSurveyForm({
                     : "Your submission only"}
                   .{" "}
                   {summary.submissionDataOrigins.demo > 0
-                    ? `${summary.submissionDataOrigins.demo} test submissions and ${summary.submissionDataOrigins.partner} partner-origin submissions. Aggregates containing test feedback are not actual client findings.`
+                    ? `${summary.submissionDataOrigins.demo} test responses and ${summary.submissionDataOrigins.partner} store responses. These averages include test feedback.`
                     : testFeedback
-                      ? "Test feedback, not actual client findings."
-                      : "Submitted participant feedback; it does not certify standards compliance."}
+                      ? "Test feedback."
+                      : ""}
                 </p>
                 <StatisticsTable statistics={summary} questionnaire={questionnaire} />
                 {owner &&
@@ -471,16 +462,10 @@ export function ClientSurveyForm({
                       {ownSubmission.participantRole === "owner_manager"
                         ? "Owner / manager"
                         : "Staff"}
-                      ).{" "}
-                      {ownSubmission.dataOrigin === "demo"
-                        ? "Test feedback."
-                        : "Participant feedback."}{" "}
-                      Server time: {ownSubmission.submittedAt}
+                      ). {ownSubmission.dataOrigin === "demo" ? "Test feedback." : ""}
                     </p>
                   ) : (
-                    <p className="text-sm text-muted">
-                      You have not submitted this questionnaire version.
-                    </p>
+                    <p className="text-sm text-muted">You have not submitted feedback yet.</p>
                   )}
                 </div>
               </>
@@ -543,12 +528,9 @@ function ArchivedBrowserRatings({ storageKey }: { storageKey?: string }) {
   if (!ISO_ITEMS.some((item) => scores[item.id] > 0)) return null;
   return (
     <details className="rounded-xl border border-border p-4">
-      <summary className="cursor-pointer text-sm font-medium">
-        Archived browser-only ratings
-      </summary>
+      <summary className="cursor-pointer text-sm font-medium">Earlier saved ratings</summary>
       <p className="my-3 text-sm text-muted">
-        These earlier five-category ratings remain private and read-only in this browser. They are
-        never migrated, submitted, or interpreted as current questionnaire responses.
+        Earlier ratings saved on this device. They are separate from your current feedback.
       </p>
       <dl className="grid gap-2 text-sm">
         {ISO_ITEMS.map((item) => (

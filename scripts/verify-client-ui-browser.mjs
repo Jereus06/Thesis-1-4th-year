@@ -521,7 +521,7 @@ try {
 
   await page.getByRole("link", { name: "Forecasts", exact: true }).click();
   const savedVsDisplayed = page.getByText(
-    "Saved window: 14 days. Displayed results used 7 days. New results appear after a forecast refresh using the saved setting finishes.",
+    "Saved window: 14 days. Displayed results used 7 days. Refresh forecasts to apply the change.",
     { exact: true },
   );
   await savedVsDisplayed.waitFor();

@@ -68,6 +68,30 @@ export type AccountMember = {
   isActive: boolean;
 };
 
+// Owner-only activity endpoint; older servers return 404 until logging is enabled.
+export type AccountActivityEvent = {
+  id: string;
+  businessId: string;
+  userId: string;
+  displayName: string;
+  email: string;
+  role: "owner" | "staff";
+  event: "signed_in" | "signed_out";
+  occurredAt: string;
+};
+
+export type AccountActivityPage = {
+  events: AccountActivityEvent[];
+  nextCursor: string | null;
+};
+
+export type AccountActivityQuery = {
+  limit?: number;
+  before?: string;
+  event?: AccountActivityEvent["event"];
+  search?: string;
+};
+
 export type AuthOptions = {
   signUpEnabled: boolean;
   googleEnabled: boolean;
@@ -120,6 +144,13 @@ export const api = {
       body: { token, newPassword },
     }),
   members: () => request<AccountMember[]>("/auth/members"),
+  accountActivity: ({ limit = 50, before, event, search }: AccountActivityQuery = {}) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (before) query.set("before", before);
+    if (event) query.set("event", event);
+    if (search?.trim()) query.set("search", search.trim());
+    return request<AccountActivityPage>(`/auth/activity?${query}`);
+  },
   acceptInvitation: (token: string, password: string) =>
     request<SessionUser>("/auth/staff/invitations/accept", {
       method: "POST",
@@ -402,7 +433,7 @@ async function allSalesPages(path: string): Promise<ApiSale[]> {
     const last = page[page.length - 1];
     const next = `&beforeDate=${encodeURIComponent(last.saleDate)}&beforeId=${encodeURIComponent(last.id)}`;
     if (next === cursor) {
-      throw new Error("Sales history did not advance. Refresh again after updating the API.");
+      throw new Error("The full sales history could not be loaded. Refresh and try again.");
     }
     cursor = next;
   }

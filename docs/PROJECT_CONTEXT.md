@@ -99,9 +99,113 @@ load the new code before these fixes take effect in a running installation.
 
 ## Product maintenance, stock movements, and frontend roles
 
-Inventory has Products, Sales ledger, Stock movements, and Account & settings tabs (Account for
-staff). Owners can maintain SKU, name, category, unit, lead time, safety stock, and unit cost;
+Inventory has Products, Low stock, Sales ledger, Daily sales, Stock movements, and Account & settings tabs
+(Account for staff). Owners can maintain SKU, name, category, unit, lead time, safety stock, and unit cost;
 verified stock-count corrections are a separate action using the existing audited product PATCH.
+Low stock lists active catalog products at zero or at/below their displayed threshold, independently
+of whether sales history or a forecast exists. It uses the current finite forecast reorder point
+(demand during lead time plus safety stock) when available, with the existing inclusive boundary.
+When demand is unavailable or expired, this Inventory view explicitly labels the product's saved
+safety stock as an inventory minimum; it does not present that minimum as a forecast or suggested
+order quantity. Overview and Restock retain their existing forecast-availability rules.
+Out-of-stock products appear first. Search matches name, SKU, or category; count cards filter all
+alerts, out-of-stock items, or low-stock items. Each row shows SKU, current quantity, counting unit,
+threshold and its basis, and status. Current catalog quantities drive alerts after sales or deliveries.
+Owners and staff can open the existing Record delivery dialog from an alert; its saved transaction,
+retry safeguards, and permissions are unchanged. Inactive products are excluded from operational alerts.
+
+The 2026-11-10 Low stock change passed 16 focused stock-rule tests and all 15 isolated Edge
+browser groups, including historyless stockouts while forecasts load or fail, threshold boundaries,
+search/status filters, owner/staff delivery access, and the 390px mobile layout. Frontend typecheck,
+production build, and lint passed; lint retained the three existing React Refresh warnings.
+Browser verification used intercepted synthetic HTTP with no live writes or model training.
+The API/database contract, migrations, and forecasting implementation were not changed.
+The local web service was rebuilt; HTTP checks confirmed the matching build, Low stock asset,
+and healthy API. Database, API, and worker services were not restarted.
+
+Daily sales is a separate date-based view with a calendar picker, previous/next day, Today and
+Yesterday shortcuts, a clickable weekday strip, and an optional inclusive date range. Its grouped
+product table shows sale date, name, SKU, quantity, unit, and sales-record counts, with a separate
+row for each product and sale date in a range. A case-insensitive name/SKU search filters the rows
+and all summary totals together; the product count remains the number of distinct products.
+Quantity and unit columns use a compact gap with consistent header/value alignment. Numeric
+column headings and values are centered across Daily sales, Low stock, Sales ledger, and Stock
+movements. Summaries use the complete
+shared sales history across all API pages and both recorded/imported sale dates, including inactive
+products' earlier history. Quantities retain up to three decimal places without forced trailing
+zeros (`3`, `3.5`, `3.125`); thousands use comma grouping (`1,000`). Totals remain separate by
+catalog counting unit. Business dates use the saved store timezone. Empty selections state that
+no sales records were found without claiming a confirmed zero-sales day. Existing void exclusion
+and the return policy apply: returns remain separate stock movements while the original sale stays
+in history. This view consumes the existing sales/catalog contract and shared refresh behavior.
+
+The 2026-11-10 Daily sales change and search/date follow-up passed 19 focused aggregation tests
+and all 20 isolated Edge
+browser groups, including full-history pagination, store-timezone dates, mixed counting units,
+inclusive ranges, search and matching totals, actual dates per product row, quantity/unit spacing,
+and the 390px mobile layout. Frontend typecheck and production build passed;
+lint had zero errors and the three existing React Refresh warnings. Browser checks used synthetic
+intercepted HTTP with no live record writes. No backend, database, or forecasting changes were made.
+The local web service was rebuilt; HTTP checks confirmed matching build HTML, the Daily sales
+Inventory asset, and a healthy API.
+
+Inventory tabs have matching icons for Products, Low stock, Sales ledger, Daily sales, Stock
+movements, and Account & settings (Account for staff). Products uses the Daily sales green/cream
+palette, a labeled search/status toolbar, and expandable category cards with item-count pills,
+green open headers, and rotating chevrons. Category disclosures retain native keyboard behavior.
+Shared tabs and native select controls use green active/focus styling; product creation still
+supports choosing an existing category or adding a new one with the existing SKU suggestion.
+Inventory quantity displays and sale/delivery dialogs share the same trimmed-decimal formatter;
+stored quantities, currency/metric formatting, and stock calculations are unchanged.
+
+The later client-facing cleanup extends the green header design to Low stock and Returns &
+write-offs. Routine screens omit database/storage narration, formulas, raw movement IDs,
+processing timings, and range-calibration internals. Short instructions, stock-change consequences,
+units, dates, validation/errors, forecast method/scores, test coverage, and unavailable/limited
+evidence remain visible where useful. Account reference is collapsible; normal business stores
+do not show a research/provenance label, while existing demo data keeps its explicit test label.
+Evaluation questions, response scales, and saved results are unchanged; introductory and status
+copy is shorter. Unexpected page failures offer a plain reload message instead of raw exception
+text. Signup and recovery behavior is described under the account contract below.
+
+This client cleanup passed typecheck, production build, and lint (zero errors, the same three
+React Refresh warnings), 76 focused frontend tests, 19 isolated auth-browser groups, and 11
+isolated client-screen browser groups. The browser checks used intercepted synthetic HTTP with
+no live writes, including email/Google new-store payloads, reset-link rerenders, desktop/mobile
+layout, green header/button contrast, stock dialogs and error recovery, and separate business/demo
+labels. Existing forecast render verifiers were updated for the already-collapsible Restock
+sections and searchable product picker; all 61 demand/interval cases passed after that harness
+correction. Evaluation tests retained role, retry, final-submission and demo-provenance coverage.
+Live Google-provider access and email delivery remain deployment checks. This work changes no
+backend API/database contract and did not rerun Python tests. The local Docker web image was
+rebuilt and updated; HTTP checks confirmed matching build HTML, the updated signup and Inventory
+assets, and a healthy API with its database connected.
+
+The 2026-11-10 Inventory styling follow-up passed frontend typecheck, production build, and
+lint (zero errors, the same three React Refresh warnings). All 10 focused isolated Edge browser
+groups passed, covering tab icons, category keyboard controls/search/status filters, category/SKU
+previews, whole and fractional quantities, computed column alignment, and every Inventory tab at
+390px without document overflow. Browser responses were synthetic and all writes were blocked;
+there were no browser errors or unexpected endpoints. The local web service was rebuilt and
+updated; HTTP checks confirmed the matching build HTML, updated Products asset, and healthy API.
+No backend/database changes or Python tests were needed for this presentation change.
+
+New product forms display an editable, automatically generated SKU before saving. Choosing or
+typing a category regenerates that code. A clear category numeric sequence is continued with its
+existing prefix and padding; otherwise the first three normalized category characters start a
+code such as `STA-001`. Generation checks the full catalog, including inactive products, without
+renaming saved SKUs. An uncertain creation retry retains its submitted SKU and request key;
+editing that failed submission reserves the previous code for the rest of the open form.
+These frontend suggestions use the existing API/database contract; simultaneous saves from
+different browsers remain subject to the server's unique-SKU validation.
+
+The 2026-11-10 SKU change passed 22 generator and 37 stock-maintenance unit regressions,
+frontend typecheck, production build, and lint (zero errors, the three existing React Refresh
+warnings). All 44 isolated Edge browser groups passed using intercepted synthetic HTTP, including
+category previews, inactive SKU collisions, existing-product edits, and creation retries. The local web service was rebuilt;
+HTTP checks confirmed matching build HTML, the updated inventory asset, and API health. These
+frontend checks did not create live products, change the database contract, or rerun Python tests.
+
 Cover days after delivery accepts a typed nonnegative whole number and retains the 3/7/10/14-day
 suggestions. Moving Average window offers 3, 7, 14, 28, and 30 days using the existing settings API.
 The Moving Average score description uses the completed forecast's frozen
@@ -419,6 +523,46 @@ through `scripts/verify-zip-startup.mjs`. A workflow definition is not a complet
 
 ## Account and Google access contract
 
+The owner approved the durable account-activity contract on 2026-11-10. **Sign-in activity** in
+Inventory > Account & settings shows actor name/email/role, action, and store-timezone timestamps,
+with server search/action filters, refresh, and cursor pagination. The event list has a fixed
+320px desktop/288px mobile height and scrolls internally as logs accumulate, keeping the card size
+and store settings stable. Owner-only `GET /api/v1/auth/activity` derives its business scope from
+the authenticated session. Additive migration `010_account_activity` creates
+`account_activity_events` with identity snapshots and database-clock event timestamps; migrations
+001-009 remain intact. Successful session starts and their events are atomic, as are explicit
+session deletion and sign-out events. Google identity linking refreshes its existing access without
+creating a false sign-in. Password reset, account deactivation, expiry, and browser closure are not
+labelled explicit sign-outs. No older events are backfilled and no credentials or session tokens
+are stored in the log. Staff cannot read it; the browser-only prototype does not invent shared
+account activity. An older API's 404/501 response shows **Sign-in activity is not configured**.
+See the [account activity contract](../backend/docs/ACCOUNT_ACTIVITY_CONTRACT.md).
+
+The 2026-11-10 activity change passed 32 focused real-PostgreSQL cases and all 15 isolated Edge
+browser groups, including atomic rollback, concurrent sign-out, Google linking, identity snapshots,
+owner/business isolation, full-history filters, cursor ties/retries, session guards, and mobile
+layout. Typecheck, production build, and lint passed, with the three existing React Refresh
+warnings; the 21-table structural schema contract passed. Browser traffic used synthetic
+intercepted HTTP; database tests used Python 3.12.14 and a separate disposable PostgreSQL 16.
+
+The complete Python run finished with 546 passed, 143 failed, 14 setup errors, and 14 passed
+subtests (no skips). All 157 failure/error cases report the existing missing `products.brand`
+column: repository/schema code expects `brand`, `model`, and `variant`, while migrations 001-009
+do not create them. This product source and migration history match HEAD; the failure also
+reproduced with the original authentication repository. A read-only inspection confirmed that the
+running local database already has those three columns. Adding their missing migration remains
+a separate database-design decision; the activity change does not alter product columns.
+The initial broad test attempt used an authentication-only image lacking XGBoost and was discarded;
+the reported complete run used the full backend image, including XGBoost 3.0.2.
+The approved activity migration was applied locally and the API/web services were updated.
+HTTP checks confirmed matching build HTML, the activity screen asset, healthy API, and rejection
+of an unauthenticated activity request. Database and worker services were not restarted. Runtime
+checks used schema metadata and read-only HTTP; no fake live account activity was generated.
+The fixed-height activity-box follow-up passed all 16 Edge browser groups, including equal card
+height with 1, 50, and 53 logs, internal scrolling to the last event, and mobile fit. Frontend
+typecheck, production build, and lint passed (the same three existing React Refresh warnings).
+This follow-up changes presentation only and did not rerun Python/database tests.
+
 Startup generates private owner credentials only when both the local `.env` and its saved private copy are absent. README contains no shared
 owner password. Existing owners change their password through Inventory > Account & settings >
 Account maintenance; editing `.env` or restarting does not update an existing password hash.
@@ -439,10 +583,13 @@ and staff session revocation remain enforced by the repository.
 
 Each public signup creates its own owner store with default settings and an empty catalog.
 The existing PostgreSQL UUID default generates the Business ID for both password registration
-and first-time Google store setup; Inventory account controls exposes it in Your account. The
-**Records you plan to use** field chooses test/demo or authorized-real-business provenance.
-Both choices retain the same application features and empty-store behavior; neither generates
-records or establishes a partner or research result. Signup passwords are 12 to 128 characters.
+and first-time Google store setup; Inventory account controls exposes it under Your account >
+Store reference. Public signup and first-time Google setup no longer offer a test-record selector.
+New stores use the existing `dataOrigin: "partner"` request value after an explicit, unchecked
+permission confirmation. Both paths create empty catalogs; this operational provenance label
+does not establish a research partner or findings. Existing demo stores and browser-demo data
+remain visibly identified and are not migrated, deleted, or relabeled. Signup passwords are
+12 to 128 characters.
 New emails are reserved across businesses; existing tenant users remain intact and can use
 optional Business ID login when credentials are ambiguous.
 
@@ -454,6 +601,9 @@ authentication returns the access screen to Sign in for a later logout. If an au
 succeeds but reading store records fails, the page states that sign-in/account creation/setup
 succeeded and offers reload guidance; the existing cookie can reload the store without another
 registration request. Old tenant records are not displayed in that failure state.
+
+Password reset retains the initial URL token in component state after clearing it from the
+address bar. Rerenders therefore keep the password-reset form open until the flow finishes.
 
 Sign out shows a pending state and an inline retryable failure. Confirmed logout, including an
 already-expired/revoked session reported as HTTP 401, clears the browser's session, records,
@@ -570,8 +720,9 @@ Drafts remain local until a successful save, and saved values display on reload.
   the later segment reserves at least 10 residual observations after method selection. Fixed
   10th/90th residual quantiles give a nominal 80% band for the operating method, clipped at zero.
   Saved evidence includes selection/calibration counts and calibration dates, residual offsets,
-  and untouched final-test coverage. The UI displays this evidence and the final-test denominator;
-  small time-ordered samples and later model refits do not guarantee future coverage. Missing
+  and untouched final-test coverage. The UI shows range-check counts/dates, target coverage, and
+  final-test coverage/denominator; calibration formulas and raw offsets stay out of client screens.
+  Small time-ordered samples and later model refits do not guarantee future coverage. Missing
   legacy metadata is reported as unknown, and expired runs retain archived calibration evidence.
   Browser-demo bands are illustrative. No certified accuracy is claimed; `xgboost_verified`
   remains false. Operational pages use Python `forecastEvidence` and `forecastConfidence`.
@@ -631,13 +782,13 @@ Drafts remain local until a successful save, and saved values display on reload.
 - Forecasts, Restock, and Quality use short retail wording.
   Wording-only requests must preserve the existing cards, positions, styling, and visible data;
   do not add disclosures or move/hide sections without the user's request. The owner's later
-  explicit dashboard request keeps Forecasts' processing panel, inline MAE/RMSE cards, all-product
-  table, selection summary, and range evidence, while replacing Overall with the product-only
-  selector described above. Restock keeps stock, expected sales, reorder point, stock cover,
+  client cleanup retains inline MAE/RMSE cards, the all-product table, selection summary, and
+  useful range evidence, while omitting the processing-time panel and internal calculations.
+  Forecasts uses the product-only selector described above. Restock keeps stock, expected sales, reorder point, stock cover,
   suggested order, and delivery actions visible. Its metadata shows SKU/category, with test
   errors, confidence reasons, and missing/excluded-day counts under closed Forecast details.
   Unavailable estimates, fallback reasons, shortened-test limitations, and actionable quality
-  warnings remain outside that disclosure. Forecasts retains full evidence paragraphs. Forecast
+  warnings remain outside that disclosure. Forecasts uses concise evidence descriptions. Forecast
   copy controls remain removed and CSV export buttons remain available. The chosen-method badge
   still uses earlier validation. Quality labels retain existing classification values, override
   rules, audit export, and permissions; an empty review list makes no claim that the store has no
@@ -702,8 +853,9 @@ Drafts remain local until a successful save, and saved values display on reload.
   artifact/result persistence, and total processing durations. `disjoint_phases_v1` scopes do not
   overlap; total ends after the result commit and excludes queue wait and final timing/status
   publication. Failed/interrupted publication discards committed results before retry. Unexecuted
-  phases stay null, and legacy phase scopes are unknown. Forecasts displays these saved times;
-  total processing is never substituted for model training. API and actual Edge browser benchmarks
+  phases stay null, and legacy phase scopes are unknown. These times remain saved for engineering
+  review; the client Forecasts screen omits the timing panel. Total processing is never
+  substituted for model training. API and actual Edge browser benchmarks
   have separate procedures and raw reports; synthetic measurements are not client findings.
 
 The custom browser boosted-tree code is not the official XGBoost package and is isolated to

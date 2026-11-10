@@ -14,6 +14,13 @@ export function num(value: number, digits = 0): string {
   }).format(value);
 }
 
+export function quantity(value: number): string {
+  if (!Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat("en-PH", {
+    maximumFractionDigits: 3,
+  }).format(value);
+}
+
 export function metric(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "—";
   return num(value, 2);
