@@ -129,10 +129,12 @@ async function mount(
             }),
           };
         if (name === "@/lib/dates") return { businessDateISO: () => state.businessDay };
-        if (name === "@/lib/format") return { num: String, peso: String };
+        if (name === "@/lib/format") return { num: String, peso: String, quantity: String };
         if (name === "@/lib/api") return { api: { exportUrl: () => "synthetic-export" } };
         if (name === "@/lib/forecast-schedule")
           return { forecastRefreshAdvice: () => "refresh the forecast" };
+        if (name === "@/lib/product-sku")
+          return { generateProductSku: () => "SYNTHETIC-SKU-001" };
         if (name === "@/components/forecast-context") return { useForecast: () => forecast };
         if (name === "@/lib/csv-preparation") return { CSV_API_ROW_LIMITS: {} };
         if (name === "@tanstack/react-router") return { createFileRoute: () => () => ({}) };

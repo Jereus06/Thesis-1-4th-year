@@ -189,6 +189,7 @@ function mountSettings(onSave) {
           };
         if (name === "@/lib/dates") return {};
         if (name === "@/lib/csv-preparation") return { CSV_API_ROW_LIMITS: {} };
+        if (name === "lucide-react") return new Proxy({}, { get: (_target, key) => String(key) });
         if (name.startsWith("@/components/"))
           return new Proxy({}, { get: (_target, key) => String(key) });
         throw new Error(`Unexpected settings-panel import: ${name}`);

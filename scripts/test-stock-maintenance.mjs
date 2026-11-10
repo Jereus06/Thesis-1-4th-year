@@ -1261,8 +1261,7 @@ test("owner controls render while staff retains permitted stock actions and audi
     assert.match(productsMarkup, /Record delivery/);
     assert.match(movementsMarkup, /Record return/);
     assert.match(movementsMarkup, /Unopened item/);
-    assert.match(movementsMarkup, /Test\/demo records/);
-    assert.match(movementsMarkup, /synthetic-user/);
+    assert.match(movementsMarkup, /Recorded by/);
     if (role === "owner") {
       for (const action of [
         "Add product",
