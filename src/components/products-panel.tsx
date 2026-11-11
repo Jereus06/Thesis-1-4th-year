@@ -437,7 +437,8 @@ const ProductCard = memo(function ProductCard({
             </Badge>
           </div>
           <p className="text-xs leading-relaxed break-words text-muted">
-            {product.sku} · {product.category} · {peso(product.unitCost)} / {product.unit}
+            {product.sku} · {product.category} · Cost {peso(product.unitCost)} · Sell{" "}
+            {peso(product.unitCost)} / {product.unit}
           </p>
           <dl className="grid grid-cols-3 gap-2 rounded-xl bg-surface-2/70 p-3 text-center text-sm">
             <div className="min-w-0">

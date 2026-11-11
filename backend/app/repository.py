@@ -802,22 +802,28 @@ class Repository:
                 self._invalidate_sales_forecasts(principal.business_id)
         return {"deletedRows": deleted}
 
-    def export_sales(self, business_id: str):
+    def export_sales(self, business_id: str, from_date=None, to_date=None):
         return self.conn.execute(
             """SELECT s.id,p.sku,s.sale_date,s.quantity,s.source,s.data_origin,s.source_record_key
                FROM sales s JOIN products p ON p.business_id=s.business_id AND p.id=s.product_id
-               WHERE s.business_id=%s AND s.voided_at IS NULL ORDER BY s.sale_date,s.id""",
-            (business_id,),
+               WHERE s.business_id=%s AND s.voided_at IS NULL
+                 AND (%s IS NULL OR s.sale_date >= %s)
+                 AND (%s IS NULL OR s.sale_date <= %s)
+               ORDER BY s.sale_date,s.id""",
+            (business_id, from_date, from_date, to_date, to_date),
         ).fetchall()
 
-    def export_movements(self, business_id: str):
+    def export_movements(self, business_id: str, from_date=None, to_date=None):
         return self.conn.execute(
             """SELECT m.id,p.sku,m.movement_date,m.movement_type,m.quantity_delta,
                       m.balance_after,m.data_origin,m.note
                FROM inventory_movements m
                JOIN products p ON p.business_id=m.business_id AND p.id=m.product_id
-               WHERE m.business_id=%s ORDER BY m.movement_date,m.created_at,m.id""",
-            (business_id,),
+               WHERE m.business_id=%s
+                 AND (%s IS NULL OR m.movement_date >= %s)
+                 AND (%s IS NULL OR m.movement_date <= %s)
+               ORDER BY m.movement_date,m.created_at,m.id""",
+            (business_id, from_date, from_date, to_date, to_date),
         ).fetchall()
 
     def list_movements(self, business_id: str, limit: int, offset: int):

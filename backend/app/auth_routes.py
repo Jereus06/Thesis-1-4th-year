@@ -258,11 +258,29 @@ def create_auth_router(repo_dependency) -> APIRouter:
         owner = authenticated(request, repository)
         raw = new_token()
         invitation = repository.create_invitation(owner, str(data.email), data.display_name, raw)
+        business = repository.get_business(owner.business_id)
+        location = business["location"] or "Location not specified"
         try:
             Mailer(config).send(
                 str(data.email),
-                "StockCast staff invitation",
-                f"Open {config.public_app_url.rstrip('/')}/?invitation={raw} within 48 hours. This invitation works once.",
+                f"Invitation to join {business['name']} on StockCast",
+                "\n".join(
+                    [
+                        f"Hello {data.display_name},",
+                        "",
+                        f"You are invited to join {business['name']} as a staff member.",
+                        f"Store location: {location}",
+                        "System: StockCast",
+                        "",
+                        "Please use the secure link below to create your account:",
+                        f"{config.public_app_url.rstrip('/')}/?invitation={raw}",
+                        "",
+                        "This invitation link is single-use and expires in 48 hours.",
+                        "",
+                        "Welcome to the team,",
+                        f"{business['name']} team",
+                    ]
+                ),
             )
         except MailUnavailable as error:
             raise HTTPException(503, str(error)) from error

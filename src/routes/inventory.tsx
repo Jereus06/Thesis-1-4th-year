@@ -7,11 +7,13 @@ import { StockMovementsPanel } from "@/components/stock-movements-panel";
 import { SalesLedgerCard } from "@/components/sales-ledger-card";
 import { DailySalesPanel } from "@/components/daily-sales-panel";
 import { LowStockPanel } from "@/components/low-stock-panel";
+import { LeastSellingPanel } from "@/components/least-selling-panel";
 import {
   ArrowRightLeft,
   Boxes,
   CalendarDays,
   PackageMinus,
+  TrendingDown,
   ReceiptText,
   Settings2,
   UserRound,
@@ -52,6 +54,10 @@ function InventoryPage() {
             <PackageMinus className="size-4" aria-hidden="true" />
             Low stock
           </TabsTrigger>
+          <TabsTrigger value="least-selling" className="gap-2">
+            <TrendingDown className="size-4" aria-hidden="true" />
+            Least selling
+          </TabsTrigger>
           <TabsTrigger value="sales">
             <ReceiptText className="size-4" aria-hidden="true" />
             Sales ledger
@@ -80,6 +86,9 @@ function InventoryPage() {
           <LowStockPanel
             key={session ? `${session.businessId}:${session.userId}` : "browser-demo"}
           />
+        </TabsContent>
+        <TabsContent value="least-selling">
+          <LeastSellingPanel />
         </TabsContent>
         <TabsContent value="sales">
           <SalesPanel />

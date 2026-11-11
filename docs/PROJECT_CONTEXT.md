@@ -35,6 +35,7 @@ claim a new runtime execution or completed client findings.
 | Imports            | Inventory snapshots are atomic; historical SKU-mapped sales imports preserve current stock                                                                                                                                                                                 |
 | Exports            | Sales/stock-movement downloads use authenticated Python CSV endpoints                                                                                                                                                                                                      |
 | Forecasts          | Official Python XGBoost, immutable queued inputs, chronological selection/testing, saved predictions/metrics/models                                                                                                                                                        |
+| Sales tools        | Browser-demo dashboard cards open forecast options and an owner sales report with date/product/category filters, trend summaries, product ranking, and holdout comparison; monetary totals use recorded unit cost as an estimate until selling prices are modeled |
 | Restock            | Python reads the operating forecast or baseline and current stock; zero suggestions or unavailable demand still allow recording actual deliveries from Restock or Inventory                                                                                                |
 | Data quality       | Missing/incomplete dates, explicit zeros, closures, and stockouts have reviewed classifications, audit history, and CSV export                                                                                                                                             |
 | Backups            | `npm run backup` creates a PostgreSQL dump; CI checks a separate restore and container recreation                                                                                                                                                                          |
@@ -100,7 +101,8 @@ load the new code before these fixes take effect in a running installation.
 ## Product maintenance, stock movements, and frontend roles
 
 Inventory has Products, Low stock, Sales ledger, Daily sales, Stock movements, and Account & settings tabs
-(Account for staff). Owners can maintain SKU, name, category, unit, lead time, safety stock, and unit cost;
+(Account for staff). Owners can maintain SKU, name, category, unit, lead time, safety stock, and unit
+cost;
 verified stock-count corrections are a separate action using the existing audited product PATCH.
 Low stock lists active catalog products at zero or at/below their displayed threshold, independently
 of whether sales history or a forecast exists. It uses the current finite forecast reorder point
@@ -125,7 +127,7 @@ and healthy API. Database, API, and worker services were not restarted.
 
 Daily sales is a separate date-based view with a calendar picker, previous/next day, Today and
 Yesterday shortcuts, a clickable weekday strip, and an optional inclusive date range. Its grouped
-product table shows sale date, name, SKU, quantity, unit, and sales-record counts, with a separate
+product table shows sale date, name, SKU, quantity, unit, and total amount based on unit cost, with a separate
 row for each product and sale date in a range. A case-insensitive name/SKU search filters the rows
 and all summary totals together; the product count remains the number of distinct products.
 Quantity and unit columns use a compact gap with consistent header/value alignment. Numeric

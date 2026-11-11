@@ -12,6 +12,8 @@ import { TopForecastProducts } from "@/components/top-forecast-products";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { DISCLAIMER, modelLabel } from "@/lib/forecast/constants";
@@ -36,6 +38,11 @@ function ForecastsPage() {
   const configuredLimit = useAppStore((s) => s.settings.topNProducts);
   const { result, status, refresh, forecastThrough, schedule } = useForecast();
   const [errorSearch, setErrorSearch] = useState("");
+  const [grainView, setGrainView] = useState<"daily" | "weekly">("daily");
+  const [horizon, setHorizon] = useState(7);
+  const [horizonUnit, setHorizonUnit] = useState<"days" | "weeks">("days");
+  const [metricView, setMetricView] = useState<"units" | "value">("units");
+  const [compareModels, setCompareModels] = useState(true);
   const savedMaWindow = result?.diagnostics.maWindow;
   const maNote =
     savedMaWindow !== undefined && Number.isInteger(savedMaWindow) && savedMaWindow > 0
@@ -85,8 +92,29 @@ function ForecastsPage() {
 
   const chartPoints: ForecastPoint[] = useMemo(() => {
     if (!forecast) return [];
-    return [...forecast.holdout, ...forecast.future];
-  }, [forecast]);
+    const future = forecast.future.slice(0, horizon * (horizonUnit === "weeks" ? 7 : 1));
+    const points = [...forecast.holdout, ...future];
+    if (grainView === "daily") return points;
+    const grouped: ForecastPoint[] = [];
+    for (let index = 0; index < points.length; index += 7) {
+      const batch = points.slice(index, index + 7);
+      if (!batch.length) continue;
+      const sum = (key: "actual" | "ma" | "xgb" | "ensemble" | "p10" | "p50" | "p90") =>
+        batch.reduce((total, point) => total + (point[key] ?? 0), 0);
+      grouped.push({
+        date: batch[0].date,
+        actual: batch.some((point) => point.actual !== null) ? sum("actual") : null,
+        ma: sum("ma"),
+        xgb: sum("xgb"),
+        ensemble: sum("ensemble"),
+        p10: sum("p10"),
+        p50: sum("p50"),
+        p90: sum("p90"),
+      });
+    }
+    return grouped;
+  }, [forecast, grainView, horizon, horizonUnit]);
+  const metricScale = metricView === "value" ? selected?.unitCost ?? 0 : 1;
 
   return (
     <div className="page-enter mx-auto flex max-w-6xl flex-col gap-6">
@@ -119,6 +147,43 @@ function ForecastsPage() {
         stale={result?.diagnostics.trainingScopeStale}
         demonstration={mode === "browser-demo"}
       />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Forecast options</CardTitle>
+          <CardDescription>Adjust the demonstration view without changing the saved forecast run.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-1.5">
+            <Label htmlFor="forecast-grain">View</Label>
+            <Select id="forecast-grain" value={grainView} onChange={(event) => setGrainView(event.target.value as "daily" | "weekly")}>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+            </Select>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="forecast-horizon">Horizon</Label>
+            <div className="flex gap-2">
+              <Input id="forecast-horizon" type="number" min={1} max={90} value={horizon} onChange={(event) => setHorizon(Math.max(1, Math.min(90, Number(event.target.value) || 1)))} />
+              <Select aria-label="Forecast horizon unit" value={horizonUnit} onChange={(event) => setHorizonUnit(event.target.value as "days" | "weeks")}>
+                <option value="days">days</option>
+                <option value="weeks">weeks</option>
+              </Select>
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="forecast-metric">Metric</Label>
+            <Select id="forecast-metric" value={metricView} onChange={(event) => setMetricView(event.target.value as "units" | "value")}>
+              <option value="units">Units sold</option>
+              <option value="value">Estimated sales value</option>
+            </Select>
+          </div>
+          <label className="flex items-end gap-2 pb-2 text-sm">
+            <input type="checkbox" checked={compareModels} onChange={(event) => setCompareModels(event.target.checked)} />
+            Compare forecasting strategies
+          </label>
+        </CardContent>
+      </Card>
 
       <div className="relative z-30 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <p className="font-medium">{selected?.name ?? "No active products"}</p>
@@ -212,6 +277,8 @@ function ForecastsPage() {
             {ready ? (
               <DemandChart
                 points={chartPoints}
+                scale={metricScale}
+                showModels={compareModels}
                 intervalLabel={
                   mode === "browser-demo"
                     ? "Example sales range"

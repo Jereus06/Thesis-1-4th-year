@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { ImportRefreshNotice } from "@/components/import-refresh-notice";
 import { RecordSaleDialog } from "@/components/record-sale-dialog";
@@ -33,6 +33,11 @@ export function SalesLedgerCard() {
   const [selection, setSelection] = useState<DeleteSelection | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [exportFrom, setExportFrom] = useState("");
+  const [exportTo, setExportTo] = useState("");
+  const [exportReminderOpen, setExportReminderOpen] = useState(false);
+  const [exportMode, setExportMode] = useState<"day" | "range">("day");
+  const [search, setSearch] = useState("");
   const pending = useRef(false);
   const nameById = useMemo(
     () => Object.fromEntries(products.map((product) => [product.id, product.name])),
@@ -42,13 +47,25 @@ export function SalesLedgerCard() {
     () => [...sales].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id)),
     [sales],
   );
+  const filteredSales = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    if (!query) return sortedSales;
+    return sortedSales.filter((sale) => {
+      const product = products.find((item) => item.id === sale.productId);
+      return `${product?.name ?? sale.productId} ${product?.sku ?? ""}`
+        .toLocaleLowerCase()
+        .includes(query);
+    });
+  }, [products, search, sortedSales]);
   const importedCount = useMemo(() => sales.filter(isImportedSale).length, [sales]);
-  const lastPage = Math.max(0, Math.ceil(sales.length / PAGE_SIZE) - 1);
+  const lastPage = Math.max(0, Math.ceil(filteredSales.length / PAGE_SIZE) - 1);
   const currentPage = Math.min(page, lastPage);
-  const visibleSales = sortedSales.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
+  const visibleSales = filteredSales.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
   const hasActiveProducts = products.some((product) => product.isActive !== false);
   const recordedSelection = selection?.kind === "single" && selection.sale.source === "manual";
   const canDeleteSelection = selection?.kind === "single" ? canDeleteSales : canDeleteImportedSales;
+  const invalidExportRange = Boolean(exportFrom && exportTo && exportFrom > exportTo);
+  const exportReady = Boolean(exportFrom) && !invalidExportRange;
 
   function selectDeletion(next: DeleteSelection) {
     setError(null);
@@ -115,10 +132,31 @@ export function SalesLedgerCard() {
           </p>
         )}
         {session && (
-          <Button asChild variant="outline" size="sm" className="self-start">
-            <a href={api.exportUrl(session.businessId, "sales")}>Export sales CSV</a>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setExportReminderOpen(true)}
+          >
+            Export sales CSV
           </Button>
         )}
+        <div className="relative">
+          <Search
+            className="pointer-events-none absolute top-3.5 left-3 size-4 text-muted"
+            aria-hidden="true"
+          />
+          <input
+            aria-label="Search sales"
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(0);
+            }}
+            placeholder="Search sales by product or SKU"
+            className="flex h-11 w-full rounded-xl border border-border bg-surface py-2 pr-3 pl-9 text-sm text-fg shadow-sm outline-none transition-colors placeholder:text-muted focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/20"
+          />
+        </div>
       </CardHeader>
       <CardContent className="grid gap-4">
         <div className="overflow-x-auto">
@@ -178,21 +216,21 @@ export function SalesLedgerCard() {
                   )}
                 </tr>
               ))}
-              {!sales.length && (
+              {!filteredSales.length && (
                 <tr>
                   <td colSpan={canDeleteSales ? 5 : 4} className="py-6 text-muted">
-                    No sales recorded yet.
+                    {sales.length ? "No sales match your search." : "No sales recorded yet."}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-        {sales.length > 0 && (
+        {filteredSales.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <p className="text-muted" aria-live="polite">
-              {currentPage * PAGE_SIZE + 1}–{Math.min((currentPage + 1) * PAGE_SIZE, sales.length)}{" "}
-              of {num(sales.length)} sales
+              {currentPage * PAGE_SIZE + 1}–{Math.min((currentPage + 1) * PAGE_SIZE, filteredSales.length)}{" "}
+              of {num(filteredSales.length)} sales
             </p>
             {lastPage > 0 && (
               <div className="flex gap-2">
@@ -272,6 +310,79 @@ export function SalesLedgerCard() {
           </DialogContent>
         </Dialog>
       </CardContent>
+      <Dialog open={exportReminderOpen} onOpenChange={setExportReminderOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Export sales</DialogTitle>
+            <DialogDescription>
+              Choose whether to export one day or a date range.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant={exportMode === "day" ? "default" : "outline"}
+                aria-pressed={exportMode === "day"}
+                onClick={() => setExportMode("day")}
+              >
+                Single day
+              </Button>
+              <Button
+                type="button"
+                variant={exportMode === "range" ? "default" : "outline"}
+                aria-pressed={exportMode === "range"}
+                onClick={() => setExportMode("range")}
+              >
+                Date range
+              </Button>
+            </div>
+            <label className="grid gap-1.5 text-sm">
+              {exportMode === "day" ? "Date" : "From"}
+              <input
+                type="date"
+                required
+                value={exportFrom}
+                onChange={(event) => setExportFrom(event.target.value)}
+                className="h-11 rounded-lg border border-border bg-surface px-3 text-sm text-fg"
+              />
+            </label>
+            {exportMode === "range" && (
+              <label className="grid gap-1.5 text-sm">
+                To
+                <input
+                  type="date"
+                  required
+                  value={exportTo}
+                  onChange={(event) => setExportTo(event.target.value)}
+                  className="h-11 rounded-lg border border-border bg-surface px-3 text-sm text-fg"
+                />
+              </label>
+            )}
+            {invalidExportRange && (
+              <p className="text-sm text-danger" role="alert">
+                The start date must not be after the end date.
+              </p>
+            )}
+            <Button
+              type="button"
+              disabled={!exportReady || (exportMode === "range" && !exportTo)}
+              onClick={() => {
+                if (!session) return;
+                window.location.assign(
+                  api.exportUrl(session.businessId, "sales", {
+                    from: exportFrom,
+                    to: exportMode === "day" ? exportFrom : exportTo,
+                  }),
+                );
+                setExportReminderOpen(false);
+              }}
+            >
+              Download CSV
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

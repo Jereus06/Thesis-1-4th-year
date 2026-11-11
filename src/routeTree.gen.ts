@@ -16,6 +16,7 @@ import { Route as GuideRouteImport } from './routes/guide'
 import { Route as InventoryRouteImport } from './routes/inventory'
 import { Route as MethodologyRouteImport } from './routes/methodology'
 import { Route as RestockRouteImport } from './routes/restock'
+import { Route as SalesReportRouteImport } from './routes/sales-report'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -52,6 +53,11 @@ const RestockRoute = RestockRouteImport.update({
   path: '/restock',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SalesReportRoute = SalesReportRouteImport.update({
+  id: '/sales-report',
+  path: '/sales-report',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -61,6 +67,7 @@ export interface FileRoutesByFullPath {
   '/inventory': typeof InventoryRoute
   '/methodology': typeof MethodologyRoute
   '/restock': typeof RestockRoute
+  '/sales-report': typeof SalesReportRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -70,6 +77,7 @@ export interface FileRoutesByTo {
   '/inventory': typeof InventoryRoute
   '/methodology': typeof MethodologyRoute
   '/restock': typeof RestockRoute
+  '/sales-report': typeof SalesReportRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -80,6 +88,7 @@ export interface FileRoutesById {
   '/inventory': typeof InventoryRoute
   '/methodology': typeof MethodologyRoute
   '/restock': typeof RestockRoute
+  '/sales-report': typeof SalesReportRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -91,6 +100,7 @@ export interface FileRouteTypes {
     | '/inventory'
     | '/methodology'
     | '/restock'
+    | '/sales-report'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -100,6 +110,7 @@ export interface FileRouteTypes {
     | '/inventory'
     | '/methodology'
     | '/restock'
+    | '/sales-report'
   id:
     | '__root__'
     | '/'
@@ -109,6 +120,7 @@ export interface FileRouteTypes {
     | '/inventory'
     | '/methodology'
     | '/restock'
+    | '/sales-report'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -119,6 +131,7 @@ export interface RootRouteChildren {
   InventoryRoute: typeof InventoryRoute
   MethodologyRoute: typeof MethodologyRoute
   RestockRoute: typeof RestockRoute
+  SalesReportRoute: typeof SalesReportRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -172,6 +185,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RestockRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sales-report': {
+      id: '/sales-report'
+      path: '/sales-report'
+      fullPath: '/sales-report'
+      preLoaderRoute: typeof SalesReportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -183,6 +203,7 @@ const rootRouteChildren: RootRouteChildren = {
   InventoryRoute: InventoryRoute,
   MethodologyRoute: MethodologyRoute,
   RestockRoute: RestockRoute,
+  SalesReportRoute: SalesReportRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

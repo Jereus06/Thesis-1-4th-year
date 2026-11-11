@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { summarizeDailySales } from "@/lib/daily-sales";
 import { businessDateISO } from "@/lib/dates";
-import { quantity } from "@/lib/format";
+import { peso, quantity } from "@/lib/format";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -357,16 +357,15 @@ export function DailySalesPanel() {
             </div>
             <div className="rounded-2xl border border-border bg-surface p-4 sm:p-5">
               <ReceiptText className="mb-3 size-5 text-primary" aria-hidden="true" />
-              <p className="text-xs text-muted">Sales records</p>
+              <p className="text-xs text-muted">Total amount</p>
               <p
                 className="mt-1 text-3xl font-medium tracking-tight tabular"
-                data-testid="daily-sales-record-count"
+                data-testid="daily-sales-total-amount"
               >
-                {quantity(summary.recordCount)}
+                {peso(summary.totalAmount)}
               </p>
               <p className="mt-2 text-xs text-muted">
-                {quantity(summary.recordedCount)} recorded · {quantity(summary.importedCount)}{" "}
-                imported
+                Based on unit cost
               </p>
             </div>
             <div className="col-span-2 rounded-2xl border border-border bg-surface p-4 sm:p-5 lg:col-span-1">
@@ -428,7 +427,7 @@ export function DailySalesPanel() {
                         Unit
                       </th>
                       <th scope="col" className="px-5 py-3 text-center font-medium">
-                        Sales records
+                        Total amount
                       </th>
                     </tr>
                   </thead>
@@ -468,10 +467,9 @@ export function DailySalesPanel() {
                           {product.unit}
                         </td>
                         <td className="px-5 py-4 text-center">
-                          <span className="tabular">{quantity(product.recordCount)}</span>
+                          <span className="tabular">{peso(product.totalAmount)}</span>
                           <p className="mt-1 text-[11px] whitespace-nowrap text-muted">
-                            {quantity(product.recordedCount)} recorded ·{" "}
-                            {quantity(product.importedCount)} imported
+                            {quantity(product.quantity)} {product.unit} sold
                           </p>
                         </td>
                       </tr>

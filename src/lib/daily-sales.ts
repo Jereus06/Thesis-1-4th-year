@@ -7,6 +7,7 @@ export type DailySalesProduct = {
   sku: string;
   unit: string;
   quantity: number;
+  totalAmount: number;
   recordCount: number;
   recordedCount: number;
   importedCount: number;
@@ -17,7 +18,8 @@ export type DailySalesRow = DailySalesProduct & { date: string };
 export type DailySalesSummary = {
   products: DailySalesProduct[];
   rows: DailySalesRow[];
-  totals: { unit: string; quantity: number }[];
+  totals: { unit: string; quantity: number; totalAmount: number }[];
+  totalAmount: number;
   recordCount: number;
   recordedCount: number;
   importedCount: number;
@@ -52,6 +54,7 @@ export function summarizeDailySales(
     recordCount: 0,
     recordedCount: 0,
     importedCount: 0,
+    totalAmount: 0,
   };
   if (!validDate(startDate) || !validDate(endDate) || startDate > endDate) return summary;
 
@@ -68,6 +71,7 @@ export function summarizeDailySales(
       name: product?.name ?? sale.productId,
       sku: product?.sku ?? "Unavailable",
       unit: product?.unit ?? "Unknown unit",
+      unitCost: product?.unitCost ?? 0,
     };
     if (
       query &&
@@ -79,6 +83,7 @@ export function summarizeDailySales(
     const row = byProduct.get(sale.productId) ?? {
       ...details,
       quantity: 0,
+      totalAmount: 0,
       recordCount: 0,
       recordedCount: 0,
       importedCount: 0,
@@ -88,6 +93,7 @@ export function summarizeDailySales(
       ...details,
       date: sale.date,
       quantity: 0,
+      totalAmount: 0,
       recordCount: 0,
       recordedCount: 0,
       importedCount: 0,
@@ -97,6 +103,7 @@ export function summarizeDailySales(
     const imported = isImportedSale(sale);
     for (const group of [row, datedRow]) {
       group.quantity += thousandths;
+      group.totalAmount += (thousandths / 1000) * details.unitCost;
       group.recordCount += 1;
       if (imported) group.importedCount += 1;
       else group.recordedCount += 1;
@@ -110,6 +117,7 @@ export function summarizeDailySales(
     byProduct.set(sale.productId, row);
     byDateProduct.set(dateKey, datedRow);
     byUnit.set(row.unit, (byUnit.get(row.unit) ?? 0) + thousandths);
+    summary.totalAmount += (thousandths / 1000) * details.unitCost;
   }
 
   summary.products = [...byProduct.values()]
@@ -120,6 +128,12 @@ export function summarizeDailySales(
     .sort((a, b) => b.date.localeCompare(a.date) || compareProducts(a, b));
   summary.totals = [...byUnit]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([unit, thousandths]) => ({ unit, quantity: thousandths / 1000 }));
+    .map(([unit, thousandths]) => ({
+      unit,
+      quantity: thousandths / 1000,
+      totalAmount: summary.products
+        .filter((product) => product.unit === unit)
+        .reduce((total, product) => total + product.totalAmount, 0),
+    }));
   return summary;
 }

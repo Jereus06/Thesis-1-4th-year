@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, Clock3, PackageMinus, Scale, Wallet } from "lucide-react";
+import { ArrowRight, BarChart3, Clock3, FileText, PackageMinus, Scale, Wallet } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import { useForecast } from "@/components/forecast-context";
 import { StatusBadge } from "@/components/status-badge";
@@ -135,6 +135,23 @@ function Overview() {
             ) : undefined
           }
         />
+      </section>
+
+      <section aria-label="Sales tools" className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><BarChart3 className="size-5" /> Sales forecasting</CardTitle>
+            <CardDescription>Choose a product and review future demand with model comparison and past-test evidence.</CardDescription>
+          </CardHeader>
+          <CardContent><Button size="sm" className="gap-1" asChild><Link to="/forecasts">Open forecasting <ArrowRight className="size-3" /></Link></Button></CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><FileText className="size-5" /> Sales report</CardTitle>
+            <CardDescription>Summarize units, estimated sales value, transactions, trends, and product performance.</CardDescription>
+          </CardHeader>
+          <CardContent><Button size="sm" variant="outline" className="gap-1" asChild><Link to="/sales-report">Open sales report <ArrowRight className="size-3" /></Link></Button></CardContent>
+        </Card>
       </section>
 
       <section className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">

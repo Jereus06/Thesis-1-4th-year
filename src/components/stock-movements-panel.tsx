@@ -45,6 +45,10 @@ export function StockMovementsPanel() {
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [exportFrom, setExportFrom] = useState("");
+  const [exportTo, setExportTo] = useState("");
+  const [exportReminderOpen, setExportReminderOpen] = useState(false);
+  const [exportMode, setExportMode] = useState<"day" | "range">("day");
   const [page, setPage] = useState(0);
   const filterId = useId();
   const pageSize = 50;
@@ -84,6 +88,8 @@ export function StockMovementsPanel() {
     currentPage * pageSize,
     (currentPage + 1) * pageSize,
   );
+  const invalidExportRange = Boolean(exportFrom && exportTo && exportFrom > exportTo);
+  const exportReady = Boolean(exportFrom) && !invalidExportRange;
 
   return (
     <div className="grid gap-4">
@@ -157,10 +163,15 @@ export function StockMovementsPanel() {
                 earlier saved balances.
               </CardDescription>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-end gap-3">
               {session && (
-                <Button asChild variant="outline" size="sm">
-                  <a href={api.exportUrl(session.businessId, "inventory-movements")}>Export CSV</a>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setExportReminderOpen(true)}
+                >
+                  Export CSV
                 </Button>
               )}
               <Button
@@ -291,6 +302,79 @@ export function StockMovementsPanel() {
           ) : null}
         </CardContent>
       </Card>
+      <Dialog open={exportReminderOpen} onOpenChange={setExportReminderOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Export stock movements</DialogTitle>
+            <DialogDescription>
+              Choose whether to export one day or a date range.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant={exportMode === "day" ? "default" : "outline"}
+                aria-pressed={exportMode === "day"}
+                onClick={() => setExportMode("day")}
+              >
+                Single day
+              </Button>
+              <Button
+                type="button"
+                variant={exportMode === "range" ? "default" : "outline"}
+                aria-pressed={exportMode === "range"}
+                onClick={() => setExportMode("range")}
+              >
+                Date range
+              </Button>
+            </div>
+            <label className="grid gap-1.5 text-sm">
+              {exportMode === "day" ? "Date" : "From"}
+              <input
+                type="date"
+                required
+                value={exportFrom}
+                onChange={(event) => setExportFrom(event.target.value)}
+                className="h-11 rounded-lg border border-border bg-surface px-3 text-sm text-fg"
+              />
+            </label>
+            {exportMode === "range" && (
+              <label className="grid gap-1.5 text-sm">
+                To
+                <input
+                  type="date"
+                  required
+                  value={exportTo}
+                  onChange={(event) => setExportTo(event.target.value)}
+                  className="h-11 rounded-lg border border-border bg-surface px-3 text-sm text-fg"
+                />
+              </label>
+            )}
+            {invalidExportRange && (
+              <p className="text-sm text-danger" role="alert">
+                The start date must not be after the end date.
+              </p>
+            )}
+            <Button
+              type="button"
+              disabled={!exportReady || (exportMode === "range" && !exportTo)}
+              onClick={() => {
+                if (!session) return;
+                window.location.assign(
+                  api.exportUrl(session.businessId, "inventory-movements", {
+                    from: exportFrom,
+                    to: exportMode === "day" ? exportFrom : exportTo,
+                  }),
+                );
+                setExportReminderOpen(false);
+              }}
+            >
+              Download CSV
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={movementType !== null}

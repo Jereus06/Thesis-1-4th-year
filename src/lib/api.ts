@@ -275,8 +275,17 @@ export const api = {
     request<{ revision: string }>(`/businesses/${businessId}/forecast-status`),
   refreshForecast: (businessId: string) =>
     request<ApiForecastRun>(`/businesses/${businessId}/forecast-refresh`, { method: "POST" }),
-  exportUrl: (businessId: string, kind: "sales" | "inventory-movements" | "data-quality") =>
-    `${API_URL}/businesses/${businessId}/exports/${kind}.csv`,
+  exportUrl: (
+    businessId: string,
+    kind: "sales" | "inventory-movements" | "data-quality",
+    dateRange?: { from?: string; to?: string },
+  ) => {
+    const params = new URLSearchParams();
+    if (dateRange?.from) params.set("fromDate", dateRange.from);
+    if (dateRange?.to) params.set("toDate", dateRange.to);
+    const query = params.toString();
+    return `${API_URL}/businesses/${businessId}/exports/${kind}.csv${query ? `?${query}` : ""}`;
+  },
   recordSale: async (
     businessId: string,
     productId: string,

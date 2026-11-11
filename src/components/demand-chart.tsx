@@ -17,9 +17,13 @@ import type { ForecastPoint } from "@/lib/types";
 export function DemandChart({
   points,
   intervalLabel = "Prediction interval",
+  scale = 1,
+  showModels = true,
 }: {
   points: ForecastPoint[];
   intervalLabel?: string;
+  scale?: number;
+  showModels?: boolean;
 }) {
   if (!points.length) {
     return (
@@ -31,11 +35,18 @@ export function DemandChart({
 
   const data = points.map((p) => ({
     ...p,
-    ma: Number.isFinite(p.ma) ? p.ma : null,
-    xgb: Number.isFinite(p.xgb) ? p.xgb : null,
-    ensemble: Number.isFinite(p.ensemble) ? p.ensemble : null,
+    actual: Number.isFinite(p.actual) ? (p.actual ?? 0) * scale : null,
+    ma: Number.isFinite(p.ma) ? p.ma * scale : null,
+    xgb: Number.isFinite(p.xgb) ? p.xgb * scale : null,
+    ensemble: Number.isFinite(p.ensemble) ? p.ensemble * scale : null,
+    p10: p.p10 * scale,
+    p90: p.p90 * scale,
     label: formatShort(p.date),
-    intervalBounds: chartIntervalBounds(p),
+    intervalBounds: chartIntervalBounds({
+      ...p,
+      p10: p.p10 * scale,
+      p90: p.p90 * scale,
+    }),
   }));
   const hasIntervals = data.some((point) => point.intervalBounds !== null);
 
@@ -88,31 +99,13 @@ export function DemandChart({
             dot={false}
             connectNulls={false}
           />
-          <Line
-            type="monotone"
-            dataKey="ensemble"
-            name="Ensemble"
-            stroke={chartColors.ensemble}
-            strokeWidth={2.25}
-            dot={false}
-          />
-          <Line
-            type="monotone"
-            dataKey="xgb"
-            name="XGBoost"
-            stroke={chartColors.xgb}
-            strokeWidth={1.5}
-            dot={false}
-          />
-          <Line
-            type="monotone"
-            dataKey="ma"
-            name="Moving Average"
-            stroke={chartColors.ma}
-            strokeWidth={1.5}
-            strokeDasharray="5 4"
-            dot={false}
-          />
+          {showModels && (
+            <>
+              <Line type="monotone" dataKey="ensemble" name="Ensemble" stroke={chartColors.ensemble} strokeWidth={2.25} dot={false} />
+              <Line type="monotone" dataKey="xgb" name="XGBoost" stroke={chartColors.xgb} strokeWidth={1.5} dot={false} />
+              <Line type="monotone" dataKey="ma" name="Moving Average" stroke={chartColors.ma} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
+            </>
+          )}
         </ComposedChart>
       </ResponsiveContainer>
     </div>

@@ -405,18 +405,32 @@ def movements(
 
 @app.get("/api/v1/businesses/{business_id}/exports/sales.csv")
 def export_sales(
-    business_id: str, repository: Repository = Depends(repo), user: Principal = Depends(principal)
+    business_id: str,
+    from_date: date | None = Query(None, alias="fromDate"),
+    to_date: date | None = Query(None, alias="toDate"),
+    repository: Repository = Depends(repo),
+    user: Principal = Depends(principal),
 ):
     business_user(business_id, user)
+    if from_date and to_date and from_date > to_date:
+        raise HTTPException(422, "fromDate must not be after toDate")
     columns = ["id", "sku", "sale_date", "quantity", "source", "data_origin", "source_record_key"]
-    return csv_response("stockcast-sales.csv", columns, repository.export_sales(business_id))
+    return csv_response(
+        "stockcast-sales.csv", columns, repository.export_sales(business_id, from_date, to_date)
+    )
 
 
 @app.get("/api/v1/businesses/{business_id}/exports/inventory-movements.csv")
 def export_movements(
-    business_id: str, repository: Repository = Depends(repo), user: Principal = Depends(principal)
+    business_id: str,
+    from_date: date | None = Query(None, alias="fromDate"),
+    to_date: date | None = Query(None, alias="toDate"),
+    repository: Repository = Depends(repo),
+    user: Principal = Depends(principal),
 ):
     business_user(business_id, user)
+    if from_date and to_date and from_date > to_date:
+        raise HTTPException(422, "fromDate must not be after toDate")
     columns = [
         "id",
         "sku",
@@ -428,7 +442,9 @@ def export_movements(
         "note",
     ]
     return csv_response(
-        "stockcast-inventory-movements.csv", columns, repository.export_movements(business_id)
+        "stockcast-inventory-movements.csv",
+        columns,
+        repository.export_movements(business_id, from_date, to_date),
     )
 
 

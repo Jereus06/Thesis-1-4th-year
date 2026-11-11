@@ -3,6 +3,7 @@ import {
   BookOpen,
   CircleHelp,
   ClipboardCheck,
+  FileText,
   LayoutDashboard,
   LineChart,
   PackagePlus,
@@ -32,8 +33,9 @@ const NAV = [
   { to: "/", label: "Overview", icon: LayoutDashboard },
   { to: "/restock", label: "Restock", icon: PackagePlus },
   { to: "/forecasts", label: "Forecasts", icon: LineChart },
+  { to: "/sales-report", label: "Sales report", icon: FileText },
   { to: "/inventory", label: "Inventory", icon: Warehouse },
-  { to: "/data-quality", label: "Quality", icon: ClipboardCheck },
+  { to: "/data-quality", label: "Data Review", icon: ClipboardCheck },
   { to: "/methodology", label: "Strategies", icon: BookOpen },
 ] as const;
 
