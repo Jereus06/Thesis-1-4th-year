@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { toast } from "sonner";
-import { DemandChart } from "@/components/demand-chart";
+import { DemandChart, type ForecastChartType } from "@/components/demand-chart";
 import { DemandEvidence } from "@/components/demand-evidence";
 import { ForecastEvidenceBadge } from "@/components/forecast-evidence-badge";
 import { IntervalEvidence } from "@/components/interval-evidence";
@@ -17,12 +17,15 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { DISCLAIMER, modelLabel } from "@/lib/forecast/constants";
+import { forecastChartPoints } from "@/lib/forecast/chart";
 import { metric, num } from "@/lib/format";
 import { intervalAvailability } from "@/lib/forecast-interval";
 import { forecastRefreshAdvice, forecastScheduleMessage } from "@/lib/forecast-schedule";
 import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
-import type { ForecastPoint, Product } from "@/lib/types";
+import { useForecastChartHistory } from "@/lib/use-forecast-chart-history";
+import { useForecastView, type ForecastView } from "@/lib/use-forecast-view";
+import type { Product } from "@/lib/types";
 
 export const Route = createFileRoute("/forecasts")({ component: ForecastsPage });
 
@@ -38,11 +41,9 @@ function ForecastsPage() {
   const configuredLimit = useAppStore((s) => s.settings.topNProducts);
   const { result, status, refresh, forecastThrough, schedule } = useForecast();
   const [errorSearch, setErrorSearch] = useState("");
-  const [grainView, setGrainView] = useState<"daily" | "weekly">("daily");
-  const [horizon, setHorizon] = useState(7);
-  const [horizonUnit, setHorizonUnit] = useState<"days" | "weeks">("days");
-  const [metricView, setMetricView] = useState<"units" | "value">("units");
-  const [compareModels, setCompareModels] = useState(true);
+  const { preferences, update: updateView } = useForecastView();
+  const horizon = preferences.days;
+  const compareModels = preferences.compare;
   const savedMaWindow = result?.diagnostics.maWindow;
   const maNote =
     savedMaWindow !== undefined && Number.isInteger(savedMaWindow) && savedMaWindow > 0
@@ -83,38 +84,19 @@ function ForecastsPage() {
       (product) => product.id === (newCompletedRun ? preferredProduct?.id : selection.productId),
     ) ?? preferredProduct;
   const forecast = selected ? result?.byProduct[selected.id] : undefined;
+  const grainView = forecast?.grain === "weekly" ? "weekly" : preferences.view;
   const scores = forecast;
+  const chartHistory = useForecastChartHistory(forecast, result?.runId);
   const winnerAvailable = Boolean(
     forecast &&
     Number.isFinite(forecast.cvMaeMa) &&
     (!forecast.trainedWithMl || Number.isFinite(forecast.cvMaeXgb)),
   );
 
-  const chartPoints: ForecastPoint[] = useMemo(() => {
-    if (!forecast) return [];
-    const future = forecast.future.slice(0, horizon * (horizonUnit === "weeks" ? 7 : 1));
-    const points = [...forecast.holdout, ...future];
-    if (grainView === "daily") return points;
-    const grouped: ForecastPoint[] = [];
-    for (let index = 0; index < points.length; index += 7) {
-      const batch = points.slice(index, index + 7);
-      if (!batch.length) continue;
-      const sum = (key: "actual" | "ma" | "xgb" | "ensemble" | "p10" | "p50" | "p90") =>
-        batch.reduce((total, point) => total + (point[key] ?? 0), 0);
-      grouped.push({
-        date: batch[0].date,
-        actual: batch.some((point) => point.actual !== null) ? sum("actual") : null,
-        ma: sum("ma"),
-        xgb: sum("xgb"),
-        ensemble: sum("ensemble"),
-        p10: sum("p10"),
-        p50: sum("p50"),
-        p90: sum("p90"),
-      });
-    }
-    return grouped;
-  }, [forecast, grainView, horizon, horizonUnit]);
-  const metricScale = metricView === "value" ? selected?.unitCost ?? 0 : 1;
+  const chartPoints = useMemo(
+    () => (forecast ? forecastChartPoints(forecast, horizon, grainView, chartHistory.points) : []),
+    [forecast, grainView, horizon, chartHistory.points],
+  );
 
   return (
     <div className="page-enter mx-auto flex max-w-6xl flex-col gap-6">
@@ -151,37 +133,63 @@ function ForecastsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Forecast options</CardTitle>
-          <CardDescription>Adjust the demonstration view without changing the saved forecast run.</CardDescription>
+          <CardDescription>
+            {grainView === "monthly" ? "Monthly" : grainView === "weekly" ? "Weekly" : "Daily"}{" "}
+            sales quantity for the next {horizon} days.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="grid gap-1.5">
-            <Label htmlFor="forecast-grain">View</Label>
-            <Select id="forecast-grain" value={grainView} onChange={(event) => setGrainView(event.target.value as "daily" | "weekly")}>
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-            </Select>
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="forecast-horizon">Horizon</Label>
-            <div className="flex gap-2">
-              <Input id="forecast-horizon" type="number" min={1} max={90} value={horizon} onChange={(event) => setHorizon(Math.max(1, Math.min(90, Number(event.target.value) || 1)))} />
-              <Select aria-label="Forecast horizon unit" value={horizonUnit} onChange={(event) => setHorizonUnit(event.target.value as "days" | "weeks")}>
-                <option value="days">days</option>
-                <option value="weeks">weeks</option>
-              </Select>
+        <CardContent>
+          <details className="group">
+            <summary className="flex cursor-pointer list-none items-center justify-between rounded-md text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/40 [&::-webkit-details-marker]:hidden">
+              Advanced options
+              <ChevronDown
+                className="size-4 transition-transform group-open:rotate-180"
+                aria-hidden="true"
+              />
+            </summary>
+            <p className="mt-3 text-sm text-muted">
+              Changes the chart only. It does not generate more predictions. Your choices are kept
+              when you reload.
+            </p>
+            <div className="mt-4 grid gap-4 sm:grid-cols-3">
+              <div className="grid gap-1.5">
+                <Label htmlFor="forecast-grain">View</Label>
+                <Select
+                  id="forecast-grain"
+                  value={grainView}
+                  disabled={forecast?.grain === "weekly"}
+                  onChange={(event) => updateView({ view: event.target.value as ForecastView })}
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                </Select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="forecast-horizon">Days to show</Label>
+                <Input
+                  id="forecast-horizon"
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={horizon}
+                  onChange={(event) =>
+                    updateView({
+                      days: Math.max(1, Math.min(365, Math.floor(Number(event.target.value) || 1))),
+                    })
+                  }
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm sm:pt-6">
+                <input
+                  type="checkbox"
+                  checked={compareModels}
+                  onChange={(event) => updateView({ compare: event.target.checked })}
+                />
+                Compare models
+              </label>
             </div>
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="forecast-metric">Metric</Label>
-            <Select id="forecast-metric" value={metricView} onChange={(event) => setMetricView(event.target.value as "units" | "value")}>
-              <option value="units">Units sold</option>
-              <option value="value">Estimated sales value</option>
-            </Select>
-          </div>
-          <label className="flex items-end gap-2 pb-2 text-sm">
-            <input type="checkbox" checked={compareModels} onChange={(event) => setCompareModels(event.target.checked)} />
-            Compare forecasting strategies
-          </label>
+          </details>
         </CardContent>
       </Card>
 
@@ -239,7 +247,8 @@ function ForecastsPage() {
       {mode === "api" && ready && selected && (
         <p className="text-sm text-muted">
           Past test results for {selected.name}. MAE is average error; RMSE highlights larger
-          errors. Lower is better.
+          errors, in {selected.unit} per {forecast?.grain === "weekly" ? "week" : "day"}. Lower is
+          better.
         </p>
       )}
 
@@ -257,6 +266,21 @@ function ForecastsPage() {
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <div className="grid gap-1.5">
+                <Label htmlFor="forecast-chart-type">Chart type</Label>
+                <Select
+                  id="forecast-chart-type"
+                  value={preferences.chartType}
+                  onChange={(event) =>
+                    updateView({ chartType: event.target.value as ForecastChartType })
+                  }
+                >
+                  <option value="line">Line</option>
+                  <option value="area">Area</option>
+                  <option value="candlestick">Candlestick</option>
+                  <option value="step">Step</option>
+                </Select>
+              </div>
               {forecast && (
                 <ForecastEvidenceBadge
                   evidence={forecast.forecastEvidence}
@@ -267,6 +291,14 @@ function ForecastsPage() {
             </div>
           </CardHeader>
           <CardContent>
+            {chartHistory.error && (
+              <p className="mb-3 text-sm text-muted" role="status">
+                {chartHistory.error}{" "}
+                <button type="button" className="underline" onClick={chartHistory.retry}>
+                  Retry
+                </button>
+              </p>
+            )}
             {forecast && mode === "api" && (
               <DemandEvidence
                 forecast={forecast}
@@ -277,8 +309,9 @@ function ForecastsPage() {
             {ready ? (
               <DemandChart
                 points={chartPoints}
-                scale={metricScale}
                 showModels={compareModels}
+                method={forecast?.method}
+                chartType={preferences.chartType}
                 intervalLabel={
                   mode === "browser-demo"
                     ? "Example sales range"
@@ -299,6 +332,16 @@ function ForecastsPage() {
               />
             )}
             <p className="mt-3 text-xs text-muted">
+              {chartHistory.points.length > 0 &&
+                "Earlier dates include saved predictions from this forecast run. "}
+              {forecast &&
+                `Saved future estimates: ${forecast.future.length} ${forecast.grain === "weekly" ? "weeks" : "days"}. The chart shows up to ${horizon} days. `}
+              {grainView === "weekly" &&
+                "Weekly totals keep past test days and future days separate. Partial weeks show only the days available; daily ranges are hidden. "}
+              {grainView === "monthly" &&
+                "Monthly totals show only available dates. Partial months are not full-month forecasts; daily ranges are hidden. "}
+              {forecast?.grain === "weekly" &&
+                "This demonstration result contains weekly quantities. "}
               {mode === "api"
                 ? "Recorded sales and future estimates are shown separately."
                 : "This chart uses sample data. Its shaded range is for demonstration only."}{" "}
@@ -329,21 +372,50 @@ function ForecastsPage() {
             onChange={(event) => setErrorSearch(event.target.value)}
           />
         </CardHeader>
-        <CardContent className="overflow-x-auto">
+        <CardContent className="record-scroll" tabIndex={0}>
           {!ready ? (
             <Skeleton className="h-48 w-full" />
           ) : (
-            <table className="w-full text-left text-sm">
+            <table
+              aria-label="Past forecast errors by product"
+              className="w-full min-w-[84rem] table-fixed text-left text-sm"
+            >
+              <colgroup>
+                <col className="w-[17%]" />
+                <col className="w-[8%]" />
+                <col className="w-[7%]" />
+                <col className="w-[7%]" />
+                <col className="w-[7%]" />
+                <col className="w-[13%]" />
+                <col className="w-1/4" />
+                <col className="w-[16%]" />
+              </colgroup>
               <thead className="text-xs tracking-wide text-muted uppercase">
                 <tr>
-                  <th className="pb-2 font-medium">Product</th>
-                  <th className="pb-2 font-medium">Sales days</th>
-                  <th className="pb-2 font-medium">MA MAE</th>
-                  <th className="pb-2 font-medium">XGB MAE</th>
-                  <th className="pb-2 font-medium">Ens MAE</th>
-                  <th className="pb-2 font-medium">Chosen method</th>
-                  <th className="pb-2 font-medium">Past results</th>
-                  <th className="pb-2 font-medium">Sales range</th>
+                  <th scope="col" className="px-4 py-3 font-medium">
+                    Product
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-center font-medium">
+                    Sales days
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-center font-medium">
+                    MA MAE
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-center font-medium">
+                    XGB MAE
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-center font-medium">
+                    Ens MAE
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-medium">
+                    Chosen method
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-medium">
+                    Past results
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-medium">
+                    Sales range
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -356,24 +428,24 @@ function ForecastsPage() {
                     if (!f) return null;
                     return (
                       <tr key={p.id} className="border-t border-border">
-                        <td className="py-2.5 pr-3">{p.name}</td>
-                        <td className="tabular">{num(f.nonzeroCount)}</td>
-                        <td className="tabular">{metric(f.maMae)}</td>
-                        <td className="tabular">{metric(f.xgbMae)}</td>
-                        <td className="tabular">{metric(f.ensembleMae)}</td>
-                        <td>
+                        <td className="px-4 py-3 [overflow-wrap:anywhere]">{p.name}</td>
+                        <td className="px-4 py-3 text-center tabular">{num(f.nonzeroCount)}</td>
+                        <td className="px-4 py-3 text-center tabular">{metric(f.maMae)}</td>
+                        <td className="px-4 py-3 text-center tabular">{metric(f.xgbMae)}</td>
+                        <td className="px-4 py-3 text-center tabular">{metric(f.ensembleMae)}</td>
+                        <td className="px-4 py-3">
                           <Badge variant={f.trainedWithMl ? "primary" : "default"}>
                             {modelLabel(f.method)}
                           </Badge>
                         </td>
-                        <td className="min-w-48 py-2.5 pr-3">
+                        <td className="px-4 py-3">
                           {mode === "api" ? (
                             <DemandEvidence forecast={f} unavailableReason={f.unavailableReason} />
                           ) : (
                             <span className="text-xs text-muted">Synthetic demonstration</span>
                           )}
                         </td>
-                        <td className="min-w-40 text-xs text-muted">
+                        <td className="px-4 py-3 text-xs text-muted">
                           {intervalAvailability(f, mode)}
                         </td>
                       </tr>

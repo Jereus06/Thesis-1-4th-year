@@ -31,6 +31,7 @@ from .schemas import (
 )
 from .security import Principal, token_hash
 from .survey import create_survey_router
+from .product_photos import create_product_photo_router
 
 
 @asynccontextmanager
@@ -103,6 +104,9 @@ def csrf_protected(
 def business_user(business_id: str, user: Principal) -> None:
     if user.business_id != business_id:
         raise HTTPException(403, "You do not belong to this business")
+
+
+app.include_router(create_product_photo_router(repo, principal, csrf_protected))
 
 
 def write_once(

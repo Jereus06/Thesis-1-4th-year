@@ -9,6 +9,7 @@ TABLES = (
     "businesses",
     "users",
     "products",
+    "product_photos",
     "sales",
     "inventory_movements",
     "data_imports",

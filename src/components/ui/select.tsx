@@ -5,9 +5,9 @@ function Select({ className, children, style, ...props }: React.ComponentProps<"
   return (
     <select
       className={cn(
-        "flex h-11 w-full cursor-pointer appearance-none rounded-xl border border-border bg-surface py-2 pr-10 pl-3 text-sm text-fg shadow-sm",
+        "flex h-11 min-w-0 w-full cursor-pointer appearance-none rounded-xl border border-border bg-surface py-2 pr-10 pl-3 text-sm text-fg shadow-[inset_0_1px_2px_rgba(29,46,37,0.025)]",
         "bg-[length:1rem_1rem] bg-[position:right_0.875rem_center] bg-no-repeat outline-none transition-colors",
-        "hover:border-primary/40 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/20",
+        "hover:border-primary/30 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/15",
         "disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}

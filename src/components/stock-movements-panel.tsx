@@ -230,7 +230,7 @@ export function StockMovementsPanel() {
           )}
           {visibleMovements.length > 0 ? (
             <>
-              <div className="overflow-x-auto">
+              <div className="record-scroll" tabIndex={0}>
                 <table className="w-full min-w-[48rem] text-left text-sm">
                   <caption className="sr-only">Inventory stock movements</caption>
                   <thead className="border-b border-border text-xs text-muted">

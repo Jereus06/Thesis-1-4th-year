@@ -363,6 +363,7 @@ export function createSeedSales(): Sale[] {
         productId: product.id,
         date,
         qty,
+        source: "demo",
       });
     }
   }

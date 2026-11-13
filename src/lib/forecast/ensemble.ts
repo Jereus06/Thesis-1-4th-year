@@ -3,6 +3,7 @@ import { XGB_UNSTABLE_RATIO } from "./constants";
 export function ensembleWeights(cvMaeXgb: number, cvMaeMa: number): { xgb: number; ma: number } {
   const xgbOk = Number.isFinite(cvMaeXgb) && cvMaeXgb >= 0;
   const maOk = Number.isFinite(cvMaeMa) && cvMaeMa >= 0;
+  if (!xgbOk && !maOk) return { xgb: 0.5, ma: 0.5 };
   if (!xgbOk && maOk) return { xgb: 0, ma: 1 };
   if (xgbOk && !maOk) return { xgb: 1, ma: 0 };
   const invX = 1 / Math.max(1e-6, cvMaeXgb);
@@ -12,6 +13,14 @@ export function ensembleWeights(cvMaeXgb: number, cvMaeMa: number): { xgb: numbe
 }
 
 export function mixPreds(xgb: number[], ma: number[], wXgb: number, wMa: number): number[] {
+  if (xgb.length !== ma.length)
+    throw new Error("Ensemble predictions require matching observations.");
+  if (
+    ![wXgb, wMa].every((weight) => Number.isFinite(weight) && weight >= 0) ||
+    Math.abs(wXgb + wMa - 1) > 1e-9
+  ) {
+    throw new Error("Ensemble weights must be nonnegative and sum to one.");
+  }
   const n = Math.max(xgb.length, ma.length);
   const out: number[] = [];
   for (let i = 0; i < n; i++) {
@@ -33,9 +42,7 @@ export function isXgbUnstable(opts: {
   if (!Number.isFinite(opts.xgbMae)) return true;
   if (Number.isFinite(opts.maMae) && opts.xgbMae > opts.maMae * XGB_UNSTABLE_RATIO) return true;
   const meanPred =
-    opts.preds.length === 0
-      ? 0
-      : opts.preds.reduce((s, v) => s + v, 0) / opts.preds.length;
+    opts.preds.length === 0 ? 0 : opts.preds.reduce((s, v) => s + v, 0) / opts.preds.length;
   if (opts.seriesMean > 0 && meanPred > opts.seriesMean * 5) return true;
   if (opts.preds.some((v) => !Number.isFinite(v))) return true;
   return false;

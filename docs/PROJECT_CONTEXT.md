@@ -659,6 +659,212 @@ not establish live email or Google-provider delivery. Temporary test resources a
 were removed; durable regression scripts and synthetic evidence were retained.
 See [backend authentication details](../backend/README.md#authentication-contract).
 
+## Sales forecasting review — 2026-11-13
+
+The normal Python forecasting implementation and API/database contract remain unchanged.
+Two new synthetic worker tests run real CPU XGBoost and check 30 matching final-test dates
+and 30 future dates for Moving Average, XGBoost, and ensemble; saved MAE/RMSE are recomputed
+from the persisted quantities. They also check training-only eligibility, validation-based
+operating selection, ensemble weights, model artifacts, and historyless products.
+
+Forecasts now initially displays 30 future days, within the completed run's saved predictions.
+Changing its chart horizon does not retrain or invent extra predictions. Each model line is a
+direct Recharts child: the installed React/Recharts combination omitted the lines nested in
+a fragment. Disabling comparison keeps Actual and the operating method's predicted line.
+Calendar gaps remain null, dates use elapsed calendar spacing, and weekly/monthly aggregation separates
+final-test actuals from future estimates. Missing model values stay unavailable. Weekly totals
+do not add daily marginal intervals into a purported weekly interval. Quantity scores keep their
+original day/week basis when the chart changes view.
+
+The optional browser prototype now uses training-only scope/ranking, separate validation and
+reserved calibration, recursive final-test predictions, frozen method/weights/tree count, and a
+fresh operational refit. Model comparison uses matching products/dates and counting units/grain;
+untrained ML/ensemble scores are unavailable. Non-demo imports use contiguous observed tails
+without inserting unknown zero-sales dates. Generated seed/fallback rows carry demo provenance,
+and the fallback is correctly labeled synthetic. The browser cache includes historical record
+contents and the nonzero-day setting; its policy version invalidates older forecast calculations
+without resetting stored sales or inventory.
+
+See [the forecasting verification report](FORECAST_MODULE_VERIFICATION.md) for executed checks,
+environment limits, and remaining partner/data-policy decisions. These are engineering checks
+with synthetic records, not client findings or a guarantee of future sales accuracy.
+
+The later 2026-11-13 chart-history follow-up restores saved predictions for elapsed dates
+between the final-test series and current future estimates. Forecasts reads the existing
+authenticated, paginated run-predictions endpoint only when that product has such an interval
+(or the saved run has expired). Results are reused for product switches within the same run
+and guarded by session/run identity. Earlier forecasts are shown as predictions, with actuals
+left null; missing archive records still leave a gap, and failed reads offer Retry.
+This is chart-only data: current future predictions, demand, stock advice, final-test metrics,
+confidence, and expiry behavior remain unchanged. No API or database schema change is needed.
+
+Forecast options was subsequently simplified at the owner's request. The initial chart shows
+daily sales quantities for up to 30 future days, Actual sales, and the chosen forecast. A closed
+Advanced options disclosure contains Daily/Weekly/Monthly view, Days to show, and Compare models.
+The separate days/weeks and estimated-value selectors were removed; chart quantities use the
+product's counting unit. The description follows the selected view/day count, and the disclosure
+states that these controls change the chart only rather than generate more predictions.
+Saved forecast settings, all model score cards, archived chart predictions, intervals, product
+selection, and the error table remain available.
+
+The follow-up fixes the 14-day display resetting after refresh: view, day count and comparison
+choices persist in browser storage separately for each business/account (and separately for the
+optional demo). The initial default remains Daily/30 days. Monthly totals summarize only available
+daily dates, keep test/future periods separate, and identify partial months; they neither extend a
+saved forecast nor sum daily intervals into a monthly confidence range.
+
+Sales report and forecast chart choices were expanded on 2026-11-14. Sales report now offers
+Single day or an inclusive Date range, preserving separate input drafts when switching modes.
+Untouched defaults follow asynchronously loaded sales history, dates use the store timezone,
+and empty, invalid, reversed, or future selections do not display stale report totals.
+Sales trends offer Bar, Line, and Area charts, with quantities separated by counting unit and
+missing calendar dates left unknown. The Pie option shows each product's share of sales
+records, not quantity or revenue. More than eight products use seven leading products and
+an Other slice, including every matching record. Product/date filters apply to all charts
+and report summaries.
+
+Forecasts offers Line, Area, Candlestick, and Step views of the same actual/predicted quantities.
+Chart type persists alongside the existing account/store-specific view preferences. Changing
+chart type does not retrain models, extend the saved horizon, combine actuals with forecasts,
+or change MAE/RMSE. Calendar spacing, null gaps, chosen-method comparison, and available
+prediction intervals remain part of the chart. These changes use the existing API/database
+contract. See [the date and chart verification record](SALES_REPORT_CHARTS_VERIFICATION.md).
+
+This follow-up passed typecheck, production build and lint (the three existing warnings),
+44 focused unit/render cases, and 26 isolated Edge browser groups. The local web service was
+rebuilt and updated; HTTP checks confirmed matching build assets and a healthy API. Browser
+fixtures used synthetic intercepted HTTP, with no live business-record writes. Python and the
+full frontend suite were not rerun for this frontend-only change.
+
+The later 2026-11-14 forecast style follow-up replaces Forecasts' Bar option with Candlestick
+and Step; Sales report keeps its existing Bar option. Saved forecast Bar display preferences
+open as Candlestick. Step uses horizontal/vertical segments between dated quantities and
+preserves null gaps. Sales candles use recorded actual and chosen forecast quantities as body
+endpoints; their whiskers use the exact saved estimated range when available. Future dates
+have forecast markers and available range whiskers, without invented actuals or financial
+open/high/low/close data. Compare models keeps the other model traces available. All forecast
+styles use the same wrapping line-and-circle legend, with readable range labels, above the
+existing range-evidence panel. The frontend-only display change does not alter model fitting,
+selection, stored quantities, or MAE/RMSE.
+
+The forecast style follow-up passed 37 focused forecast/interval tests, all 15 isolated Edge
+browser groups, typecheck, build, and lint (the same three existing warnings). The local web
+service was rebuilt and updated; HTTP checks confirmed matching assets and API health.
+
+The subsequent 2026-11-14 report follow-up gives the Other pie slice a muted blue color and
+places percentage labels outside the circle with connectors and collision spacing. Record
+a sale supports name/SKU search without changing the selected product until an explicit
+choice. Sales report labels its totals Sales records and Estimated value per record, and
+explains that imported daily product totals count as individual records. A read-only local
+database audit reproduced the screenshot's four-record product totals and 362-record pie
+denominator from the supplied `Sales_One_Year_SIMULATED (1).csv` import; equal record counts
+come from daily product rows, while quantities differ. No stored records or database/API
+contracts changed. See [the record audit and verification](SALES_RECORDS_AND_SEARCH_VERIFICATION.md).
+
+This report/search follow-up passed all 22 related chart/form cases and 14 isolated Edge
+browser groups, plus typecheck, build and lint (the same three warnings). The local web
+service was rebuilt and updated; HTTP checks confirmed matching assets and API health.
+
+## Shared interface and sale picker refresh — 2026-11-14
+
+Record a sale now opens a styled product dropdown with its name/SKU search inside the
+expanded picker. Results show stock and SKU, keep the existing selection while typing,
+and support keyboard selection, Escape, focus return and outside dismissal. Home/End
+retain native cursor movement in the editable search. Opening the picker clears its
+query; selecting a result does not submit the sale. Existing validation and retry behavior
+remain in place.
+
+Shared cards, controls, dialogs, typography, chart colors and navigation use a coordinated
+sage/ivory theme. The Sales report summary uses equal-height cards with separate bounded
+quantity/unit rows, preserving unlike units and full currency values. Mobile navigation
+keeps all seven routes on one row, and the sticky header stays above page filters. Sales
+chart tooltips wrap long labels and remain contained after resizing.
+
+A CSS/SVG background adds slow decorative movement behind the authenticated shell.
+Its pause/resume preference persists locally; operating-system reduced motion stops the
+animation, and print omits it. Decoration is hidden from assistive technology and cannot
+intercept input. No external image asset, backend contract or database change is required.
+See [the interface verification record](UI_REFRESH_VERIFICATION.md).
+
+This refresh passed 63 focused frontend cases and 60 synthetic Edge browser groups,
+typecheck, production build and lint (the same three existing warnings). Only the local
+web service was updated; matching HTML, JavaScript/CSS assets and API health were verified.
+The full frontend and Python suites were not rerun for this frontend-only change.
+
+## Product photos and bounded record panels — 2026-11-13
+
+The owner approved one optional product photo in PostgreSQL, editable by owners and viewable by
+signed-in members of the same store. Additive migration `011_product_photos` stores normalized
+WebP bytes with a composite business/product foreign key and deletion cleanup. Existing product
+JSON fields and earlier migrations are unchanged. Photos have independent metadata reads and do
+not change stock, sales, product forecast revisions or saved predictions. Backend dependencies now
+include Pillow; normal database dumps include the photo table. The optional browser demo uses
+separate local photo storage, cleared only by explicit demo reset. See the
+[photo contract](../backend/docs/PRODUCT_PHOTOS_CONTRACT.md) for endpoints, limits and permissions.
+
+Inventory product cards provide Add/Change photo, a file preview, supported-device camera capture,
+replacement and removal. Create/import the product first, then add its photo. Sales report filters
+now have a stacking context above summary cards so their searchable product list stays visible.
+
+Growing catalog/category lists, sales and stock tables, forecast product/error tables, Restock
+groups, staff accounts, reviewed dates and CSV product-match lists now have viewport-aware maximum
+heights and internal scrolling. Table headings stay visible while scrolling; filters/pagination
+remain outside the bounded rows. Existing bounded activity logs, CSV previews, dropdowns and guide
+reader remain available. Dialogs also fit within the viewport and scroll on short screens.
+
+The scroll-boundary follow-up restores native scroll chaining: reaching a panel's top or bottom
+allows wheel scrolling to continue to its parent/page. Sticky table heading cells now have an
+opaque shaded background, so translucent row-group utility styles cannot reveal rows underneath.
+The production Edge verifier checks actual mouse-wheel handoff at both edges, opaque heading
+cells across the record tables, and unchanged heading pixels while low-stock rows scroll.
+All seven extended browser groups passed, alongside typecheck, build and lint (the same three
+existing warnings). Only the local `stockcast` web service was rebuilt/recreated for this CSS
+correction; HTTP checks confirmed the matching CSS and healthy API. API, worker and database
+services were not recreated and no business records were changed.
+
+The 2026-11-14 selling-table alignment follow-up gives headings and values matching horizontal
+padding, centers heading text vertically, and fixes the product/SKU/quantity/stock proportions at
+40/20/20/20 percent. A minimum table width keeps numeric labels readable on small screens, with
+horizontal scrolling inside the existing panel; long names and SKU identifiers wrap. Filtering
+to one product no longer changes column widths. Least/Best selling, ranking, quantities, search
+and the existing scroll behavior are retained. Typecheck, build and lint passed (the same three
+warnings), and all eight extended synthetic Edge browser groups passed, including measured
+heading/value alignment, one-row filtering, ranking switches and the 390px long-name layout.
+The local web service was rebuilt/recreated, with matching served HTML/Inventory assets and
+healthy API confirmed over HTTP. API, worker, database and business records were unchanged.
+
+The later 2026-11-14 follow-up applies matching heading/body padding and stable, responsive
+columns to Sales ledger, Product performance, Top products for XGBoost and Past forecast errors.
+Numeric headings and values share alignment; filters, pagination, record actions, quantities,
+metrics and model selection remain intact. Least/Best selling retains its earlier correction.
+
+Take photo now opens a live `getUserMedia` video preview rather than a file-input capture hint.
+It requests no microphone, prefers a rear camera while allowing desktop webcams, and offers
+exposed camera devices for selection. Muted inline playback supports phone browsers. Capture
+creates a JPEG within 960 pixels for the existing preview/Save flow. Cleanup covers capture,
+cancel, dialog/account changes, device switching, page hiding and late permission grants.
+Choose photo remains a separate file picker. Permission/no-device/busy/unsupported/insecure
+failures give an actionable message. Phones using the PC's plain-HTTP LAN address need trusted
+HTTPS for live access; desktop localhost is a secure-context exception. See the
+[camera setup instructions](SETUP_AND_OPERATIONS.md#product-camera-on-phones-and-desktops).
+
+Typecheck, build and lint passed (three existing warnings), along with 18 forecast unit tests
+and 21 synthetic production Edge browser groups. The latter include actual fake-device video,
+captured JPEG/CSRF upload, stream cleanup/error races, and measured desktop/mobile table layouts.
+The browser fixture day remains 13 November; the checks were rerun on 14 November. Physical
+Android/iPhone camera hardware and the final trusted-HTTPS installation remain separate checks.
+No API, database or forecasting algorithm change was needed for this follow-up.
+The compact ledger keeps all five owner columns, including Delete, visible in the normal 1440px
+desktop layout beside the import panel; small screens still scroll internally. The local web
+container was rebuilt/recreated with the final camera and table bundle. Served HTML and
+Inventory/Sales report/Forecasts assets match the tested build, API health passed, and a read-only
+OpenAPI check confirmed that the existing running product-photo endpoints are present. API,
+worker, database services and business records were unchanged.
+
+See [the follow-up verification record](PRODUCT_PHOTOS_AND_SCROLL_VERIFICATION.md). Source checks
+and synthetic verification do not deploy these changes or constitute partner findings. A normal
+rebuild/start is required to install Pillow, apply migration 011 and serve the updated frontend.
+
 ## Forecast contract
 
 Future forecast horizons in settings and forecast creation both accept 1–365 days.

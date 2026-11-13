@@ -141,6 +141,8 @@ try {
     if (path === "/auth/options") return json({ signUpEnabled: true, googleEnabled: false });
     if (path === "/auth/google/pending") return json(pendingGoogle);
     if (path === `/businesses/${owner.businessId}`) return json(currentBusiness);
+    if (method === "GET" && path === `/businesses/${owner.businessId}/product-photos`)
+      return json([]);
     if (
       path.endsWith("/products") ||
       path.endsWith("/sales") ||

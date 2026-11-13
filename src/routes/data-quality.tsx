@@ -142,7 +142,12 @@ function DataQualityPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-2">
+          <div
+            className="record-scroll grid gap-2"
+            tabIndex={0}
+            role="region"
+            aria-label="Reviewed dates"
+          >
             {rows.map((row) => (
               <div
                 key={row.id}

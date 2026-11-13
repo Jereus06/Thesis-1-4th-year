@@ -407,7 +407,7 @@ export function DailySalesPanel() {
               </span>
             </div>
             {summary.products.length ? (
-              <div className="overflow-x-auto">
+              <div className="record-scroll" tabIndex={0}>
                 <table className="w-full text-left text-sm" aria-label="Products sold">
                   <thead className="bg-surface-2/50 text-[11px] tracking-wide text-muted uppercase">
                     <tr>

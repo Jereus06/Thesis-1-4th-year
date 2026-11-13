@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { randomUUID } from "node:crypto";
 import ts from "typescript";
+import { generateProductSku } from "../src/lib/product-sku.ts";
 
 const product = {
   id: "synthetic-a",
@@ -129,7 +130,17 @@ async function mount(
             }),
           };
         if (name === "@/lib/dates") return { businessDateISO: () => state.businessDay };
-        if (name === "@/lib/format") return { num: String, peso: String };
+        if (name === "@/lib/format") return { num: String, peso: String, quantity: String };
+        if (name === "@/lib/product-sku") return { generateProductSku };
+        if (name === "@/lib/use-product-photos")
+          return {
+            useProductPhotos: () => ({
+              photos: {},
+              error: undefined,
+              save: async () => {},
+              remove: async () => {},
+            }),
+          };
         if (name === "@/lib/api") return { api: { exportUrl: () => "synthetic-export" } };
         if (name === "@/lib/forecast-schedule")
           return { forecastRefreshAdvice: () => "refresh the forecast" };
@@ -194,7 +205,9 @@ async function mount(
       return harness.find((node) => node.props.id === id);
     },
     change(id, value) {
-      harness.input(id).props.onChange({ target: { value } });
+      const node = harness.input(id);
+      if (node.type === "SaleProductPicker") node.props.onValueChange(value);
+      else node.props.onChange({ target: { value } });
       harness.render();
     },
     async submit() {
@@ -208,6 +221,161 @@ async function mount(
   harness.render();
   return harness;
 }
+
+test("the sale form delegates product search to its picker and only changes the sale on an explicit choice", async () => {
+  const form = await mount("src/components/record-sale-dialog.tsx", "RecordSaleDialog");
+  assert.equal(form.input("sale-product").type, "SaleProductPicker");
+  assert.equal(form.input("sale-product").props.value, product.id);
+  assert.equal(form.input("sale-product").props.selectedProduct.id, product.id);
+  assert.equal(form.input("sale-product").props.products.length, 2);
+  assert(!form.nodes().some((node) => node.props.id === "sale-product-search"));
+  assert.equal(form.requests.length, 0);
+  form.change("sale-product", other.id);
+  assert.equal(form.input("sale-product").props.value, other.id);
+  assert.equal(form.requests.length, 0);
+  await form.submit();
+  assert.equal(form.requests[0].args[0], other.id);
+});
+
+async function mountPicker(patch = {}) {
+  const choices = [];
+  const picker = await mount("src/components/sale-product-picker.tsx", "SaleProductPicker", {
+    props: {
+      products: [product, other],
+      value: product.id,
+      onValueChange: (id) => choices.push(id),
+      ...patch,
+    },
+  });
+  picker.choices = choices;
+  picker.open = () => {
+    picker.input("sale-product").props.onClick();
+    picker.render();
+  };
+  picker.options = () => picker.nodes().filter((node) => node.props.role === "option");
+  picker.key = (key, target) => {
+    let prevented = false;
+    picker
+      .find((node) => typeof node.props.onKeyDown === "function")
+      .props.onKeyDown({
+        key,
+        target,
+        preventDefault() {
+          prevented = true;
+        },
+        stopPropagation() {},
+      });
+    picker.render();
+    return prevented;
+  };
+  return picker;
+}
+
+test("product picker searches inside its dropdown by name or SKU without silently choosing a result", async () => {
+  const picker = await mountPicker();
+  assert(!picker.nodes().some((node) => node.props.id === "sale-product-search"));
+  picker.open();
+  assert.equal(picker.input("sale-product-search").props["aria-label"], "Search products");
+  picker.change("sale-product-search", " synthetic-b ");
+  assert.deepEqual(
+    picker.options().map((node) => node.props["data-product-id"]),
+    [other.id],
+  );
+  assert.equal(picker.input("sale-product").props["data-product-id"], product.id);
+  assert.deepEqual(picker.choices, []);
+  picker.change("sale-product-search", "a");
+  assert.deepEqual(
+    picker.options().map((node) => node.props["data-product-id"]),
+    [product.id],
+  );
+  picker.change("sale-product-search", "does not exist");
+  assert.equal(picker.options().length, 0);
+  assert(picker.nodes().some((node) => node.props.children === "No matching products"));
+  assert(picker.key("Enter"));
+  assert.deepEqual(picker.choices, []);
+  assert.equal(picker.input("sale-product").props["aria-expanded"], true);
+  picker.change("sale-product-search", "synthetic-b");
+  assert(picker.key("Enter"));
+  assert.deepEqual(picker.choices, [other.id]);
+  assert.equal(picker.input("sale-product").props["aria-expanded"], false);
+  assert.equal(picker.requests.length, 0);
+});
+
+test("product picker keyboard navigation highlights choices, selects explicitly, and closes on Escape", async () => {
+  const picker = await mountPicker();
+  assert(picker.key("ArrowDown"));
+  const highlighted = () => picker.input("sale-product-search").props["aria-activedescendant"];
+  assert.equal(highlighted(), picker.options()[0].props.id);
+  assert(picker.key("End"));
+  assert.equal(highlighted(), picker.options()[1].props.id);
+  assert(picker.key("Home"));
+  assert.equal(highlighted(), picker.options()[0].props.id);
+  assert(picker.key("ArrowDown"));
+  assert.equal(highlighted(), picker.options()[1].props.id);
+  assert(picker.key("ArrowUp"));
+  assert.equal(highlighted(), picker.options()[0].props.id);
+  assert.deepEqual(picker.choices, []);
+  assert(picker.key("Enter"));
+  assert.deepEqual(picker.choices, [product.id]);
+  picker.open();
+  assert(picker.key("Escape"));
+  assert.equal(picker.input("sale-product").props["aria-expanded"], false);
+  assert.equal(picker.choices.length, 1);
+  assert(picker.key("ArrowUp"));
+  assert.equal(highlighted(), picker.options()[1].props.id);
+});
+
+test("product search leaves Home and End to text editing while retaining option navigation on the trigger", async () => {
+  const picker = await mountPicker();
+  picker.open();
+  picker.change("sale-product-search", "Synthetic");
+  const searchTarget = { value: "Synthetic", selectionStart: 4, selectionEnd: 4 };
+  picker.input("sale-product-search").props.ref.current = searchTarget;
+  const highlighted = () => picker.input("sale-product-search").props["aria-activedescendant"];
+  assert(picker.key("ArrowDown", searchTarget));
+  const secondOption = picker.options()[1].props.id;
+  assert.equal(highlighted(), secondOption);
+  for (const key of ["Home", "End"]) {
+    assert.equal(
+      picker.key(key, searchTarget),
+      false,
+      `${key} must keep its native text-input action`,
+    );
+    assert.equal(highlighted(), secondOption);
+    assert.equal(picker.input("sale-product-search").props.value, "Synthetic");
+    assert.deepEqual(picker.choices, []);
+  }
+  const triggerTarget = {};
+  assert(picker.key("Home", triggerTarget));
+  assert.equal(highlighted(), picker.options()[0].props.id);
+  assert(picker.key("End", triggerTarget));
+  assert.equal(highlighted(), secondOption);
+});
+
+test("product picker retains a disappeared retry product, omits inactive choices, and respects disabled state", async () => {
+  const picker = await mountPicker({
+    products: [
+      { ...other, currentStock: 0 },
+      { ...product, id: "inactive", isActive: false },
+    ],
+    selectedProduct: product,
+  });
+  assert(picker.nodes().some((node) => node.props.children === product.name));
+  picker.open();
+  assert.deepEqual(
+    picker.options().map((node) => node.props["data-product-id"]),
+    [other.id],
+  );
+  assert(picker.nodes().some((node) => node.props.children === "Out of stock"));
+  picker.options()[0].props.onClick();
+  picker.render();
+  assert.deepEqual(picker.choices, [other.id]);
+  picker.props.disabled = true;
+  picker.render();
+  assert.equal(picker.input("sale-product").props.disabled, true);
+  picker.open();
+  assert.equal(picker.options().length, 0);
+});
 
 test("a sale selected after empty initial catalog retains its original retry through deactivation and timezone change", async () => {
   const form = await mount("src/components/record-sale-dialog.tsx", "RecordSaleDialog", {

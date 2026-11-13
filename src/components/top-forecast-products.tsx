@@ -56,15 +56,35 @@ export function TopForecastProducts({
               </p>
             )}
             {selected.length ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
+              <div className="record-scroll" tabIndex={0}>
+                <table
+                  aria-label="Top products for XGBoost"
+                  className="w-full min-w-[54rem] table-fixed text-left text-sm"
+                >
+                  <colgroup>
+                    <col className="w-[8%]" />
+                    <col className="w-[32%]" />
+                    <col className="w-[17%]" />
+                    <col className="w-[23%]" />
+                    <col className="w-1/5" />
+                  </colgroup>
                   <thead className="text-xs tracking-wide text-muted uppercase">
                     <tr>
-                      <th className="pb-2 pr-3 font-medium">Rank</th>
-                      <th className="pb-2 pr-3 font-medium">Product</th>
-                      <th className="pb-2 pr-3 font-medium">Past sales</th>
-                      <th className="pb-2 pr-3 font-medium">Expected daily sales</th>
-                      <th className="pb-2 font-medium">Confidence</th>
+                      <th scope="col" className="px-4 py-3 text-center font-medium">
+                        Rank
+                      </th>
+                      <th scope="col" className="px-4 py-3 font-medium">
+                        Product
+                      </th>
+                      <th scope="col" className="px-4 py-3 text-center font-medium">
+                        Past sales
+                      </th>
+                      <th scope="col" className="px-4 py-3 text-center font-medium">
+                        Expected daily sales
+                      </th>
+                      <th scope="col" className="px-4 py-3 text-center font-medium">
+                        Confidence
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -76,18 +96,18 @@ export function TopForecastProducts({
                         Number.isFinite(forecast?.dailyDemand);
                       return (
                         <tr key={product.id} className="border-t border-border">
-                          <td className="py-3 pr-3 tabular">{num(rank)}</td>
-                          <td className="py-3 pr-3">
+                          <td className="px-4 py-3 text-center tabular">{num(rank)}</td>
+                          <td className="px-4 py-3 [overflow-wrap:anywhere]">
                             <p className="font-medium">{product.name}</p>
                             <p className="text-xs text-muted">Product code: {product.sku}</p>
                           </td>
-                          <td className="py-3 pr-3 tabular">
+                          <td className="px-4 py-3 text-center tabular">
                             {num(Number(trainingQuantity), 1)} {product.unit}
                           </td>
-                          <td className="py-3 pr-3 tabular">
+                          <td className="px-4 py-3 text-center tabular">
                             {current ? `${num(forecast.dailyDemand, 1)} ${product.unit}` : "—"}
                           </td>
-                          <td className="py-3">
+                          <td className="px-4 py-3 text-center">
                             <ForecastEvidenceBadge
                               evidence={forecast?.forecastEvidence}
                               confidence={forecast?.forecastConfidence}

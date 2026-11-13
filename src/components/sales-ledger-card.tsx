@@ -159,24 +159,34 @@ export function SalesLedgerCard() {
         </div>
       </CardHeader>
       <CardContent className="grid gap-4">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+        <div className="record-scroll" tabIndex={0} role="region" aria-label="Sales records">
+          <table
+            aria-label="Recent sales"
+            className="w-full min-w-[34rem] table-fixed text-left text-sm"
+          >
+            <colgroup>
+              <col className="w-[22%]" />
+              <col className={canDeleteSales ? "w-[28%]" : "w-[46%]"} />
+              <col className={canDeleteSales ? "w-[10%]" : "w-[14%]"} />
+              <col className={canDeleteSales ? "w-[17%]" : "w-[18%]"} />
+              {canDeleteSales && <col className="w-[23%]" />}
+            </colgroup>
             <thead className="text-xs tracking-wide text-muted uppercase">
               <tr>
-                <th scope="col" className="pb-2 font-medium">
+                <th scope="col" className="px-4 py-3 font-medium">
                   Date
                 </th>
-                <th scope="col" className="pb-2 font-medium">
+                <th scope="col" className="px-4 py-3 font-medium">
                   Product
                 </th>
-                <th scope="col" className="px-4 pb-2 text-center font-medium">
+                <th scope="col" className="px-4 py-3 text-center font-medium">
                   Qty
                 </th>
-                <th scope="col" className="pb-2 pl-3 font-medium">
+                <th scope="col" className="px-4 py-3 font-medium">
                   Source
                 </th>
                 {canDeleteSales && (
-                  <th scope="col" className="pb-2 pl-3 font-medium">
+                  <th scope="col" className="px-4 py-3 text-center font-medium">
                     Action
                   </th>
                 )}
@@ -185,10 +195,12 @@ export function SalesLedgerCard() {
             <tbody>
               {visibleSales.map((sale) => (
                 <tr key={sale.id} className="border-t border-border">
-                  <td className="py-2 pr-3 tabular">{sale.date}</td>
-                  <td className="pr-3">{nameById[sale.productId] ?? sale.productId}</td>
-                  <td className="px-4 text-center tabular">{quantity(sale.qty)}</td>
-                  <td className="pl-3 text-muted">
+                  <td className="px-4 py-3 whitespace-nowrap tabular">{sale.date}</td>
+                  <td className="px-4 py-3 [overflow-wrap:anywhere]">
+                    {nameById[sale.productId] ?? sale.productId}
+                  </td>
+                  <td className="px-4 py-3 text-center tabular">{quantity(sale.qty)}</td>
+                  <td className="px-4 py-3 text-muted">
                     {isImportedSale(sale)
                       ? "Imported"
                       : sale.source === "manual"
@@ -198,7 +210,7 @@ export function SalesLedgerCard() {
                           : "Unknown"}
                   </td>
                   {canDeleteSales && (
-                    <td className="pl-3">
+                    <td className="px-4 py-3 text-center">
                       {(isImportedSale(sale) || sale.source === "manual") && (
                         <Button
                           variant="ghost"
@@ -218,7 +230,7 @@ export function SalesLedgerCard() {
               ))}
               {!filteredSales.length && (
                 <tr>
-                  <td colSpan={canDeleteSales ? 5 : 4} className="py-6 text-muted">
+                  <td colSpan={canDeleteSales ? 5 : 4} className="px-4 py-6 text-muted">
                     {sales.length ? "No sales match your search." : "No sales recorded yet."}
                   </td>
                 </tr>
@@ -229,8 +241,9 @@ export function SalesLedgerCard() {
         {filteredSales.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <p className="text-muted" aria-live="polite">
-              {currentPage * PAGE_SIZE + 1}–{Math.min((currentPage + 1) * PAGE_SIZE, filteredSales.length)}{" "}
-              of {num(filteredSales.length)} sales
+              {currentPage * PAGE_SIZE + 1}–
+              {Math.min((currentPage + 1) * PAGE_SIZE, filteredSales.length)} of{" "}
+              {num(filteredSales.length)} sales
             </p>
             {lastPage > 0 && (
               <div className="flex gap-2">
@@ -314,9 +327,7 @@ export function SalesLedgerCard() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Export sales</DialogTitle>
-            <DialogDescription>
-              Choose whether to export one day or a date range.
-            </DialogDescription>
+            <DialogDescription>Choose whether to export one day or a date range.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
             <div className="grid grid-cols-2 gap-2">

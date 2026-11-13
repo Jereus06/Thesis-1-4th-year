@@ -10,12 +10,17 @@ export function mean(values: number[]): number {
 export function std(values: number[]): number {
   if (values.length < 2) return 0;
   const m = mean(values);
-  const variance =
-    values.reduce((sum, value) => sum + (value - m) ** 2, 0) / values.length;
+  const variance = values.reduce((sum, value) => sum + (value - m) ** 2, 0) / values.length;
   return Math.sqrt(variance);
 }
 
 export function mae(actual: number[], predicted: number[]): number {
+  if (
+    actual.length !== predicted.length ||
+    !actual.every(Number.isFinite) ||
+    !predicted.every(Number.isFinite)
+  )
+    return NaN;
   let sum = 0;
   let n = 0;
   const len = Math.min(actual.length, predicted.length);
@@ -29,6 +34,12 @@ export function mae(actual: number[], predicted: number[]): number {
 }
 
 export function rmse(actual: number[], predicted: number[]): number {
+  if (
+    actual.length !== predicted.length ||
+    !actual.every(Number.isFinite) ||
+    !predicted.every(Number.isFinite)
+  )
+    return NaN;
   let sum = 0;
   let n = 0;
   const len = Math.min(actual.length, predicted.length);

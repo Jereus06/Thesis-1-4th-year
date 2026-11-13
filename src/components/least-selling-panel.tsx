@@ -96,20 +96,29 @@ export function LeastSellingPanel() {
           />
         </div>
         {rows.length ? (
-          <div className="overflow-x-auto">
-            <table aria-label="Least selling items" className="w-full text-left text-sm">
+          <div className="record-scroll" tabIndex={0}>
+            <table
+              aria-label={title}
+              className="w-full min-w-[40rem] table-fixed text-left text-sm"
+            >
+              <colgroup>
+                <col className="w-2/5" />
+                <col className="w-1/5" />
+                <col className="w-1/5" />
+                <col className="w-1/5" />
+              </colgroup>
               <thead className="text-xs tracking-wide text-muted uppercase">
                 <tr>
-                  <th scope="col" className="pb-2 font-medium">
+                  <th scope="col" className="px-4 py-3 font-medium">
                     Product
                   </th>
-                  <th scope="col" className="pb-2 font-medium">
+                  <th scope="col" className="px-4 py-3 font-medium">
                     SKU
                   </th>
-                  <th scope="col" className="px-4 pb-2 text-center whitespace-nowrap font-medium">
+                  <th scope="col" className="px-4 py-3 text-center whitespace-nowrap font-medium">
                     Quantity sold
                   </th>
-                  <th scope="col" className="px-4 pb-2 text-center whitespace-nowrap font-medium">
+                  <th scope="col" className="px-4 py-3 text-center whitespace-nowrap font-medium">
                     Current stock
                   </th>
                 </tr>
@@ -117,8 +126,8 @@ export function LeastSellingPanel() {
               <tbody>
                 {rows.map(({ product, sold }) => (
                   <tr key={product.id} className="border-t border-border">
-                    <td className="py-3 pr-3">{product.name}</td>
-                    <td className="py-3 pr-3 text-muted">{product.sku}</td>
+                    <td className="px-4 py-3 [overflow-wrap:anywhere]">{product.name}</td>
+                    <td className="px-4 py-3 text-muted [overflow-wrap:anywhere]">{product.sku}</td>
                     <td className="px-4 py-3 text-center tabular">{quantity(sold)}</td>
                     <td className="px-4 py-3 text-center tabular">
                       {quantity(product.currentStock)}

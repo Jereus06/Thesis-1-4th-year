@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
+import { SaleProductPicker } from "@/components/sale-product-picker";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,7 +12,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { businessDateISO } from "@/lib/dates";
 import { quantity } from "@/lib/format";
 import { usePermissions } from "@/lib/permissions";
@@ -112,7 +112,15 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger ?? <Button>Record sale</Button>}</DialogTrigger>
-      <DialogContent>
+      <DialogContent
+        onEscapeKeyDown={(event) => {
+          if (
+            event.target instanceof Element &&
+            event.target.closest('[data-sale-product-picker-open="true"]')
+          )
+            event.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Record a sale</DialogTitle>
           <DialogDescription>
@@ -127,27 +135,18 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
           </p>
         )}
         <form className="grid gap-4" onSubmit={submit}>
-          <div className="grid gap-1.5">
+          <div className="grid min-w-0 gap-1.5">
             <Label htmlFor="sale-product">Product</Label>
-            <Select
+            <SaleProductPicker
               id="sale-product"
+              products={products}
               value={selectedProductId}
+              selectedProduct={selected}
               disabled={(!products.length && !selectedProductId) || saving}
-              onChange={(e) => setProductId(e.target.value)}
-            >
-              {selectedProductId && !active && (
-                <option value={selectedProductId}>
-                  {selected?.name ?? "Product unavailable"} (inactive or unavailable)
-                </option>
-              )}
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </Select>
+              onValueChange={setProductId}
+            />
             {selected && (
-              <p className="text-xs text-muted">
+              <p className="text-xs text-muted [overflow-wrap:anywhere]">
                 {currentProduct ? (
                   <>
                     On hand: {quantity(currentProduct.currentStock)} {currentProduct.unit}

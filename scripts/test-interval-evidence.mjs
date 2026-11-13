@@ -30,6 +30,8 @@ const server = await createServer({
           createElement("output", null, JSON.stringify(data.map(point => point.intervalBounds))), children);
         export const Area = ({name, dataKey}) => createElement("span", {"data-chart-area": dataKey}, name);
         export const Line = () => null;
+        export const Bar = () => null;
+        export const Customized = () => null;
         export const CartesianGrid = () => null;
         export const Legend = () => null;
         export const Tooltip = () => null;

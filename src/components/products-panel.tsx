@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { ReceiveStockDialog } from "@/components/receive-stock-dialog";
 import { CsvImporter } from "@/components/csv-importer";
 import { ImportRefreshNotice } from "@/components/import-refresh-notice";
+import { ProductPhotoForm } from "@/components/product-photo-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,10 +23,12 @@ import { CSV_API_ROW_LIMITS } from "@/lib/csv-preparation";
 import { usePermissions } from "@/lib/permissions";
 import { generateProductSku } from "@/lib/product-sku";
 import { useAppStore } from "@/lib/store";
+import { useProductPhotos } from "@/lib/use-product-photos";
+import type { ProductPhoto, ProductPhotos } from "@/lib/product-photos";
 import type { SessionUser } from "@/lib/api";
 import type { InventoryImportRow, Product } from "@/lib/types";
 
-type ProductAction = { productId: string; kind: "edit" | "count" | "status" | "delete" };
+type ProductAction = { productId: string; kind: "edit" | "count" | "status" | "delete" | "photo" };
 const InventoryCsvImporter = memo(CsvImporter);
 type ProductGroup = {
   name: string;
@@ -38,6 +41,7 @@ export function ProductsPanel() {
   const session = useAppStore((state) => state.session);
   const mode = useAppStore((state) => state.dataMode);
   const stockRefreshError = useAppStore((state) => state.movementsError);
+  const productPhotos = useProductPhotos();
   const { canManageProducts, canImportRecords, canReceiveStock } = usePermissions();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("active");
@@ -104,6 +108,11 @@ export function ProductsPanel() {
   return (
     <div className="flex flex-col gap-5">
       <ImportRefreshNotice />
+      {productPhotos.error && (
+        <p className="text-sm text-muted" role="status">
+          {productPhotos.error}
+        </p>
+      )}
       {(stockRefreshError?.startsWith("Stock count saved.") ||
         stockRefreshError?.startsWith("Product saved.")) && (
         <p className="text-sm text-warning" role="status">
@@ -224,6 +233,7 @@ export function ProductsPanel() {
         </Card>
       )}
       <ProductCards
+        photos={productPhotos.photos}
         products={filteredProducts}
         totalCount={products.length}
         canReceiveStock={canReceiveStock}
@@ -249,34 +259,49 @@ export function ProductsPanel() {
             <DialogTitle>
               {adding
                 ? "New product"
-                : action?.kind === "edit"
-                  ? "Edit product details"
-                  : action?.kind === "count"
-                    ? "Correct stock count"
-                    : action?.kind === "delete"
-                      ? "Delete product"
-                      : selectedProduct?.isActive === false
-                        ? "Activate product"
-                        : "Deactivate product"}
+                : action?.kind === "photo"
+                  ? "Product photo"
+                  : action?.kind === "edit"
+                    ? "Edit product details"
+                    : action?.kind === "count"
+                      ? "Correct stock count"
+                      : action?.kind === "delete"
+                        ? "Delete product"
+                        : selectedProduct?.isActive === false
+                          ? "Activate product"
+                          : "Deactivate product"}
             </DialogTitle>
             <DialogDescription>
               {adding
                 ? "Add catalog details and the opening stock balance."
-                : action?.kind === "edit"
-                  ? "Update this product's catalog details."
-                  : action?.kind === "count"
-                    ? "Enter the verified on-hand balance. Changes are recorded as stock-count adjustments."
-                    : action?.kind === "delete"
-                      ? "Permanently remove this product. Products with stock or saved history cannot be deleted."
-                      : selectedProduct?.isActive === false
-                        ? "Make this product available for new sales and stock movements."
-                        : "Inactive products are excluded from new sales, stock movements, and restocking advice. Existing records and the stock balance are retained."}
+                : action?.kind === "photo"
+                  ? "Choose a photo or use your camera. Save to attach it to this product."
+                  : action?.kind === "edit"
+                    ? "Update this product's catalog details."
+                    : action?.kind === "count"
+                      ? "Enter the verified on-hand balance. Changes are recorded as stock-count adjustments."
+                      : action?.kind === "delete"
+                        ? "Permanently remove this product. Products with stock or saved history cannot be deleted."
+                        : selectedProduct?.isActive === false
+                          ? "Make this product available for new sales and stock movements."
+                          : "Inactive products are excluded from new sales, stock movements, and restocking advice. Existing records and the stock balance are retained."}
             </DialogDescription>
           </DialogHeader>
           {canManageProducts && adding && (
             <ProductDetailsForm
               key="new-product"
               onDone={() => setAdding(false)}
+              onPendingChange={setSaving}
+            />
+          )}
+          {canManageProducts && selectedProduct && action?.kind === "photo" && (
+            <ProductPhotoForm
+              key={selectedProduct.id}
+              product={selectedProduct}
+              photo={productPhotos.photos[selectedProduct.id]}
+              save={productPhotos.save}
+              remove={productPhotos.remove}
+              onDone={() => setAction(null)}
               onPendingChange={setSaving}
             />
           )}
@@ -326,6 +351,7 @@ export function ProductsPanel() {
 }
 
 const ProductCards = memo(function ProductCards({
+  photos,
   products,
   totalCount,
   canReceiveStock,
@@ -334,6 +360,7 @@ const ProductCards = memo(function ProductCards({
   onDelivery,
   onAction,
 }: {
+  photos: ProductPhotos;
   products: Product[];
   totalCount: number;
   canReceiveStock: boolean;
@@ -357,10 +384,16 @@ const ProductCards = memo(function ProductCards({
   }, [products]);
 
   return (
-    <div className="grid gap-3">
+    <div
+      className="record-scroll catalog-scroll grid gap-3"
+      tabIndex={0}
+      role="region"
+      aria-label="Product categories"
+    >
       {groupedProducts.map((group) => {
         const content = group.products.map((product) => (
           <ProductCard
+            photo={photos[product.id]}
             key={product.id}
             product={product}
             canReceiveStock={canReceiveStock}
@@ -392,7 +425,14 @@ const ProductCards = memo(function ProductCards({
                 />
               </span>
             </summary>
-            <div className="grid gap-3 bg-primary/[0.025] p-3 sm:p-4">{content}</div>
+            <div
+              className="record-scroll category-scroll grid gap-3 bg-primary/[0.025] p-3 sm:p-4"
+              tabIndex={0}
+              role="region"
+              aria-label={`${group.name} products`}
+            >
+              {content}
+            </div>
           </details>
         );
       })}
@@ -412,6 +452,7 @@ const ProductCards = memo(function ProductCards({
 });
 
 const ProductCard = memo(function ProductCard({
+  photo,
   product,
   canReceiveStock,
   canManageProducts,
@@ -419,6 +460,7 @@ const ProductCard = memo(function ProductCard({
   onDelivery,
   onAction,
 }: {
+  photo?: ProductPhoto;
   product: Product;
   canReceiveStock: boolean;
   canManageProducts: boolean;
@@ -431,6 +473,16 @@ const ProductCard = memo(function ProductCard({
       <CardContent className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center sm:p-5">
         <div className="grid min-w-0 gap-3">
           <div className="flex flex-wrap items-center gap-2">
+            {photo && (
+              <img
+                key={photo.updatedAt}
+                src={photo.src}
+                crossOrigin="use-credentials"
+                loading="lazy"
+                alt={`Photo of ${product.name}`}
+                className="size-16 rounded-lg bg-surface-2 object-contain"
+              />
+            )}
             <p className="font-medium break-words">{product.name}</p>
             <Badge variant={product.isActive === false ? "outline" : "success"}>
               {product.isActive === false ? "Inactive" : "Active"}
@@ -472,6 +524,13 @@ const ProductCard = memo(function ProductCard({
           )}
           {canManageProducts && (
             <>
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => onAction({ productId: product.id, kind: "photo" })}
+              >
+                {photo ? "Change photo" : "Add photo"}
+              </Button>
               <Button
                 variant="secondary"
                 disabled={busy}

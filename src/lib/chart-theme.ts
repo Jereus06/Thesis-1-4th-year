@@ -1,10 +1,10 @@
 export const chartColors = {
-  actual: "#1B1714",
-  ma: "#8A7A64",
-  xgb: "#165A47",
-  ensemble: "#0F3D32",
-  band: "rgba(22, 90, 71, 0.16)",
-  grid: "#E4D9C8",
-  muted: "#6F675C",
-  surface: "#FBF8F1",
+  actual: "#1D2E25",
+  ma: "#A77A3D",
+  xgb: "#4D8E7A",
+  ensemble: "#17634C",
+  band: "rgba(23, 99, 76, 0.14)",
+  grid: "#DDE4D7",
+  muted: "#647264",
+  surface: "#FFFDF8",
 };

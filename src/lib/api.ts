@@ -60,6 +60,8 @@ export type SessionUser = {
   role: "owner" | "staff";
 };
 
+export type ApiProductPhoto = { productId: string; updatedAt: string };
+
 export type AccountMember = {
   id: string;
   email: string;
@@ -248,6 +250,30 @@ export const api = {
     }),
   dashboard: (businessId: string) =>
     request<ApiDashboard>(`/businesses/${businessId}/forecast-dashboard`),
+  productPhotos: (businessId: string) =>
+    request<ApiProductPhoto[]>(`/businesses/${businessId}/product-photos`),
+  productPhotoUrl: (businessId: string, productId: string, revision: string) =>
+    `${API_URL}/businesses/${businessId}/products/${productId}/photo?v=${encodeURIComponent(revision)}`,
+  saveProductPhoto: (businessId: string, productId: string, photo: Blob) =>
+    request<ApiProductPhoto>(`/businesses/${businessId}/products/${productId}/photo`, {
+      method: "PUT",
+      rawBody: photo,
+    }),
+  deleteProductPhoto: (businessId: string, productId: string) =>
+    request<{ deleted: boolean }>(`/businesses/${businessId}/products/${productId}/photo`, {
+      method: "DELETE",
+    }),
+  forecastPredictions: async (businessId: string, runId: string) => {
+    const rows: ApiDashboard["predictions"] = [];
+    const limit = 1000;
+    for (let offset = 0; ; offset += limit) {
+      const page = await request<ApiDashboard["predictions"]>(
+        `/businesses/${businessId}/forecast-runs/${encodeURIComponent(runId)}/predictions?limit=${limit}&offset=${offset}`,
+      );
+      rows.push(...page);
+      if (page.length < limit) return rows;
+    }
+  },
   sharedForecastInputs: async (businessId: string, dashboard: ApiDashboard) => {
     if (dashboard.sharedState)
       return {
@@ -337,11 +363,12 @@ export const api = {
 
 async function request<T>(
   path: string,
-  options: { method?: string; body?: unknown; idempotencyKey?: string } = {},
+  options: { method?: string; body?: unknown; rawBody?: Blob; idempotencyKey?: string } = {},
 ): Promise<T> {
   const method = options.method ?? "GET";
   const headers: Record<string, string> = {};
   if (options.body !== undefined) headers["content-type"] = "application/json";
+  if (options.rawBody) headers["content-type"] = options.rawBody.type || "application/octet-stream";
   if (options.idempotencyKey) headers["idempotency-key"] = options.idempotencyKey;
   if (!new Set(["GET", "HEAD", "OPTIONS"]).has(method)) {
     const csrf = cookie("stockcast_csrf");
@@ -351,7 +378,8 @@ async function request<T>(
     method,
     headers,
     credentials: "include",
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body:
+      options.rawBody ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
   });
   const payload = (await response.json().catch(() => null)) as
     Envelope<T> | { detail?: unknown; error?: { code?: string; message?: string } } | null;

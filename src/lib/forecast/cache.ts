@@ -16,23 +16,22 @@ export type PersistAdapter = {
 };
 
 export function pipelineKey(products: Product[], sales: Sale[], settings: Settings): string {
-  const last = sales.length ? sales[sales.length - 1]?.id : "";
-  return [
+  return JSON.stringify([
+    "demo-chronological-v2",
     products
       .filter((product) => product.isActive !== false)
-      .map((p) => `${p.id}:${p.currentStock}:${p.category}`)
-      .join(","),
-    sales.length,
-    last,
+      .map((p) => [p.id, p.currentStock, p.category, p.unit]),
+    sales.map((sale) => [sale.id, sale.productId, sale.date, sale.qty, sale.source]),
     settings.maWindow,
     settings.forecastHorizon,
     settings.holdoutDays,
     settings.topNProducts,
     settings.minWeeks,
+    settings.minimumNonzeroDays,
     settings.cvFolds,
     settings.dataScenario,
     settings.useFallbackIfThin ? "1" : "0",
-  ].join("|");
+  ]);
 }
 
 export function attachCachePersist(adapter: PersistAdapter) {

@@ -173,7 +173,7 @@ export function LowStockPanel() {
           </p>
         </div>
         {filtered.length ? (
-          <div className="overflow-x-auto">
+          <div className="record-scroll" tabIndex={0}>
             <table aria-label="Low-stock products" className="w-full text-left text-sm">
               <thead className="bg-surface-2/50 text-[11px] tracking-wide text-muted uppercase">
                 <tr>

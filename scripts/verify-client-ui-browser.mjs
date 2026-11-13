@@ -79,6 +79,7 @@ const report = {
   checks: [],
   requests: [],
   browserErrors: [],
+  fixtureErrors: [],
 };
 const mutations = [];
 let browser;
@@ -253,15 +254,38 @@ try {
     if (path.endsWith("/auth/options")) return json({ signUpEnabled: false, googleEnabled: false });
     if (path.endsWith("/auth/google/pending")) return json(null);
     if (path.endsWith("/auth/members")) return json([]);
+    if (path.endsWith("/auth/activity")) return json({ events: [], nextCursor: null });
     if (path.endsWith("/auth/me")) return json(owner);
     if (path.endsWith("/settings")) return json(savedSettings);
     if (path === `/api/v1/businesses/${owner.businessId}`)
       return json({ name: "Synthetic UI verification", location: "", dataOrigin: "demo" });
     if (path.endsWith("/products")) return json(products);
+    if (path.endsWith("/product-photos")) return json([]);
     if (path.endsWith("/sales") || path.endsWith("/inventory-movements")) return json([]);
     if (path.endsWith("/forecast-status")) return json({ revision: String(revision) });
     if (path.endsWith("/forecast-dashboard")) return json(dashboard());
-    throw new Error(`Unexpected verification request: ${request.method()} ${path}`);
+    if (
+      new RegExp(
+        `^/api/v1/businesses/${owner.businessId}/forecast-runs/synthetic-ui-run-\\d+/predictions$`,
+      ).test(path)
+    ) {
+      // The dashboard starts its remaining forecasts tomorrow; the immutable
+      // archive also contains the saved prediction for the fixture business day.
+      const rows = dashboard().predictions;
+      const archive = [
+        ...rows,
+        ...rows
+          .filter((row) => row.predictionDate === relativeDay(1))
+          .map((row) => ({ ...row, predictionDate: day })),
+      ];
+      const query = new URL(request.url()).searchParams;
+      const offset = Number(query.get("offset") ?? 0);
+      const limit = Number(query.get("limit") ?? 1000);
+      return json(archive.slice(offset, offset + limit));
+    }
+    const failure = `Unexpected verification request: ${request.method()} ${path}`;
+    report.fixtureErrors.push(failure);
+    return route.fulfill({ status: 500, body: failure });
   });
 
   const base = server.resolvedUrls.local[0];
@@ -281,27 +305,46 @@ try {
   await page.getByRole("heading", { name: "Sales forecasts", exact: true }).waitFor();
   passed("Overview MAE card opens Forecasts through its own compact action.");
 
-  const selector = page.getByRole("combobox", { name: "Forecast product", exact: true });
-  await page.waitForFunction(
-    () => document.querySelector("#forecast-results")?.value === "saved-rank-one",
+  const selector = page.locator('main button[aria-haspopup="listbox"]');
+  const selectedProduct = (id) =>
+    page.getByRole("button", {
+      name: products.find((product) => product.id === id).name,
+      exact: true,
+    });
+  const chooseProduct = async (id) => {
+    if ((await selector.getAttribute("aria-expanded")) !== "true") await selector.click();
+    await page
+      .getByRole("option", {
+        name: products.find((product) => product.id === id).name,
+        exact: true,
+      })
+      .click();
+    await selectedProduct(id).waitFor();
+  };
+  await selectedProduct("saved-rank-one").waitFor();
+  await selector.click();
+  const productOptions = page.getByRole("listbox").getByRole("option");
+  assert.equal(await productOptions.count(), products.length);
+  assert.deepEqual(
+    await productOptions.allTextContents(),
+    products.map((product) => product.name),
+    "Only actual catalog products are offered, without blank or Overall options.",
   );
-  assert.equal(await selector.locator('option[value=""]').count(), 0);
   assert.equal(
-    await selector
-      .locator("option")
-      .filter({ hasText: /Overall/ })
-      .count(),
-    0,
+    await page
+      .getByRole("option", { name: products[1].name, exact: true })
+      .getAttribute("aria-selected"),
+    "true",
   );
   passed(
     "Forecasts defaults to saved rank 1 despite catalog/array order and has no Overall option.",
   );
 
-  await selector.selectOption("zero-demand");
+  await chooseProduct("zero-demand");
   await page.getByRole("button", { name: "Refresh forecasts", exact: true }).click();
   await page.getByRole("button", { name: /Updating forecasts/ }).waitFor();
   await page.getByText(/Waiting to update forecasts/).waitFor();
-  assert.equal(await selector.inputValue(), "zero-demand");
+  assert.equal(await selector.innerText(), products[3].name);
   stage = "running";
   revision++;
   await page.waitForFunction(
@@ -309,7 +352,7 @@ try {
       document.body.innerText.includes("Updating forecasts") &&
       !document.body.innerText.includes("Waiting to update forecasts"),
   );
-  assert.equal(await selector.inputValue(), "zero-demand");
+  assert.equal(await selector.innerText(), products[3].name);
   passed(
     "A manual product selection stays selected while a replacement forecast is queued or running.",
   );
@@ -317,10 +360,8 @@ try {
   stage = "completed-2";
   completedGeneration = 2;
   revision++;
-  await page.waitForFunction(
-    () => document.querySelector("#forecast-results")?.value === "catalog-first",
-  );
-  await selector.selectOption("zero-demand");
+  await selectedProduct("catalog-first").waitFor();
+  await chooseProduct("zero-demand");
   const readsBeforeSameResult = report.requests.filter((item) =>
     item.path.endsWith("/forecast-dashboard"),
   ).length;
@@ -329,9 +370,7 @@ try {
   await page.evaluate(
     () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
   );
-  await page.waitForFunction(
-    () => document.querySelector("#forecast-results")?.value === "zero-demand",
-  );
+  await selectedProduct("zero-demand").waitFor();
   assert.ok(
     report.requests.filter((item) => item.path.endsWith("/forecast-dashboard")).length >
       readsBeforeSameResult,
@@ -347,6 +386,9 @@ try {
 
   await page.getByRole("link", { name: "Restock", exact: true }).click();
   await page.getByRole("heading", { name: "Restocking recommendations", exact: true }).waitFor();
+  const orderGroup = page.getByRole("button", { name: "Order now", exact: true });
+  assert.equal(await orderGroup.getAttribute("aria-expanded"), "false");
+  await orderGroup.click();
   const rankedCard = card(products[1].name);
   const details = rankedCard
     .locator("details")
@@ -382,6 +424,11 @@ try {
   );
   await page.screenshot({ path: `${output}/restock.png`, fullPage: true, animations: "disabled" });
 
+  for (const name of ["Sales estimate unavailable", "No sales expected"]) {
+    const group = page.getByRole("button", { name, exact: true });
+    assert.equal(await group.getAttribute("aria-expanded"), "false");
+    await group.click();
+  }
   assert.equal(
     await card(products[2].name)
       .getByText(/Sales estimate unavailable:/)
@@ -525,7 +572,7 @@ try {
     { exact: true },
   );
   await savedVsDisplayed.waitFor();
-  await page.getByText(/Uses the previous 7 days of sales for each average/).waitFor();
+  await page.getByText("Uses the previous 7 days of sales.", { exact: true }).waitFor();
   await page
     .getByText(/Tested on 30 past days/)
     .first()
@@ -540,7 +587,7 @@ try {
   assert.equal(savedRunWindows.get(pendingGeneration), 14);
   assert.equal(await savedVsDisplayed.isVisible(), true);
   assert.equal(
-    await page.getByText(/Uses the previous 7 days of sales for each average/).isVisible(),
+    await page.getByText("Uses the previous 7 days of sales.", { exact: true }).isVisible(),
     true,
   );
   stage = "running";
@@ -554,7 +601,7 @@ try {
   completedGeneration = pendingGeneration;
   stage = `completed-${completedGeneration}`;
   revision++;
-  await page.getByText(/Uses the previous 14 days of sales for each average/).waitFor();
+  await page.getByText("Uses the previous 14 days of sales.", { exact: true }).waitFor();
   assert.equal(await savedVsDisplayed.count(), 0);
   assert.equal(
     await page
@@ -576,7 +623,7 @@ try {
     (item) => item.path.endsWith("/settings") && item.method === "GET",
   ).length;
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.getByText(/Uses the previous 14 days of sales for each average/).waitFor();
+  await page.getByText("Uses the previous 14 days of sales.", { exact: true }).waitFor();
   await page
     .getByText(/Tested on 30 past days/)
     .first()
@@ -601,6 +648,7 @@ try {
     `/api/v1/businesses/${owner.businessId}/forecast-refresh`,
   ]);
   assert.deepEqual(report.browserErrors, []);
+  assert.deepEqual(report.fixtureErrors, []);
   report.outcome = "passed";
 } catch (error) {
   report.outcome = "failed";

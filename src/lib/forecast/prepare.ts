@@ -73,25 +73,47 @@ export function selectTrainScope(
   sales: Sale[],
   dates: string[],
   topN: number,
+  minimumWeeks = 8,
+  minimumNonzeroDays = MIN_NONZERO_FOR_ML,
+  trainingDatesById?: Record<string, string[]>,
 ): {
   ml: Product[];
   rule: Product[];
   reasons: Record<string, string>;
   grainById: Record<string, Grain>;
 } {
-  const volume = volumeByProduct(products, sales);
-  const ranked = [...products].sort((a, b) => (volume.get(b.id) ?? 0) - (volume.get(a.id) ?? 0));
+  const productDates = (id: string) => trainingDatesById?.[id] ?? dates;
+  const trainingSales = sales.filter((sale) => {
+    const days = productDates(sale.productId);
+    return sale.date >= days[0] && sale.date <= days[days.length - 1];
+  });
+  const volume = volumeByProduct(products, trainingSales);
+  const ranked = [...products].sort(
+    (a, b) => (volume.get(b.id) ?? 0) - (volume.get(a.id) ?? 0) || a.id.localeCompare(b.id, "en"),
+  );
   const reasons: Record<string, string> = {};
   const grainById: Record<string, Grain> = {};
   const eligible: Product[] = [];
 
   for (const product of ranked) {
-    const daily = buildDailySeries(sales, product.id, dates);
+    const trainingDates = productDates(product.id);
+    const daily = buildDailySeries(trainingSales, product.id, trainingDates);
     const stats = seriesStats(daily);
     grainById[product.id] = stats.sparse ? "weekly" : "daily";
-    if (stats.nonzeroCount < MIN_NONZERO_FOR_ML) {
+    if (
+      trainingDates.length < Math.max(31, minimumWeeks * 7) ||
+      stats.nonzeroCount < minimumNonzeroDays
+    ) {
       reasons[product.id] =
-        `${stats.nonzeroCount} non-zero days (need ${MIN_NONZERO_FOR_ML}) · simple reorder rule`;
+        `Training history: ${trainingDates.length} calendar days (need ${Math.max(31, minimumWeeks * 7)}) and ${stats.nonzeroCount} nonzero sales days (need ${minimumNonzeroDays}). Moving Average only.`;
+      continue;
+    }
+    const productSales = trainingSales.filter((sale) => sale.productId === product.id);
+    const synthetic = productSales.length > 0 && productSales.every(isDemoSale);
+    const observed = new Set(productSales.map((sale) => sale.date));
+    if (!synthetic && trainingDates.some((day) => !observed.has(day))) {
+      reasons[product.id] =
+        "Missing historical dates are unknown, not confirmed zero sales. Moving Average only.";
       continue;
     }
     eligible.push(product);
@@ -111,6 +133,14 @@ export function selectTrainScope(
   return { ml, rule, reasons, grainById };
 }
 
+export function isDemoSale(sale: Sale): boolean {
+  // Old persisted seed/fallback records predate the source field.
+  return (
+    sale.source === "demo" ||
+    (sale.source === undefined && (sale.id.startsWith("s-") || sale.id.startsWith("fb-")))
+  );
+}
+
 export function recentMean(series: number[], window: number): number {
   return mean(series.slice(-Math.max(1, window)));
 }
@@ -120,7 +150,11 @@ export function clipNonNeg(value: number): number {
   return Math.max(0, value);
 }
 
-export function saleDateRange(sales: Sale[], fallbackStart: string, fallbackEnd: string): {
+export function saleDateRange(
+  sales: Sale[],
+  fallbackStart: string,
+  fallbackEnd: string,
+): {
   start: string;
   end: string;
   dates: string[];

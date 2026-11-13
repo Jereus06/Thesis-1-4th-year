@@ -338,31 +338,39 @@ export function AccountMaintenance() {
             {membersStatus === "ready" && staffMembers.length === 0 && (
               <p className="text-sm text-muted">No staff accounts are listed.</p>
             )}
-            {staffMembers.map((member) => (
-              <div
-                key={member.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-surface-2 p-3 text-sm"
-              >
-                <span>
-                  {member.displayName} · {member.email} · {member.isActive ? "active" : "disabled"}
-                </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={busy || membersStatus !== "ready"}
-                  onClick={() => void toggleMember(member)}
+            <div
+              className="record-scroll grid gap-3"
+              tabIndex={0}
+              role="region"
+              aria-label="Staff accounts"
+            >
+              {staffMembers.map((member) => (
+                <div
+                  key={member.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-surface-2 p-3 text-sm"
                 >
-                  {pendingAction === `member:${member.id}`
-                    ? member.isActive
-                      ? "Disabling…"
-                      : "Restoring…"
-                    : member.isActive
-                      ? "Disable"
-                      : "Restore"}
-                </Button>
-              </div>
-            ))}
+                  <span>
+                    {member.displayName} · {member.email} ·{" "}
+                    {member.isActive ? "active" : "disabled"}
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy || membersStatus !== "ready"}
+                    onClick={() => void toggleMember(member)}
+                  >
+                    {pendingAction === `member:${member.id}`
+                      ? member.isActive
+                        ? "Disabling…"
+                        : "Restoring…"
+                      : member.isActive
+                        ? "Disable"
+                        : "Restore"}
+                  </Button>
+                </div>
+              ))}
+            </div>
           </div>
         </>
       )}

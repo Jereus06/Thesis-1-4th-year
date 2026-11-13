@@ -260,6 +260,23 @@ Production cookies require HTTPS. Keep the configuration, server access, storage
 retention under the deployment administrator's control. A laptop and the server do not
 automatically share existing records.
 
+### Product camera on phones and desktops
+
+**Take photo** uses the browser's live camera API. Allow camera access when prompted and make
+sure a camera is connected and available. Desktop `http://localhost:8080` can use this API;
+Android and iPhone browsers opening the PC's local-network HTTP address cannot. For phone use,
+open the trusted HTTPS site configured through the hosted-installation steps above. Browsers
+enforce this secure-context requirement; changing camera permissions alone does not enable
+live capture on an insecure HTTP network address. The separate **Choose photo** file picker
+remains available when live capture is unavailable.
+
+StockCast requests video only, prefers the phone's rear camera, offers a camera selector when
+multiple cameras are exposed, and captures a still JPEG for preview before Save photo. Permission
+denial or a camera in use by another app produces a retry message. Camera tracks stop when the
+preview is closed/captured or the page becomes hidden. Check the actual target devices after
+hosting setup; automated fake-camera tests do not certify physical Android/iPhone hardware.
+See the browser's [getUserMedia requirements](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia).
+
 ### Recovery and staff-invitation email
 
 Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, and

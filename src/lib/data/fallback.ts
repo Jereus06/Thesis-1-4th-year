@@ -25,9 +25,9 @@ function poissonLike(rand: () => number, lambda: number): number {
 
 export const FALLBACK_START = "2025-09-22";
 export const FALLBACK_END = "2026-09-19";
-export const FALLBACK_LABEL = "Public retail fallback (12-month comparable series)";
+export const FALLBACK_LABEL = "Synthetic demonstration fallback (12 months)";
 
-/** Comparable public-style daily retail series used when partner history is under 8 weeks. */
+/** Generated demonstration records; these are not collected or public dataset records. */
 export function createFallbackSales(products: Product[]): Sale[] {
   const rand = mulberry32(20250922);
   const days = enumerateDays(FALLBACK_START, FALLBACK_END);
@@ -47,6 +47,7 @@ export function createFallbackSales(products: Product[]): Sale[] {
         productId: product.id,
         date,
         qty,
+        source: "demo",
       });
     }
   }

@@ -150,12 +150,19 @@ function RestockPage() {
                 Check these products' sales records and {refreshAdvice}. You can still record
                 deliveries in Inventory.
               </p>
-              {missing.map((product) => (
-                <div key={product.id} className="rounded-xl border border-border p-3">
-                  <p className="text-sm font-medium">{product.name}</p>
-                  <DemandEvidence forecast={result?.byProduct[product.id]} compact />
-                </div>
-              ))}
+              <div
+                className="record-scroll space-y-3"
+                tabIndex={0}
+                role="region"
+                aria-label="Products waiting for estimates"
+              >
+                {missing.map((product) => (
+                  <div key={product.id} className="rounded-xl border border-border p-3">
+                    <p className="text-sm font-medium">{product.name}</p>
+                    <DemandEvidence forecast={result?.byProduct[product.id]} compact />
+                  </div>
+                ))}
+              </div>
             </section>
           )}
           <Section title="Order now" empty="No products are currently listed for ordering.">
@@ -220,7 +227,14 @@ function Section({
       </button>
       {expanded &&
         (has ? (
-          <div className="grid gap-3">{items}</div>
+          <div
+            className="record-scroll grid gap-3"
+            tabIndex={0}
+            role="region"
+            aria-label={`${title} products`}
+          >
+            {items}
+          </div>
         ) : (
           <p className="text-sm text-muted">{empty}</p>
         ))}

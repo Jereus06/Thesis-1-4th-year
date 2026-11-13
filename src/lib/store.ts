@@ -22,6 +22,7 @@ import type {
 } from "@/lib/types";
 import { fromApiSettings, type ApiSettings } from "@/lib/settings";
 import { deduplicateSales, isImportedSale } from "@/lib/sales-import";
+import { clearDemoPhotos } from "@/lib/product-photos";
 
 type Store = {
   dataOrigin: "demo" | "partner";
@@ -845,6 +846,7 @@ export const useAppStore = create<Store>()(
       },
       resetDemo: () => {
         if (get().dataMode !== "browser-demo") return;
+        clearDemoPhotos();
         invalidatePipelineCache();
         set({
           products: createSeedProducts(),

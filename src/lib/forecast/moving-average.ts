@@ -19,3 +19,19 @@ export function rollingMovingAverage(
   }
   return preds;
 }
+
+/** Fixed-origin multi-step forecast: later actuals never enter the recursion. */
+export function recursiveMovingAverage(
+  history: number[],
+  horizon: number,
+  window: number,
+): number[] {
+  const values = history.slice();
+  const predictions: number[] = [];
+  for (let step = 0; step < horizon; step++) {
+    const prediction = Math.max(0, movingAverage(values, window));
+    values.push(prediction);
+    predictions.push(prediction);
+  }
+  return predictions;
+}

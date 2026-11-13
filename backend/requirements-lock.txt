@@ -8,6 +8,7 @@ psycopg[binary,pool]==3.2.9
 pydantic-settings==2.9.1
 pytest==9.0.3
 python-multipart==0.0.20
+Pillow==13.0.0
 requests==2.34.2
 scikit-learn==1.6.1
 uvicorn[standard]==0.34.3

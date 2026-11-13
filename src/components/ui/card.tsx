@@ -4,24 +4,28 @@ import { cn } from "@/lib/utils";
 function Card({ className, ...props }: ComponentProps<"div">) {
   return (
     <div
-      className={cn("rounded-2xl border border-border bg-surface text-fg shadow-card", className)}
+      data-slot="card"
+      className={cn(
+        "min-w-0 rounded-2xl border border-border bg-surface text-fg shadow-card",
+        className,
+      )}
       {...props}
     />
   );
 }
 
 function CardHeader({ className, ...props }: ComponentProps<"div">) {
-  return <div className={cn("flex flex-col gap-1 p-5 pb-0", className)} {...props} />;
+  return <div className={cn("flex flex-col gap-1.5 p-5 pb-0", className)} {...props} />;
 }
 
 function CardTitle({ className, ...props }: ComponentProps<"h3">) {
   return (
-    <h3 className={cn("font-display text-lg font-medium tracking-tight", className)} {...props} />
+    <h3 className={cn("font-display text-lg font-semibold tracking-tight", className)} {...props} />
   );
 }
 
 function CardDescription({ className, ...props }: ComponentProps<"p">) {
-  return <p className={cn("text-sm text-muted", className)} {...props} />;
+  return <p className={cn("text-sm leading-relaxed text-muted", className)} {...props} />;
 }
 
 function CardContent({ className, ...props }: ComponentProps<"div">) {

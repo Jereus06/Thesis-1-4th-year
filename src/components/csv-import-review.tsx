@@ -332,30 +332,37 @@ export function CsvImportReview({
                 {guide.unresolvedProductCount > guide.unresolvedProducts.length &&
                   ` Showing the first ${guide.unresolvedProducts.length} of ${guide.unresolvedProductCount} unresolved identifiers; more appear after these are resolved.`}
               </p>
-              {guide.unresolvedProducts.map((product) => (
-                <div key={product.source} className="grid gap-1 text-sm">
-                  {product.source} · {product.reason} · {product.rows.toLocaleString()} rows
-                  <ProductMatchControl
-                    source={product.source}
-                    products={products}
-                    productId={
-                      Object.hasOwn(options.productMatches, product.source)
-                        ? options.productMatches[product.source]
-                        : ""
-                    }
-                    disabled={locked || cancelled || preparing}
-                    onChange={(id) =>
-                      onOptions({
-                        ...options,
-                        productMatches: {
-                          ...options.productMatches,
-                          [product.source]: id,
-                        },
-                      })
-                    }
-                  />
-                </div>
-              ))}
+              <div
+                className="record-scroll grid gap-3"
+                tabIndex={0}
+                role="region"
+                aria-label="Unrecognized product matches"
+              >
+                {guide.unresolvedProducts.map((product) => (
+                  <div key={product.source} className="grid gap-1 text-sm">
+                    {product.source} · {product.reason} · {product.rows.toLocaleString()} rows
+                    <ProductMatchControl
+                      source={product.source}
+                      products={products}
+                      productId={
+                        Object.hasOwn(options.productMatches, product.source)
+                          ? options.productMatches[product.source]
+                          : ""
+                      }
+                      disabled={locked || cancelled || preparing}
+                      onChange={(id) =>
+                        onOptions({
+                          ...options,
+                          productMatches: {
+                            ...options.productMatches,
+                            [product.source]: id,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           {kind === "sales" && selectedMatches.length > 0 && (
@@ -379,23 +386,30 @@ export function CsvImportReview({
                   : "No selected matches found."}{" "}
                 Every selected match remains available for review, editing, or removal.
               </p>
-              {visibleMatches.map(([source, productId]) => (
-                <div key={source} className="grid gap-1 text-sm">
-                  {source}
-                  <ProductMatchControl
-                    source={source}
-                    products={products}
-                    productId={productId}
-                    disabled={locked || cancelled || preparing}
-                    onChange={(id) => {
-                      const matches = { ...options.productMatches };
-                      if (id) matches[source] = id;
-                      else delete matches[source];
-                      onOptions({ ...options, productMatches: matches });
-                    }}
-                  />
-                </div>
-              ))}
+              <div
+                className="record-scroll grid gap-3"
+                tabIndex={0}
+                role="region"
+                aria-label="Product match rows"
+              >
+                {visibleMatches.map(([source, productId]) => (
+                  <div key={source} className="grid gap-1 text-sm">
+                    {source}
+                    <ProductMatchControl
+                      source={source}
+                      products={products}
+                      productId={productId}
+                      disabled={locked || cancelled || preparing}
+                      onChange={(id) => {
+                        const matches = { ...options.productMatches };
+                        if (id) matches[source] = id;
+                        else delete matches[source];
+                        onOptions({ ...options, productMatches: matches });
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
               {pageCount > 1 && (
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
