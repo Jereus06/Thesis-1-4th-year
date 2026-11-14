@@ -1328,6 +1328,8 @@ synthetic API fixtures now return empty photo and account-activity listings for 
 retaining their existing strict handling of unexpected requests and transaction checks.
 Shared-state window assertions match the current Moving Average explanation and still
 check the saved 7-day and replacement 28-day windows separately.
+Transaction selection checks use the current searchable sale-product picker and its
+selected product ID, preserving inactive-product retry and explicit-selection assertions.
 
 - `compose.yaml`, `Dockerfile`, `backend/Dockerfile`, `deploy/`, `scripts/`: startup/hosting/backup.
 - `src/components/csv-importer.tsx`, `csv-import-review.tsx`: shared upload/paste preparation, automatic column/format choices and previews, optional adjustments/product matching, bounded diagnostics, and explicit import controls.
