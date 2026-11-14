@@ -305,6 +305,9 @@ async function newClient(id) {
     report.requests.push({ client: id, method: request.method(), path });
     const json = (data, status = 200) =>
       route.fulfill({ status, contentType: "application/json", body: JSON.stringify({ data }) });
+    if (request.method() === "GET" && path.endsWith("/product-photos")) return json([]);
+    if (request.method() === "GET" && path.endsWith("/auth/activity"))
+      return json({ events: [], nextCursor: null });
     if (path.startsWith("/api/v1/businesses/synthetic-other-business")) {
       if (path.endsWith("/forecast-status")) return json({ revision: "other-session" });
       const otherSettings = {
@@ -561,6 +564,7 @@ try {
       5,
     activeId,
   );
+  await a.page.getByRole("button", { name: "Order now", exact: true }).click();
   const card = a.page
     .locator("main .rounded-2xl")
     .filter({ has: a.page.getByText(products[0].name, { exact: true }) })
@@ -624,7 +628,7 @@ try {
   assert.equal(queuedWindow, 28);
   assert.equal(await mismatch.isVisible(), true);
   assert.equal(
-    await a.page.getByText(/Uses the previous 7 days of sales for each average/).isVisible(),
+    await a.page.getByText("Uses the previous 7 days of sales.", { exact: true }).isVisible(),
     true,
   );
   stage = "running";
@@ -639,7 +643,7 @@ try {
   completedGeneration++;
   completedWindow = queuedWindow;
   revision++;
-  await a.page.getByText(/Uses the previous 28 days of sales for each average/).waitFor();
+  await a.page.getByText("Uses the previous 28 days of sales.", { exact: true }).waitFor();
   assert.equal(await mismatch.count(), 0);
   passed(
     "Remote saved settings do not relabel old completed results while queued/running; the completed replacement uses its frozen window28.",

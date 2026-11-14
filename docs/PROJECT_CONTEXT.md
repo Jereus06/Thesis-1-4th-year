@@ -1309,6 +1309,34 @@ for the supplied-log failure counts, local verification and hosted-run limits.
 The repaired full serial frontend suite passed 519 tests with no failures/skips; typecheck,
 build, lint (the same three warnings), workflow YAML/order/guard checks and diff checks passed.
 
+The subsequent 14 November 2026 run reached PostgreSQL tests and reported 143 failures
+and 14 setup errors, all with `products.brand` missing. Migration 012 adds the existing
+API's optional `brand`, `model`, and `variant` fields with empty-string defaults, preserving
+existing product quantities and migration checksums. Inventory imports of new products
+require only fields marked required by `ProductCreate`; optional attribute columns can be
+omitted, and stock-only updates preserve saved attributes. Regression coverage checks
+an upgrade from migration 011, repeated migration execution, unchanged stock/audit records,
+and attribute creation, editing and inventory imports. The hosted workflow verifies the
+complete application against PostgreSQL; no checks are disabled or made optional.
+With the migration applied, the hosted run exposed five CSV export failures from untyped
+null date parameters. Sales and stock-movement exports explicitly cast optional bounds
+to SQL dates. Regression cases cover omitted, one-sided, and inclusive date ranges.
+The full hosted Python suite then passed 749 tests and 14 subtests, and ZIP recovery
+passed. The transaction-retry browser verifier subsequently rejected the current
+Inventory page's product-photo listing request. The transaction and shared-state
+synthetic API fixtures now return empty photo and account-activity listings for those GET requests while
+retaining their existing strict handling of unexpected requests and transaction checks.
+Shared-state window assertions match the current Moving Average explanation and still
+check the saved 7-day and replacement 28-day windows separately.
+Transaction selection checks use the current searchable sale-product picker and its
+selected product ID, preserving inactive-product retry and explicit-selection assertions.
+Shared-state and real forecast-evidence browser checks expand the current Restock groups
+before inspecting product cards; the groups intentionally start collapsed.
+Forecast-evidence assertions target the product's unavailable badge rather than the
+identical group heading and match the current Top Products summary. Focused hosted
+transaction/shared-state and real API/PostgreSQL/XGBoost forecast-evidence runs passed
+with these verifier updates; the complete system workflow remains the final check.
+
 - `compose.yaml`, `Dockerfile`, `backend/Dockerfile`, `deploy/`, `scripts/`: startup/hosting/backup.
 - `src/components/csv-importer.tsx`, `csv-import-review.tsx`: shared upload/paste preparation, automatic column/format choices and previews, optional adjustments/product matching, bounded diagnostics, and explicit import controls.
 - `src/lib/csv-import.worker.ts`, `csv-preparation.ts`: worker source/row cache, decoding/parsing/validation timings, preview bounds, and existing API row limits.
