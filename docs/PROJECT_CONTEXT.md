@@ -1309,6 +1309,16 @@ for the supplied-log failure counts, local verification and hosted-run limits.
 The repaired full serial frontend suite passed 519 tests with no failures/skips; typecheck,
 build, lint (the same three warnings), workflow YAML/order/guard checks and diff checks passed.
 
+The subsequent 14 November 2026 run reached PostgreSQL tests and reported 143 failures
+and 14 setup errors, all with `products.brand` missing. Migration 012 adds the existing
+API's optional `brand`, `model`, and `variant` fields with empty-string defaults, preserving
+existing product quantities and migration checksums. Inventory imports of new products
+require only fields marked required by `ProductCreate`; optional attribute columns can be
+omitted, and stock-only updates preserve saved attributes. Regression coverage checks
+an upgrade from migration 011, repeated migration execution, unchanged stock/audit records,
+and attribute creation, editing and inventory imports. The hosted workflow verifies the
+complete application against PostgreSQL; no checks are disabled or made optional.
+
 - `compose.yaml`, `Dockerfile`, `backend/Dockerfile`, `deploy/`, `scripts/`: startup/hosting/backup.
 - `src/components/csv-importer.tsx`, `csv-import-review.tsx`: shared upload/paste preparation, automatic column/format choices and previews, optional adjustments/product matching, bounded diagnostics, and explicit import controls.
 - `src/lib/csv-import.worker.ts`, `csv-preparation.ts`: worker source/row cache, decoding/parsing/validation timings, preview bounds, and existing API row limits.

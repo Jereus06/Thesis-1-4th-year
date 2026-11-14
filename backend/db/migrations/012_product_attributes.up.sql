@@ -1,0 +1,8 @@
+BEGIN;
+
+ALTER TABLE products
+  ADD COLUMN brand text NOT NULL DEFAULT '',
+  ADD COLUMN model text NOT NULL DEFAULT '',
+  ADD COLUMN variant text NOT NULL DEFAULT '';
+
+COMMIT;

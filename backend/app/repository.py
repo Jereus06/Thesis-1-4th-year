@@ -543,7 +543,8 @@ class Repository:
                 else:
                     details = item.model_dump(exclude_none=True, exclude={"is_active"})
                     missing = [
-                        field for field in ProductCreate.model_fields if field not in details
+                        field for field, definition in ProductCreate.model_fields.items()
+                        if definition.is_required() and field not in details
                     ]
                     if missing:
                         raise HTTPException(
