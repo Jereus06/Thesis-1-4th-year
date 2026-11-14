@@ -87,9 +87,8 @@ try {
   });
   await page.goto(base + "/restock", { waitUntil: "domcontentloaded" });
   await openRestockGroups();
-  await page
-    .locator("main span")
-    .filter({ hasText: /^Sales estimate unavailable$/ })
+  await restockCard(product.name)
+    .getByText("Sales estimate unavailable", { exact: true })
     .waitFor();
   assert.doesNotMatch(await page.locator("main").innerText(), /Low confidence|High confidence/);
   checks.push("Empty history shows unavailable advice without a confidence score.");
@@ -207,7 +206,7 @@ try {
 
   await page.goto(base + "/forecasts", { waitUntil: "domcontentloaded" });
   const topProducts = page.getByRole("region", { name: "Top products for XGBoost" });
-  await topProducts.getByText(/5 selected/).waitFor();
+  await topProducts.getByText(/5 products · Sales history:/).waitFor();
   const rankedRows = await topProducts.locator("tbody tr").allTextContents();
   assert.equal(rankedRows.length, 5);
   for (let index = 0; index < 5; index++)
