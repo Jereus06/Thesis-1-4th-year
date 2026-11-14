@@ -564,6 +564,7 @@ try {
       5,
     activeId,
   );
+  await a.page.getByRole("button", { name: "Order now", exact: true }).click();
   const card = a.page
     .locator("main .rounded-2xl")
     .filter({ has: a.page.getByText(products[0].name, { exact: true }) })

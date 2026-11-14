@@ -1330,6 +1330,8 @@ Shared-state window assertions match the current Moving Average explanation and 
 check the saved 7-day and replacement 28-day windows separately.
 Transaction selection checks use the current searchable sale-product picker and its
 selected product ID, preserving inactive-product retry and explicit-selection assertions.
+Shared-state and real forecast-evidence browser checks expand the current Restock groups
+before inspecting product cards; the groups intentionally start collapsed.
 
 - `compose.yaml`, `Dockerfile`, `backend/Dockerfile`, `deploy/`, `scripts/`: startup/hosting/backup.
 - `src/components/csv-importer.tsx`, `csv-import-review.tsx`: shared upload/paste preparation, automatic column/format choices and previews, optional adjustments/product matching, bounded diagnostics, and explicit import controls.
