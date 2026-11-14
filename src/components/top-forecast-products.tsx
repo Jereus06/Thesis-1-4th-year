@@ -33,16 +33,12 @@ export function TopForecastProducts({
       </CardHeader>
       <CardContent className="space-y-3">
         {!scope ? (
-          <p className="text-sm text-muted">
-            Refresh forecasts to see the selected products. Maximum: {num(configuredLimit)}{" "}
-            products.
-          </p>
+          <p className="text-sm text-muted">Refresh forecasts to see the selected products.</p>
         ) : (
           <>
             <p className="text-sm text-muted">
-              {num(selected.length)} {selected.length === 1 ? "product" : "products"} shown ·{" "}
-              {num(scope.products.length)} selected · maximum {num(scope.limit)}. Sales used:{" "}
-              {scope.trainingStart} to {scope.trainingEnd}.
+              {num(selected.length)} {selected.length === 1 ? "product" : "products"} · Sales
+              history: {scope.trainingStart} to {scope.trainingEnd}.
             </p>
             {configuredLimit !== scope.limit && (
               <p className="text-sm text-warning">

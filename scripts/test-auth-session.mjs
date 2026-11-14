@@ -314,6 +314,36 @@ test("recovery forwards an optional legacy Business ID only when supplied", asyn
   ]);
 });
 
+test("store choices verify credentials without loading or replacing an account", async (t) => {
+  const { api, store } = await isolatedStore(t);
+  populate(store);
+  const originalSession = store.getState().session;
+  let received;
+  globalThis.fetch = async (url, options) => {
+    received = {
+      url,
+      method: options.method,
+      credentials: options.credentials,
+      body: JSON.parse(options.body),
+    };
+    return response([
+      {
+        businessId: account.businessId,
+        businessName: "Synthetic store",
+        businessLocation: null,
+        role: "owner",
+      },
+    ]);
+  };
+  const result = await api.signInStores(account.email, "synthetic-test-password");
+  assert.equal(received.url.endsWith("/auth/sign-in/stores"), true);
+  assert.equal(received.method, "POST");
+  assert.equal(received.credentials, "include");
+  assert.deepEqual(received.body, { email: account.email, password: "synthetic-test-password" });
+  assert.equal(result[0].businessId, account.businessId);
+  assert.equal(store.getState().session, originalSession);
+});
+
 for (const [operation, committedMessage] of [
   ["signIn", "You signed in"],
   ["signUp", "Your account was created"],

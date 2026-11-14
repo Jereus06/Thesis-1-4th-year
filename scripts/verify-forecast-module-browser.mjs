@@ -194,14 +194,12 @@ async function inspectForecastCandles(page, predicted = 9, hasRange = false, vie
 }
 
 async function forecastLegend(page) {
-  return page
-    .getByRole("list", { name: "Forecast chart legend" })
-    .evaluate((list) =>
-      [...list.children].map((item) => ({
-        text: item.textContent,
-        icons: [...item.querySelectorAll("svg > *")].map((icon) => icon.tagName),
-      })),
-    );
+  return page.getByRole("list", { name: "Forecast chart legend" }).evaluate((list) =>
+    [...list.children].map((item) => ({
+      text: item.textContent,
+      icons: [...item.querySelectorAll("svg > *")].map((icon) => icon.tagName),
+    })),
+  );
 }
 
 async function hoverForecastCandle(page, position) {
@@ -457,23 +455,21 @@ try {
   await page.locator(".recharts-surface").first().waitFor();
   await page.getByText("Predicted (XGBoost)", { exact: true }).waitFor();
   await page.waitForFunction(() => document.querySelectorAll(".recharts-line-curve").length === 2);
-  assert.equal(await page.locator("#forecast-horizon").inputValue(), "30");
-  const advanced = page
-    .locator("details")
-    .filter({ has: page.locator("summary", { hasText: "Advanced options" }) });
-  assert.equal(await advanced.getAttribute("open"), null);
-  assert.equal(await page.locator("#forecast-grain").isVisible(), false);
-  assert.equal(await page.locator("#forecast-horizon").isVisible(), false);
+  assert.equal(await page.locator("#forecast-horizon").count(), 0);
+  assert.equal(await page.locator("summary", { hasText: "Advanced options" }).count(), 0);
+  assert.equal(await page.locator("#forecast-grain").isVisible(), true);
+  assert.equal(
+    await page.getByRole("checkbox", { name: "Compare models", exact: true }).isVisible(),
+    true,
+  );
   assert.equal(await page.locator("#forecast-metric").count(), 0);
   assert.equal(await page.getByRole("combobox", { name: "Forecast horizon unit" }).count(), 0);
-  await page.getByText("Daily sales quantity for the next 30 days.", { exact: true }).waitFor();
-  await page.getByText("Saved future estimates: 30 days.", { exact: false }).waitFor();
   const scoresText = await page.getByRole("region", { name: "Model scores" }).innerText();
   assert.match(scoresText, /MAE 1/);
   assert.equal(await page.getByText("Chosen method", { exact: true }).count(), 2); // XGBoost card + table header.
   await page.screenshot({ path: `${output}/simplified-default.png`, fullPage: true });
   passed(
-    "The default is daily quantities for 30 days, with Actual and the chosen prediction; advanced controls start closed.",
+    "Daily view shows the saved 30-day forecast with Actual and the chosen prediction; View and Compare models are visible without a second horizon control.",
   );
   const chartType = page.locator("#forecast-chart-type");
   assert.equal(
@@ -507,7 +503,7 @@ try {
     );
   }
   assert.equal(await page.getByRole("region", { name: "Model scores" }).innerText(), scoresText);
-  assert.equal(await page.locator("#forecast-horizon").inputValue(), "30");
+  assert.equal(await page.locator("#forecast-horizon").count(), 0);
   await page.screenshot({ path: `${output}/chart-area.png`, fullPage: true });
   passed(
     "Area view keeps the 30 known actual observations and all 60 saved predictions without creating future actuals or changing scores.",
@@ -543,8 +539,6 @@ try {
     { name: "Predicted (XGBoost)", value: "9" },
   ]);
   await page.screenshot({ path: `${output}/chart-candlestick.png`, fullPage: true });
-  const summaryControl = advanced.locator("summary");
-  await summaryControl.click();
   await page.getByRole("checkbox", { name: "Compare models", exact: true }).check();
   await page.waitForFunction(() => document.querySelectorAll(".recharts-line-curve").length === 4);
   await inspectForecastCandles(page);
@@ -558,7 +552,7 @@ try {
     `stockcast-forecast-view:${owner.businessId}:${owner.userId}`,
   );
   assert.equal(savedView.chartType, "candlestick");
-  assert.equal(savedView.days, 30);
+  assert.equal(savedView.days, undefined);
   assert.equal(savedView.compare, false);
   const originalUserId = owner.userId;
   owner.userId = "forecast-test-other-owner";
@@ -582,7 +576,6 @@ try {
     .getAttribute("d");
   assert.equal((restoredLine.match(/[ML]/g) ?? []).length, 60);
   assert.equal(await page.getByRole("region", { name: "Model scores" }).innerText(), scoresText);
-  assert.equal(await advanced.getAttribute("open"), null);
   passed(
     "Candlestick and Step preserve actual/forecast quantities, omit future actuals, fit end markers and share the Line legend. Model comparison and per-account preferences remain available without changing scores or horizon.",
   );
@@ -649,42 +642,38 @@ try {
   passed(
     "Both forecast tables have balanced heading/body padding, matching column bounds, centered numeric values and vertically centered headings; filtering preserves column widths.",
   );
-  const advancedSummary = page.locator("summary", { hasText: "Advanced options" });
-  await advancedSummary.focus();
-  await advancedSummary.press("Enter");
-  assert.notEqual(await advanced.getAttribute("open"), null);
-  await page
-    .getByText("Changes the chart only. It does not generate more predictions.", { exact: false })
-    .waitFor();
   assert.equal(
     await page.getByRole("checkbox", { name: "Compare models", exact: true }).isChecked(),
     false,
   );
-  await page.getByRole("spinbutton", { name: "Days to show", exact: true }).fill("7");
-  await page.getByText("Daily sales quantity for the next 7 days.", { exact: true }).waitFor();
-  const shortPath = await page
+  await page.locator("#forecast-grain").selectOption("monthly");
+  await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((key) => key.startsWith("stockcast-forecast-view:"));
+    if (!key) throw new Error("Missing chart preferences");
+    localStorage.setItem(
+      key,
+      JSON.stringify({ ...JSON.parse(localStorage.getItem(key)), days: 14 }),
+    );
+  });
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: "Chart options", exact: true }).waitFor();
+  assert.equal(await page.locator("#forecast-horizon").count(), 0);
+  assert.equal(await page.locator("#forecast-grain").inputValue(), "monthly");
+  await page.getByText("Partial periods are incomplete", { exact: false }).waitFor();
+  await page.screenshot({ path: `${output}/monthly-persisted.png`, fullPage: true });
+  await page.locator("#forecast-grain").selectOption("daily");
+  const savedPath = await page
     .locator('.recharts-line-curve[name="Predicted (XGBoost)"]')
     .getAttribute("d");
-  assert.equal((shortPath.match(/[ML]/g) ?? []).length, 37);
+  assert.equal((savedPath.match(/[ML]/g) ?? []).length, 60);
   assert.equal(await page.getByRole("region", { name: "Model scores" }).innerText(), scoresText);
-  await page.getByRole("spinbutton", { name: "Days to show", exact: true }).fill("14");
-  await page.locator("#forecast-grain").selectOption("monthly");
-  await page.reload({ waitUntil: "networkidle" });
-  await page.getByText("Monthly sales quantity for the next 14 days.", { exact: true }).waitFor();
-  await advancedSummary.click();
-  assert.equal(await page.locator("#forecast-horizon").inputValue(), "14");
-  assert.equal(await page.locator("#forecast-grain").inputValue(), "monthly");
-  await page.getByText("Partial months are not full-month forecasts", { exact: false }).waitFor();
-  await page.screenshot({ path: `${output}/monthly-persisted-14.png`, fullPage: true });
-  await page.locator("#forecast-grain").selectOption("daily");
-  passed("The 14-day choice and Monthly view survive a reload; partial months are identified.");
-  await page.getByRole("spinbutton", { name: "Days to show", exact: true }).fill("30");
+  passed(
+    "Monthly view persists; obsolete 14-day preferences cannot hide any saved predictions or change model scores.",
+  );
   await page.getByRole("checkbox", { name: "Compare models", exact: true }).check();
   await page.waitForFunction(() => document.querySelectorAll(".recharts-line-curve").length === 4);
-  await page.screenshot({ path: `${output}/advanced-options.png`, fullPage: true });
-  passed(
-    "Advanced options support keyboard opening, a different displayed horizon and all three models without changing scores or saving settings.",
-  );
+  await page.screenshot({ path: `${output}/chart-options.png`, fullPage: true });
+  passed("Compare models shows all three methods without changing scores or saving settings.");
   await page.getByRole("checkbox", { name: "Compare models", exact: true }).uncheck();
   await page.getByText("Predicted (XGBoost)", { exact: true }).waitFor();
   await page.waitForFunction(() => document.querySelectorAll(".recharts-line-curve").length === 2);
@@ -693,9 +682,7 @@ try {
   assert(selectedPath?.includes("L"));
   passed("Disabling comparison keeps Actual and the chosen XGBoost prediction visible.");
   await page.locator("#forecast-grain").selectOption("weekly");
-  await page
-    .getByText("Weekly totals keep past test days and future days separate.", { exact: false })
-    .waitFor();
+  await page.getByText("Partial periods are incomplete", { exact: false }).waitFor();
   assert.equal(await page.locator(".recharts-line-curve").count(), 2);
   const actualWeekly = await page.locator('.recharts-line-curve[name="Actual"]').getAttribute("d");
   const weeklyY = [...actualWeekly.matchAll(/[ML][\d.]+,([\d.]+)/g)].map((match) => match[1]);
@@ -712,8 +699,6 @@ try {
   passed("Switching to a baseline product uses its Moving Average and retains actual sales.");
   await page.locator("#forecast-grain").selectOption("daily");
   await page.setViewportSize({ width: 390, height: 844 });
-  await advancedSummary.click();
-  assert.equal(await advanced.getAttribute("open"), null);
   await chartType.selectOption("candlestick");
   await page.locator(".forecast-candle").first().waitFor();
   await inspectForecastCandles(page, 8, false, "390px");
@@ -751,7 +736,7 @@ try {
   archiveFailure = false;
   await page.getByRole("button", { name: "Retry", exact: true }).click();
   await page
-    .getByText("Earlier dates include saved predictions from this forecast run.", { exact: false })
+    .getByText("Includes earlier saved forecasts.", { exact: true })
     .waitFor();
   assert.equal(archiveReads, 2);
   const path = await page
@@ -776,12 +761,11 @@ try {
   await page.getByRole("button", { name: "Synthetic forecast product", exact: true }).click();
   await page.getByRole("option", { name: "Synthetic baseline product", exact: true }).click();
   await page
-    .getByText("Earlier dates include saved predictions from this forecast run.", { exact: false })
+    .getByText("Includes earlier saved forecasts.", { exact: true })
     .waitFor();
   await page.getByText("Expected daily sales: 8.0 piece", { exact: true }).waitFor();
   await page.getByText("Predicted (Moving Average)", { exact: true }).waitFor();
   assert.equal(archiveReads, 2, "Switching products reuses the same run's history.");
-  await advancedSummary.click();
   await page.getByRole("checkbox", { name: "Compare models", exact: true }).check();
   await page.locator('.recharts-line-curve[name="Moving Average"]').waitFor({ state: "attached" });
   assert.equal(

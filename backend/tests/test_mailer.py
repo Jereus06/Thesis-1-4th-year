@@ -36,7 +36,7 @@ def test_mock_smtp_transport_uses_tls_auth_and_message():
 
 def test_unconfigured_mail_never_attempts_delivery():
     with patch("app.mailer.smtplib.SMTP") as smtp:
-        with pytest.raises(MailUnavailable, match="Email delivery is not configured"):
+        with pytest.raises(MailUnavailable, match="Email is not set up"):
             Mailer(config(smtp_host="")).send("nobody@example.invalid", "x", "x")
     smtp.assert_not_called()
 
@@ -61,5 +61,5 @@ def test_smtp_and_network_failures_become_mail_unavailable(stage, error_type):
         with pytest.raises(MailUnavailable) as raised:
             Mailer(config()).send("synthetic@example.invalid", "Test", "single-use link")
 
-    assert str(raised.value) == "Email delivery is temporarily unavailable"
+    assert str(raised.value) == "Email could not be sent. Please try again later."
     assert raised.value.__cause__ is error

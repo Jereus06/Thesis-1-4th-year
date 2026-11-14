@@ -286,6 +286,86 @@ try {
     "The labelled password visibility control reveals and hides the same value without submitting the form.",
   );
 
+  const stores = [
+    {
+      businessId: owner.businessId,
+      businessName: "Synthetic Auth Store",
+      businessLocation: "First test location",
+      role: "owner",
+    },
+    {
+      businessId: "synthetic-other-business",
+      businessName: "Another synthetic store with a long descriptive business name",
+      businessLocation: "Second test location",
+      role: "owner",
+    },
+  ];
+  async function requestStoreChoices({ gate, failure } = {}) {
+    queue("/auth/sign-in", {
+      status: 409,
+      message: "Choose a store to sign in, or enter its Business ID",
+    });
+    const received = queue(
+      "/auth/sign-in/stores",
+      failure
+        ? { status: 503, message: "Synthetic store choices unavailable." }
+        : { data: stores, gate },
+    );
+    await signInForm().getByRole("button", { name: "Sign in", exact: true }).click();
+    await received;
+  }
+  const choicesGate = deferred();
+  const beforeChoices = count("/auth/sign-in/stores");
+  await requestStoreChoices({ gate: choicesGate });
+  assert.equal(await signInForm().getByLabel("Email", { exact: true }).isDisabled(), true);
+  await doubleSubmit(signInForm());
+  assert.equal(count("/auth/sign-in/stores"), beforeChoices + 1);
+  choicesGate.resolve();
+  const storeSelect = signInForm().getByLabel("Store", { exact: true });
+  await storeSelect.waitFor();
+  await page.waitForFunction(() => document.activeElement?.id === "sign-in-store");
+  assert.equal(await storeSelect.locator("option").count(), 3);
+  assert.equal(
+    currentSession,
+    null,
+    "Credential-matched store choices must not authenticate a store",
+  );
+  const beforeChoiceSubmit = count("/auth/sign-in");
+  await signInForm().getByRole("button", { name: "Sign in", exact: true }).click();
+  assert.equal(count("/auth/sign-in"), beforeChoiceSubmit, "A store choice is required");
+  await storeSelect.selectOption("synthetic-other-business");
+  await signInForm()
+    .getByLabel("Password", { exact: true })
+    .fill(password + "x");
+  assert.equal(await storeSelect.count(), 0, "Changing credentials clears stale choices");
+  await signInForm().getByLabel("Password", { exact: true }).fill(password);
+  await requestStoreChoices({ failure: true });
+  await signInForm()
+    .getByRole("alert")
+    .filter({ hasText: "Synthetic store choices unavailable." })
+    .waitFor();
+  assert.equal(await signInForm().getByLabel("Email", { exact: true }).isEnabled(), true);
+  await requestStoreChoices();
+  await storeSelect.waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({ path: resolve(output, "auth-multi-store-mobile.png"), fullPage: true });
+  await storeSelect.selectOption(owner.businessId);
+  queue("/auth/sign-in", { data: owner });
+  await signInForm().getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.getByRole("button", { name: "Sign out", exact: true }).waitFor();
+  assert.deepEqual(requests.filter((request) => request.path === "/auth/sign-in").at(-1).body, {
+    businessId: owner.businessId,
+    email: owner.email,
+    password,
+  });
+  await signOutSuccessfully();
+  await page.setViewportSize({ width: 1365, height: 1000 });
+  assert.equal(await storeSelect.count(), 0);
+  passed(
+    "Same-email login loads credential-matched stores, requires a choice, focuses the selector, clears choices when credentials change, retries failed list reads, fits mobile and signs into the selected store only.",
+  );
+
   await signInSuccessfully();
   passed(
     "Successful sign-in loads the store; rapid submissions send one request and all credentials are locked while it is pending.",

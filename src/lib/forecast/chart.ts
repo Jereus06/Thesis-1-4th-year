@@ -10,6 +10,19 @@ function missingPoint(date: string): ForecastPoint {
   return { date, actual: null, ma: NaN, xgb: NaN, ensemble: NaN, p10: NaN, p50: NaN, p90: NaN };
 }
 
+/** Show the saved forecast in full; old chart preferences must not trim its dates. */
+export function savedForecastDays(forecast: ProductForecast, requestedDays?: number): number {
+  const dates = forecast.future
+    .map((point) => Date.parse(`${point.date}T00:00:00Z`))
+    .filter(Number.isFinite);
+  const savedDays = Number.isInteger(requestedDays) && requestedDays! > 0 ? requestedDays! : 0;
+  const availableDays = dates.length
+    ? Math.round((Math.max(...dates) - Math.min(...dates)) / 86_400_000) +
+      (forecast.grain === "weekly" ? 7 : 1)
+    : 0;
+  return Math.max(1, savedDays, availableDays);
+}
+
 function fillGaps(points: ForecastPoint[]): ForecastPoint[] {
   if (!points.length) return [];
   const byDate = new Map(points.map((point) => [point.date, point]));

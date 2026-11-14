@@ -407,10 +407,7 @@ try {
     await rankedCard.getByRole("button", { name: "Record delivery", exact: true }).isVisible(),
     true,
   );
-  assert.equal(
-    await rankedCard.getByText(/Accuracy checked on 14 of the requested 30 days/).isVisible(),
-    true,
-  );
+  assert.equal(await rankedCard.getByText(/Tested on 14 of 30 days/).isVisible(), true);
   assert.equal(
     await rankedCard.getByText(/Synthetic warning: check missing receipts/).isVisible(),
     true,
@@ -537,12 +534,9 @@ try {
   assert.equal(await maWindow.inputValue(), "7");
   await maWindow.selectOption("14");
   await page
-    .getByText(
-      "Not saved yet. Saved window: 7 days. Choose Save settings, then Refresh forecasts.",
-      {
-        exact: true,
-      },
-    )
+    .getByText("Save settings, then refresh forecasts to apply.", {
+      exact: true,
+    })
     .waitFor();
   assert.equal(settingsWrites.length, 0);
   assert.equal(savedSettings.movingAverageWindow, 7);
@@ -552,7 +546,9 @@ try {
     animations: "disabled",
   });
   await page.getByRole("button", { name: "Save settings", exact: true }).click();
-  await page.getByText(/Saved window: 14 days\. Save changes before/).waitFor();
+  await page.waitForFunction(
+    () => document.querySelector("#settings-ma-window-status")?.textContent === "",
+  );
   assert.equal(settingsWrites.length, 1);
   assert.equal(settingsWrites[0].movingAverageWindow, 14);
   assert.equal(settingsWrites[0].forecastHorizonDays, 30);
@@ -568,7 +564,7 @@ try {
 
   await page.getByRole("link", { name: "Forecasts", exact: true }).click();
   const savedVsDisplayed = page.getByText(
-    "Saved window: 14 days. Displayed results used 7 days. Refresh forecasts to apply the change.",
+    "These results use 7 days of sales. Refresh to use your new 14-day setting.",
     { exact: true },
   );
   await savedVsDisplayed.waitFor();

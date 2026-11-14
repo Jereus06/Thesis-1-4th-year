@@ -93,7 +93,11 @@ async function mount({ role = "owner", mode = "api", overrides = {} } = {}) {
   const notices = [];
   let passwordReloads = 0;
   const calls = { members: [], setMemberActive: [], inviteStaff: [], changePassword: [] };
-  const state = { dataMode: mode, session: { ...session, role } };
+  const state = {
+    dataMode: mode,
+    session: { ...session, role },
+    settings: { storeName: "Synthetic store", storeLocation: "Synthetic location" },
+  };
   const apiMock = {};
   for (const method of Object.keys(calls)) {
     apiMock[method] = (...args) => {

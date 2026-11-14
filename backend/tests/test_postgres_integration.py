@@ -499,7 +499,7 @@ def test_signup_creates_empty_isolated_store_and_authenticated_session(pg_client
         ).fetchone()
     duplicate = client.post(
         "/api/v1/auth/sign-up",
-        json=signup_payload(email="new.signup@EXAMPLE.COM", businessName="No Orphan Store"),
+        json=signup_payload(email="new.signup@EXAMPLE.COM", businessName="Test Signup Store"),
     )
     assert duplicate.status_code == 409, duplicate.text
     with psycopg.connect(dsn) as conn:

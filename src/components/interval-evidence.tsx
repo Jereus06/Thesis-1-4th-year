@@ -58,9 +58,9 @@ export function IntervalEvidence({
       ) : (
         <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2">
           <div>
-            <dt className="text-muted">Sales records used to check the range</dt>
+            <dt className="text-muted">Range checked on</dt>
             <dd>
-              {count === undefined ? "Observation count not saved" : `${num(count)} observations`}
+              {count === undefined ? "Not available" : `${num(count)} sales records`}
               {!interval.available && knownProtocol && count !== undefined && count < 10
                 ? " (at least 10 required)"
                 : ""}
@@ -89,7 +89,7 @@ export function IntervalEvidence({
                 ? `${num(coverage! * 100, 1)}% of actual sales inside the bounds`
                 : "Not available"}
               {testCount === undefined
-                ? "; observation count not saved"
+                ? "; record count unavailable"
                 : `; ${num(testCount)} tested sales records`}
             </dd>
           </div>

@@ -12,7 +12,15 @@ import { GoogleAuthButton } from "@/components/google-auth-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { api, type AuthOptions, type BusinessRegistration, type GooglePending } from "@/lib/api";
+import { Select } from "@/components/ui/select";
+import {
+  api,
+  ApiError,
+  type AuthOptions,
+  type BusinessRegistration,
+  type GooglePending,
+  type SignInStore,
+} from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 import { saveBrowserLogin } from "@/lib/browser-login";
 
@@ -55,6 +63,8 @@ export function ApiGate({ children }: { children: ReactNode }) {
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
   const [businessId, setBusinessId] = useState("");
+  const [storeChoices, setStoreChoices] = useState<SignInStore[]>([]);
+  const storeChoice = useRef<HTMLSelectElement>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -122,8 +132,18 @@ export function ApiGate({ children }: { children: ReactNode }) {
     setConfirmation("");
     setSaveLogin(false);
     setAuthorized(false);
+    clearStoreChoices();
     clearFeedback();
   }
+
+  function clearStoreChoices() {
+    if (storeChoices.length) setBusinessId("");
+    setStoreChoices([]);
+  }
+
+  useEffect(() => {
+    if (storeChoices.length) storeChoice.current?.focus();
+  }, [storeChoices]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -131,6 +151,11 @@ export function ApiGate({ children }: { children: ReactNode }) {
     clearFeedback();
     const creating = !!pending || screen === "sign-up";
     const recovering = !pending && screen === "recovery";
+    if (!creating && !recovering && storeChoices.length && !businessId) {
+      setFormError("Choose the store you want to open.");
+      storeChoice.current?.focus();
+      return;
+    }
     if (creating && !pending && !displayName.trim()) {
       setFormError("Enter your name.");
       event.currentTarget.querySelector<HTMLInputElement>("#display-name")?.focus();
@@ -184,12 +209,27 @@ export function ApiGate({ children }: { children: ReactNode }) {
       setPassword("");
       setConfirmation("");
       setSaveLogin(false);
+      clearStoreChoices();
       setScreen("sign-in");
       if (requestBrowserSave) {
         void saveBrowserLogin(submittedEmail, submittedPassword);
       }
     } catch (failure) {
-      if (recovering)
+      if (!creating && !recovering && failure instanceof ApiError && failure.status === 409) {
+        try {
+          const choices = await api.signInStores(submittedEmail, submittedPassword);
+          setStoreChoices(choices);
+          setBusinessId("");
+          useAppStore.setState({ apiError: null });
+          setNotice("Choose which store to open.");
+        } catch (selectionFailure) {
+          setFormError(
+            selectionFailure instanceof Error
+              ? selectionFailure.message
+              : "Stores could not be loaded. Try signing in again.",
+          );
+        }
+      } else if (recovering)
         setFormError(
           failure instanceof Error
             ? failure.message
@@ -296,7 +336,7 @@ export function ApiGate({ children }: { children: ReactNode }) {
             {pending
               ? `Continue as ${pending.email}. Add your store details to finish.`
               : recovering
-                ? "Enter your account email to request a single-use password reset link."
+                ? "Enter your email to receive reset links for your stores."
                 : creating
                   ? "Set up your store, then add your products and sales."
                   : "Sign in to open your store's products, sales, and forecasts."}
@@ -381,7 +421,10 @@ export function ApiGate({ children }: { children: ReactNode }) {
                       required
                       maxLength={254}
                       value={email}
-                      onChange={(event) => setEmail(event.target.value)}
+                      onChange={(event) => {
+                        setEmail(event.target.value);
+                        clearStoreChoices();
+                      }}
                     />
                   </div>
                   {!recovering && (
@@ -397,11 +440,14 @@ export function ApiGate({ children }: { children: ReactNode }) {
                         maxLength={creating ? 128 : 1024}
                         aria-describedby={creating ? "password-help" : undefined}
                         value={password}
-                        onChange={(event) => setPassword(event.target.value)}
+                        onChange={(event) => {
+                          setPassword(event.target.value);
+                          clearStoreChoices();
+                        }}
                       />
                       {creating && (
                         <p id="password-help" className="text-xs text-muted">
-                          Use at least 12 characters. A long, unique passphrase works well.
+                          At least 12 characters. Reusing an email? Use its current password.
                         </p>
                       )}
                     </div>
@@ -465,7 +511,33 @@ export function ApiGate({ children }: { children: ReactNode }) {
                   </label>
                 </>
               )}
-              {!creating && (
+              {!creating && !recovering && storeChoices.length > 0 && (
+                <div className="grid gap-1.5 rounded-xl border border-primary/25 bg-primary/5 p-3">
+                  <Label htmlFor="sign-in-store">Store</Label>
+                  <Select
+                    ref={storeChoice}
+                    id="sign-in-store"
+                    value={businessId}
+                    required
+                    onChange={(event) => setBusinessId(event.target.value)}
+                  >
+                    <option value="" disabled>
+                      Choose a store
+                    </option>
+                    {storeChoices.map((store) => (
+                      <option key={store.businessId} value={store.businessId}>
+                        {store.businessName}
+                        {store.businessLocation ? ` — ${store.businessLocation}` : ""} ({store.role}
+                        )
+                      </option>
+                    ))}
+                  </Select>
+                  <p className="text-xs text-muted">
+                    Products, sales and forecasts stay separate for each store.
+                  </p>
+                </div>
+              )}
+              {!creating && !storeChoices.length && (
                 <details className="rounded-xl border border-border p-3 text-sm">
                   <summary className="cursor-pointer font-medium">
                     Choose a specific business
@@ -485,8 +557,10 @@ export function ApiGate({ children }: { children: ReactNode }) {
                       aria-describedby="business-id-help"
                     />
                     <p id="business-id-help" className="text-xs text-muted">
-                      Use this when your email has access to more than one business. Your Business
-                      ID is in Store reference under Your account in Inventory.
+                      {recovering
+                        ? "Leave this blank to receive reset links for all your stores. "
+                        : "Normally, sign in with your email and password, then choose a store if asked. "}
+                      Your Business ID is in Store reference under Your account in Inventory.
                     </p>
                   </div>
                 </details>
@@ -658,7 +732,7 @@ function TokenPasswordForm({
                 onChange={(e) => setPassword(e.target.value)}
               />
               <p id="token-password-help" className="text-xs text-muted">
-                Use at least 12 characters. A long, unique passphrase works well.
+                Use at least 12 characters.
               </p>
             </div>
             <div className="grid gap-1.5">

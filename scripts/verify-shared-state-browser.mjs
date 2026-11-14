@@ -615,7 +615,7 @@ try {
   await waitForSettings(a.page, { maWindow: 28 });
   await a.page.getByRole("link", { name: "Forecasts", exact: true }).click();
   const mismatch = a.page.getByText(
-    "Saved window: 28 days. Displayed results used 7 days. Refresh forecasts to apply the change.",
+    "These results use 7 days of sales. Refresh to use your new 28-day setting.",
     { exact: true },
   );
   await mismatch.waitFor();

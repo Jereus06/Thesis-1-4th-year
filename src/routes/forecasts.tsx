@@ -16,8 +16,8 @@ import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { DISCLAIMER, modelLabel } from "@/lib/forecast/constants";
-import { forecastChartPoints } from "@/lib/forecast/chart";
+import { modelLabel } from "@/lib/forecast/constants";
+import { forecastChartPoints, savedForecastDays } from "@/lib/forecast/chart";
 import { metric, num } from "@/lib/format";
 import { intervalAvailability } from "@/lib/forecast-interval";
 import { forecastRefreshAdvice, forecastScheduleMessage } from "@/lib/forecast-schedule";
@@ -42,7 +42,6 @@ function ForecastsPage() {
   const { result, status, refresh, forecastThrough, schedule } = useForecast();
   const [errorSearch, setErrorSearch] = useState("");
   const { preferences, update: updateView } = useForecastView();
-  const horizon = preferences.days;
   const compareModels = preferences.compare;
   const savedMaWindow = result?.diagnostics.maWindow;
   const maNote =
@@ -84,6 +83,7 @@ function ForecastsPage() {
       (product) => product.id === (newCompletedRun ? preferredProduct?.id : selection.productId),
     ) ?? preferredProduct;
   const forecast = selected ? result?.byProduct[selected.id] : undefined;
+  const horizon = forecast ? savedForecastDays(forecast, result?.forecastHorizonDays) : 1;
   const grainView = forecast?.grain === "weekly" ? "weekly" : preferences.view;
   const scores = forecast;
   const chartHistory = useForecastChartHistory(forecast, result?.runId);
@@ -132,64 +132,32 @@ function ForecastsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Forecast options</CardTitle>
-          <CardDescription>
-            {grainView === "monthly" ? "Monthly" : grainView === "weekly" ? "Weekly" : "Daily"}{" "}
-            sales quantity for the next {horizon} days.
-          </CardDescription>
+          <CardTitle>Chart options</CardTitle>
         </CardHeader>
         <CardContent>
-          <details className="group">
-            <summary className="flex cursor-pointer list-none items-center justify-between rounded-md text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/40 [&::-webkit-details-marker]:hidden">
-              Advanced options
-              <ChevronDown
-                className="size-4 transition-transform group-open:rotate-180"
-                aria-hidden="true"
-              />
-            </summary>
-            <p className="mt-3 text-sm text-muted">
-              Changes the chart only. It does not generate more predictions. Your choices are kept
-              when you reload.
-            </p>
-            <div className="mt-4 grid gap-4 sm:grid-cols-3">
-              <div className="grid gap-1.5">
-                <Label htmlFor="forecast-grain">View</Label>
-                <Select
-                  id="forecast-grain"
-                  value={grainView}
-                  disabled={forecast?.grain === "weekly"}
-                  onChange={(event) => updateView({ view: event.target.value as ForecastView })}
-                >
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="monthly">Monthly</option>
-                </Select>
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="forecast-horizon">Days to show</Label>
-                <Input
-                  id="forecast-horizon"
-                  type="number"
-                  min={1}
-                  max={365}
-                  value={horizon}
-                  onChange={(event) =>
-                    updateView({
-                      days: Math.max(1, Math.min(365, Math.floor(Number(event.target.value) || 1))),
-                    })
-                  }
-                />
-              </div>
-              <label className="flex items-center gap-2 text-sm sm:pt-6">
-                <input
-                  type="checkbox"
-                  checked={compareModels}
-                  onChange={(event) => updateView({ compare: event.target.checked })}
-                />
-                Compare models
-              </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-1.5">
+              <Label htmlFor="forecast-grain">View</Label>
+              <Select
+                id="forecast-grain"
+                value={grainView}
+                disabled={forecast?.grain === "weekly"}
+                onChange={(event) => updateView({ view: event.target.value as ForecastView })}
+              >
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </Select>
             </div>
-          </details>
+            <label className="flex items-center gap-2 text-sm sm:pt-6">
+              <input
+                type="checkbox"
+                checked={compareModels}
+                onChange={(event) => updateView({ compare: event.target.checked })}
+              />
+              Compare models
+            </label>
+          </div>
         </CardContent>
       </Card>
 
@@ -240,15 +208,14 @@ function ForecastsPage() {
         savedMaWindow > 0 &&
         savedMaWindow !== configuredMaWindow && (
           <p className="text-sm text-muted" role="status">
-            Saved window: {configuredMaWindow} days. Displayed results used {savedMaWindow} days.
-            Refresh forecasts to apply the change.
+            These results use {savedMaWindow} days of sales. Refresh to use your new{" "}
+            {configuredMaWindow}-day setting.
           </p>
         )}
       {mode === "api" && ready && selected && (
         <p className="text-sm text-muted">
-          Past test results for {selected.name}. MAE is average error; RMSE highlights larger
-          errors, in {selected.unit} per {forecast?.grain === "weekly" ? "week" : "day"}. Lower is
-          better.
+          MAE is average error; RMSE highlights larger errors. Both are in {selected.unit} per{" "}
+          {forecast?.grain === "weekly" ? "week" : "day"}. Lower is better.
         </p>
       )}
 
@@ -331,29 +298,23 @@ function ForecastsPage() {
                 refreshAdvice={refreshAdvice}
               />
             )}
-            <p className="mt-3 text-xs text-muted">
-              {chartHistory.points.length > 0 &&
-                "Earlier dates include saved predictions from this forecast run. "}
-              {forecast &&
-                `Saved future estimates: ${forecast.future.length} ${forecast.grain === "weekly" ? "weeks" : "days"}. The chart shows up to ${horizon} days. `}
-              {grainView === "weekly" &&
-                "Weekly totals keep past test days and future days separate. Partial weeks show only the days available; daily ranges are hidden. "}
-              {grainView === "monthly" &&
-                "Monthly totals show only available dates. Partial months are not full-month forecasts; daily ranges are hidden. "}
-              {forecast?.grain === "weekly" &&
-                "This demonstration result contains weekly quantities. "}
-              {mode === "api"
-                ? "Recorded sales and future estimates are shown separately."
-                : "This chart uses sample data. Its shaded range is for demonstration only."}{" "}
-              {DISCLAIMER}
-            </p>
+            {chartHistory.points.length > 0 && (
+              <p className="mt-3 text-xs text-muted">Includes earlier saved forecasts.</p>
+            )}
+            {(grainView !== "daily" || mode === "browser-demo") && (
+              <p className="mt-3 text-xs text-muted">
+                {mode === "browser-demo" && "Sample data and example ranges. "}
+                {grainView !== "daily" &&
+                  "Totals include only available dates. Partial periods are incomplete; sales ranges appear in Daily view."}
+              </p>
+            )}
             {mode === "api" && (
               <details className="mt-3 text-sm text-muted">
                 <summary className="cursor-pointer font-medium">How confidence is rated</summary>
                 <p className="mt-2">
-                  Confidence reflects past accuracy. High: up to 20% error. Medium: up to 50%. Both
-                  require at least 14 consecutive tested days and some recorded sales. Low means
-                  larger errors or limited test records. Future sales may differ.
+                  High: up to 20% past error. Medium: up to 50%. Both need at least 14 tested days
+                  in a row with sales. Low means larger errors or fewer records. Future sales may
+                  differ.
                 </p>
               </details>
             )}

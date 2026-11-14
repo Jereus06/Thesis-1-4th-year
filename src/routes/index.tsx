@@ -96,7 +96,7 @@ function Overview() {
           icon={Wallet}
           label="Inventory value"
           value={peso(inventoryValue)}
-          hint={`${products.length} SKUs on the shelf`}
+          hint={`${products.length} products`}
         />
         <Kpi
           icon={Scale}
@@ -140,17 +140,33 @@ function Overview() {
       <section aria-label="Sales tools" className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><BarChart3 className="size-5" /> Sales forecasting</CardTitle>
-            <CardDescription>Choose a product and review future demand with model comparison and past-test evidence.</CardDescription>
+            <CardTitle className="flex items-center gap-2">
+              <BarChart3 className="size-5" /> Sales forecasting
+            </CardTitle>
+            <CardDescription>See expected sales for each product.</CardDescription>
           </CardHeader>
-          <CardContent><Button size="sm" className="gap-1" asChild><Link to="/forecasts">Open forecasting <ArrowRight className="size-3" /></Link></Button></CardContent>
+          <CardContent>
+            <Button size="sm" className="gap-1" asChild>
+              <Link to="/forecasts">
+                Open forecasting <ArrowRight className="size-3" />
+              </Link>
+            </Button>
+          </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><FileText className="size-5" /> Sales report</CardTitle>
-            <CardDescription>Summarize units, estimated sales value, transactions, trends, and product performance.</CardDescription>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="size-5" /> Sales report
+            </CardTitle>
+            <CardDescription>Review sales totals and top products.</CardDescription>
           </CardHeader>
-          <CardContent><Button size="sm" variant="outline" className="gap-1" asChild><Link to="/sales-report">Open sales report <ArrowRight className="size-3" /></Link></Button></CardContent>
+          <CardContent>
+            <Button size="sm" variant="outline" className="gap-1" asChild>
+              <Link to="/sales-report">
+                Open sales report <ArrowRight className="size-3" />
+              </Link>
+            </Button>
+          </CardContent>
         </Card>
       </section>
 

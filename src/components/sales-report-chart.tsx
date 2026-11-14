@@ -246,8 +246,8 @@ export function SalesReportChart({
       </ul>
       <p id={descriptionId} className="text-xs text-muted">
         {pie
-          ? "Share of saved sales records by product, not quantity or sales value. Smaller groups are combined when more than eight products are selected."
-          : "Quantities stay separate by counting unit. Dates without saved records are gaps, not confirmed zero sales."}
+          ? "Each slice counts sales records. Smaller groups appear as Other products."
+          : "Quantities are grouped by counting unit. Gaps indicate missing records."}
       </p>
     </div>
   );

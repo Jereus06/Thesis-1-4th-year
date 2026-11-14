@@ -130,10 +130,8 @@ export function CsvImportReview({
 
   return (
     <div className="grid gap-4 rounded-xl border border-border p-3" aria-label="CSV import setup">
-      <p className="font-medium">Automatic CSV preview</p>
-      <p className="text-sm text-muted">
-        Review the matched products below. Use Adjust import if anything needs changing.
-      </p>
+      <p className="font-medium">CSV preview</p>
+      <p className="text-sm text-muted">Check the matched products before importing.</p>
       <p className="text-xs text-muted" aria-label="CSV formats used">
         {kind === "sales" &&
           `Dates: ${CSV_DATE_FORMATS.find((format) => format.value === options.dateFormat)?.label}. `}

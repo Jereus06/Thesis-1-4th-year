@@ -63,7 +63,7 @@ function confidenceReason(reason: string): string {
     /^(Low|Moderate|Large) past error across (\d+) consecutive tested days\./,
   );
   if (errorDays)
-    return `${errorDays[1] === "Low" ? "Small" : errorDays[1]} errors in tests across ${errorDays[2]} days in a row.${errorDays[1] === "Large" ? " Check the estimate before ordering." : ""}`;
+    return `${errorDays[1] === "Low" ? "Small" : errorDays[1]} past error across ${errorDays[2]} consecutive days.${errorDays[1] === "Large" ? " Check the estimate before ordering." : ""}`;
   if (reason === "No usable saved past test yet. Treat this estimate with care.")
     return "Not tested on past sales yet. Use this estimate with care.";
   const shortTest = reason.match(/^Only (\d+) past test days/);
@@ -113,7 +113,7 @@ export function DemandEvidence({
     Number.isInteger(evidence.requestedHorizonDays) &&
     evidence.testObservations < evidence.requestedHorizonDays;
   const shortenedNotice = shortenedTest
-    ? `Accuracy checked on ${num(evidence.testObservations)} of the requested ${num(evidence.requestedHorizonDays!)} days. Test evidence is limited.`
+    ? `Tested on ${num(evidence.testObservations)} of ${num(evidence.requestedHorizonDays!)} days; accuracy is less certain.`
     : undefined;
   const measurements = (
     <>
@@ -132,9 +132,7 @@ export function DemandEvidence({
           {evidence.status === "needs_refresh" && " Results are from an older forecast."}
         </p>
       )}
-      {hasRelativeError && (
-        <p>Past error compared with actual sales: {num(relativeError * 100, 1)}%.</p>
-      )}
+      {hasRelativeError && <p>Average error relative to sales: {num(relativeError * 100, 1)}%.</p>}
     </>
   );
   const notices = (
@@ -148,7 +146,8 @@ export function DemandEvidence({
       )}
     </>
   );
-  const recordCounts = (
+  const hasRecordIssues = (missingDays ?? 0) > 0 || (skippedDays ?? 0) > 0;
+  const recordCounts = hasRecordIssues && (
     <p>
       Days with missing records: {missingCount} · Days left out: {skippedCount}
     </p>
@@ -166,8 +165,7 @@ export function DemandEvidence({
       confidenceText ||
       (evidence && evidence.testObservations > 0 && evidence.mae !== null) ||
       hasRelativeError ||
-      missingDays !== undefined ||
-      skippedDays !== undefined;
+      hasRecordIssues;
     return (
       <div className={className}>
         {notices}

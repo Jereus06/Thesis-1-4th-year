@@ -206,10 +206,10 @@ export function ProductsPanel() {
       {canImportRecords && importOpen && (
         <Card>
           <CardHeader>
-            <CardTitle>Import inventory snapshot</CardTitle>
+            <CardTitle>Import inventory</CardTitle>
             <CardDescription>
-              Updates matching SKUs, reactivates matching inactive products, and adds new products.
-              On-hand changes are stock-count corrections. Import sales in the Sales ledger.
+              Update stock counts and add products from a CSV. Matching inactive products become
+              active. Import sales in Sales ledger.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3">
@@ -273,9 +273,9 @@ export function ProductsPanel() {
             </DialogTitle>
             <DialogDescription>
               {adding
-                ? "Add catalog details and the opening stock balance."
+                ? "Add product details and starting stock."
                 : action?.kind === "photo"
-                  ? "Choose a photo or use your camera. Save to attach it to this product."
+                  ? "Choose a photo or use your camera."
                   : action?.kind === "edit"
                     ? "Update this product's catalog details."
                     : action?.kind === "count"
@@ -442,7 +442,7 @@ const ProductCards = memo(function ProductCards({
             {totalCount
               ? "No products match your search and status filter."
               : canManageProducts
-                ? "Your catalog is empty. Add a product or import an inventory snapshot."
+                ? "No products yet. Add a product or import inventory."
                 : "Your catalog is empty. An owner can add products."}
           </CardContent>
         </Card>
@@ -792,15 +792,11 @@ function ProductDetailsForm({
         />
       </fieldset>
       {!product && (
-        <p className="text-xs text-muted">
-          SKU is generated from the category and updates when it changes. You can enter your own
-          code.
-        </p>
+        <p className="text-xs text-muted">SKU is filled in automatically. You can change it.</p>
       )}
       {product && (
         <p className="text-xs text-muted">
-          Changing the unit label does not convert existing stock or sales quantities. Keep one
-          consistent counting unit.
+          Keep the same counting unit; existing stock and sales quantities are not converted.
         </p>
       )}
       {error && (
@@ -877,8 +873,7 @@ function StockCountForm({
         />
       </fieldset>
       <p className="text-xs text-muted">
-        Use Record delivery, Return, or Write-off for actual stock movements. This corrects the
-        recorded balance after a stock count.
+        Use this after a stock count. Record deliveries, returns, and write-offs separately.
       </p>
       {error && (
         <p className="text-sm text-danger" role="alert">

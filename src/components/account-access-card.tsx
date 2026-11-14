@@ -44,7 +44,7 @@ export function AccountAccessCard() {
     <Card>
       <CardHeader>
         <CardTitle>Your account</CardTitle>
-        <CardDescription>Sign-in details for your current StockCast account.</CardDescription>
+        <CardDescription>Your sign-in details.</CardDescription>
       </CardHeader>
       <CardContent className="grid max-w-xl gap-4">
         <dl className="grid gap-3 text-sm">

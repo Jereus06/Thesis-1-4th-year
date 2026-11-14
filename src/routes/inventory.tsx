@@ -197,9 +197,8 @@ function SalesImportCard() {
           onImport={importPreparedRows}
         />
         <p className="text-sm text-muted">
-          Use a stable Source Record Key unique to each sale line and reuse it on retries or
-          overlapping imports. Separate sales need different keys even when their date, product, and
-          quantity match. Without a key, overlapping records cannot be identified.
+          A Source Record Key is a unique ID for each sale. Reuse it when importing the same sale
+          again to avoid duplicates. Without an ID, repeated sales cannot be identified.
         </p>
       </CardContent>
     </Card>
@@ -345,7 +344,7 @@ function SettingsPanel() {
             ))}
           </datalist>
           <p id="settings-forecast-horizon-help" className="text-xs text-muted">
-            Future days to predict. Choose a suggestion or type a whole number from 1 to 365.
+            Days ahead to forecast (1–365).
           </p>
           {forecastHorizonError && (
             <p id="settings-forecast-horizon-error" className="text-sm text-warning" role="alert">
@@ -405,7 +404,7 @@ function SettingsPanel() {
         </div>
         <div className="grid gap-4 rounded-xl border border-border p-4">
           <div>
-            <p className="font-medium">Advanced forecasting settings</p>
+            <p className="font-medium">Forecast methods</p>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="settings-ma-window">Moving Average window (days)</Label>
@@ -427,8 +426,8 @@ function SettingsPanel() {
             </p>
             <p id="settings-ma-window-status" className="text-xs text-muted" role="status">
               {draft.maWindow !== settings.maWindow
-                ? `Not saved yet. Saved window: ${settings.maWindow} days. Choose Save settings, then Refresh forecasts.`
-                : `Saved window: ${settings.maWindow} days. Save changes before starting a new forecast refresh.`}
+                ? "Save settings, then refresh forecasts to apply."
+                : ""}
             </p>
           </div>
           <div className="grid gap-1.5">
@@ -440,13 +439,11 @@ function SettingsPanel() {
             >
               {[5, 8, 12, 20].map((n) => (
                 <option key={n} value={n}>
-                  Top {n} eligible products
+                  Top {n} products
                 </option>
               ))}
             </Select>
-            <p className="text-xs text-muted">
-              Maximum products considered for advanced forecasts. Each needs enough sales history.
-            </p>
+            <p className="text-xs text-muted">Uses products with enough sales history.</p>
           </div>
         </div>
         <Button

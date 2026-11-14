@@ -90,7 +90,7 @@ test("available intervals show saved calibration evidence and measured coverage 
   const html = renderEvidence(forecast());
   for (const expected of [
     "Forecast range available",
-    "10 observations",
+    "10 sales records",
     "2026-08-21 to 2026-08-30",
     "80% target",
     "75.0% of actual sales inside the bounds",
@@ -118,13 +118,13 @@ test("insufficient calibration remains explicitly unavailable without inventing 
   );
   for (const expected of [
     "Not enough records to estimate a range",
-    "0 observations",
+    "0 sales records",
     "at least 10 required",
     "Dates unavailable",
     "Target not saved",
     "Past test coverage",
     "Not available",
-    "observation count not saved",
+    "record count unavailable",
   ])
     assert.ok(html.includes(expected), expected);
   assert.doesNotMatch(html, /80% target|interval available/);
@@ -134,7 +134,7 @@ test("legacy bounds do not establish calibration when metadata is missing", () =
   const html = renderEvidence(forecast({ interval: undefined }));
   assert.match(html, /Forecast range could not be checked/);
   assert.match(html, /This range has not been checked against past sales/);
-  assert.doesNotMatch(html, /Validation-calibrated|80% target|10 observations/);
+  assert.doesNotMatch(html, /Validation-calibrated|80% target|10 sales records/);
   assert.doesNotMatch(html, /Calibration uses separate late-validation/);
 });
 
@@ -168,7 +168,7 @@ test("expired future intervals retain archived calibration evidence", () => {
   });
   assert.match(html, /Forecast range expired/);
   assert.match(html, /ended on 2026-10-02/);
-  assert.match(html, /10 observations/);
+  assert.match(html, /10 sales records/);
   assert.match(html, /75\.0% of actual sales inside the bounds/);
   assert.match(html, /To update it, refresh forecasts\./);
 });
@@ -184,7 +184,7 @@ test("expired intervals use enabled staff schedule advice while keeping archived
   });
   assert.match(html, /To update it, wait for the daily automatic refresh\./);
   assert.match(html, /ended on 2026-10-02/);
-  assert.match(html, /10 observations/);
+  assert.match(html, /10 sales records/);
   assert.match(html, /75\.0% of actual sales inside the bounds/);
   assert.doesNotMatch(html, /ask the owner|To update it, refresh forecasts/);
 });
@@ -209,7 +209,7 @@ test("browser bands stay illustrative even if a fixture has saved calibration me
   const html = renderEvidence(forecast(), "browser-demo");
   assert.match(html, /Demo forecast range/);
   assert.match(html, /Sample range for demonstration; accuracy has not been checked/);
-  assert.doesNotMatch(html, /80% target|10 observations|75\.0% of actual/);
+  assert.doesNotMatch(html, /80% target|10 sales records|75\.0% of actual/);
   assert.equal(
     intervalAvailability(
       forecast({

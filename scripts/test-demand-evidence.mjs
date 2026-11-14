@@ -359,22 +359,22 @@ test("an inactive catalog directs staff to the owner and excludes archived produ
   const overview = renderPage(overviewRoute, options);
   const restock = renderPage(restockRoute, options);
   assert.match(overview, /Ask the owner to add or activate products/);
-  assert.match(overview, /0 SKUs on the shelf/);
+  assert.match(overview, /0 products/);
   assert.match(restock, /No active products to assess/);
   assert.doesNotMatch(restock, /<button\b[^>]*>Record delivery<\/button>/);
   assert.doesNotMatch(renderPage(forecastsRoute, options), /Synthetic practice rice/);
 });
 
-test("missing saved counts remain unknown while known zero counts remain visible", () => {
-  assert.match(
+test("zero or unavailable issue counts do not add empty notices", () => {
+  assert.doesNotMatch(
     renderEvidence(),
     /Days with missing records: not recorded.*Days left out: not recorded/,
   );
-  assert.match(
+  assert.doesNotMatch(
     renderEvidence({ unknownDays: 0, excludedDays: 0 }),
     /Days with missing records: 0.*Days left out: 0/,
   );
-  assert.match(
+  assert.doesNotMatch(
     renderEvidence({ unknownDays: NaN, excludedDays: -1 }),
     /Days with missing records: not recorded.*Days left out: not recorded/,
   );
@@ -494,7 +494,10 @@ test("zero-demand restock rows do not imply finite stock coverage and retain del
 });
 
 test("restock empty catalog and missing estimates make no complete-demand claim", () => {
-  assert.match(renderPage(restockRoute, { catalog: [], rows: [] }), /No active products to assess/);
+  assert.match(
+    renderPage(restockRoute, { catalog: [], rows: [] }),
+    /Add or activate products in Inventory/,
+  );
   const waiting = renderPage(restockRoute, { rows: [] });
   assert.match(waiting, /Waiting for sales estimates/);
   assert.match(waiting, /You can still record deliveries in Inventory/);
@@ -617,10 +620,7 @@ test("Restock folds measurements into closed Forecast details while keeping acti
   assert.match(details[2], /Average error: 1\.5 units/);
   assert.match(details[2], /Days with missing records: 2/);
   const visible = markup.replace(/<details\b[^>]*>[\s\S]*?<\/details>/g, "");
-  assert.match(
-    visible,
-    /Accuracy checked on 14 of the requested 30 days\. Test evidence is limited/,
-  );
+  assert.match(visible, /Tested on 14 of 30 days; accuracy is less certain/);
   assert.match(visible, /Synthetic fallback reason/);
   assert.match(visible, /Synthetic quality warning/);
   assert.match(visible, /High confidence/);
@@ -635,7 +635,7 @@ test("Restock folds measurements into closed Forecast details while keeping acti
   assertDeliveryEnabled(visible);
   assert.doesNotMatch(
     visible,
-    /Average error:|Days with missing records:|Small errors in tests|delivery 3 days|reserve stock|Moving Average estimate/,
+    /Average error:|Days with missing records:|Small past error|delivery 3 days|reserve stock|Moving Average estimate/,
   );
   const full = renderPage(forecastsRoute, { forecast });
   assert.match(full, /Average error: 1\.5 units/);
@@ -674,10 +674,7 @@ test("shortened historical tests show their saved count against the requested fo
       },
     },
   });
-  assert.match(
-    markup,
-    /Accuracy checked on 14 of the requested 30 days\. Test evidence is limited\./,
-  );
+  assert.match(markup, /Tested on 14 of 30 days; accuracy is less certain\./);
   assert.match(markup, /Average error: 1\.5 units\./);
 });
 
@@ -725,10 +722,7 @@ test("shortened saved tests stay visible beside older forecast evidence", () => 
         rmse: "2",
       },
     });
-    assert.match(
-      markup,
-      /Accuracy checked on 14 of the requested 30 days\. Test evidence is limited\./,
-    );
+    assert.match(markup, /Tested on 14 of 30 days; accuracy is less certain\./);
     if (status === "needs_refresh") assert.match(markup, /Results are from an older forecast/);
   }
 });
@@ -760,12 +754,9 @@ test("Forecasts and Restock show the saved test scope while preserving the confi
         forecastConfidence: confidence,
       },
     });
-    assert.match(
-      markup,
-      /Accuracy checked on 14 of the requested 30 days\. Test evidence is limited\./,
-    );
+    assert.match(markup, /Tested on 14 of 30 days; accuracy is less certain\./);
     if (route === restockRoute) assert.match(markup, /High confidence/);
-    assert.match(markup, /Small errors in tests across 14 days in a row/);
+    assert.match(markup, /Small past error across 14 consecutive days/);
     assert.doesNotMatch(markup, /of the requested 7 days/);
   }
   assert.equal(confidence.level, "high");
@@ -804,7 +795,7 @@ test("operational confidence badges show Python ratings with their measured expl
     });
     assert.match(markup, new RegExp(label));
     assert.match(markup, /Saved past error rating/);
-    assert.match(markup, /Past error compared with actual sales:/);
+    assert.match(markup, /Average error relative to sales:/);
     assert.match(markup, /Tested on 14 past days/);
   }
 });
@@ -861,7 +852,7 @@ test("Forecasts visibly includes the saved Top products selection and dates", ()
     diagnostics: { trainingScope: testScope },
   });
   assert.match(markup, /Top products for XGBoost/);
-  assert.match(markup, /1 selected.*maximum 5/);
+  assert.match(markup, /Up to 5 products.*1 product · Sales history:/);
   assert.match(markup, /2026-01-01 to 2026-05-01/);
   assert.match(markup, /1,234\.0.*bag/);
   assert.match(markup, /Product code: SYNTHETIC-001/);
@@ -894,7 +885,7 @@ test("Forecasts defaults to the saved first-ranked active product and has no Ove
     top.name,
     "saved rank wins over catalog order and sales quantities",
   );
-  assert.match(markup, /Past test results for Saved top product/);
+  assert.match(markup, /<h3[^>]*>Saved top product<\/h3>/);
   assert.match(markup, /MAE 2\.5.*RMSE 2\.8/);
   assert.doesNotMatch(markup, /Overall results|MAE 50\.5|RMSE 70\.7|<option value="">/);
 });
@@ -994,7 +985,7 @@ test("Forecasts searchable picker exposes the current selection and filters name
 
 test("Top products explains fewer eligible products without filling fake slots", () => {
   const markup = topPanel();
-  assert.match(markup, /1 product shown/);
+  assert.match(markup, /1 product · Sales history:/);
   assert.match(markup, /Products need enough sales history for XGBoost/);
   assert.match(markup, /2\.0 bag/);
   assert.match(topPanel({ scope: null }), /Refresh forecasts to see the selected products/);
@@ -1011,7 +1002,7 @@ test("Top products preserves old ranking limit and hides inactive or stale curre
   assert.doesNotMatch(changed, /2\.0 bag/);
   const inactive = topPanel({ products: [{ ...product, isActive: false }] });
   assert.doesNotMatch(inactive, /Product code: SYNTHETIC-001/);
-  assert.match(inactive, /0 products shown/);
+  assert.match(inactive, /0 products · Sales history:/);
   assert.equal(topPanel({ demonstration: true }), "");
 });
 
@@ -1047,7 +1038,7 @@ test("Moving Average score descriptions retain saved settings during a replaceme
       assert.doesNotMatch(markup, /The accuracy test period is separate/);
       assert.match(
         markup,
-        /Saved window: 30 days\. Displayed results used 7 days\. Refresh forecasts to apply the change\./,
+        /These results use 7 days of sales\. Refresh to use your new 30-day setting\./,
       );
       assert.doesNotMatch(markup, /Uses the previous 30 days of sales/);
       assert.match(markup, /MAE 1\.2.*RMSE 1\.8/);
@@ -1089,7 +1080,7 @@ test("a saved fourteen-day Moving Average can retain thirty tested days without 
   assert.match(markup, /Uses the previous 14 days of sales\./);
   assert.match(markup, /Tested on 30 past days\. Average error: 1\.2 units/);
   assert.match(markup, /High confidence/);
-  assert.match(markup, /Small errors in tests across 30 days in a row/);
+  assert.match(markup, /Small past error across 30 consecutive days/);
   assert.doesNotMatch(
     markup,
     /Tested on 14 past days|Displayed results used|Test evidence is limited/,

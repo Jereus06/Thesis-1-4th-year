@@ -2,6 +2,7 @@
 
 import hmac
 import logging
+import math
 import threading
 import time
 from collections import OrderedDict
@@ -95,10 +96,16 @@ class AuthLimiter:
             while len(self.entries) > 4096:
                 self.entries.popitem(last=False)
             if count >= limit:
+                retry_after = max(1, math.ceil(seconds - (now - start)))
+                duration = (
+                    f"{retry_after} second{'s' if retry_after != 1 else ''}"
+                    if retry_after < 60
+                    else f"{math.ceil(retry_after / 60)} minute{'s' if retry_after > 60 else ''}"
+                )
                 raise HTTPException(
                     429,
-                    "Too many attempts. Please try again later.",
-                    headers={"Retry-After": str(max(1, int(seconds - (now - start))))},
+                    f"Too many attempts. Try again in {duration}.",
+                    headers={"Retry-After": str(retry_after)},
                 )
 
 
@@ -198,13 +205,19 @@ def create_auth_router(repo_dependency) -> APIRouter:
     ):
         origin_guard(request, config)
         throttle(request, "recovery", str(data.email))
-        raw = new_token()
-        if repository.create_reset(str(data.email), raw, data.business_id):
+        links = repository.create_store_resets(str(data.email), data.business_id)
+        if links:
+            instructions = "\n\n".join(
+                f"Store: {link['businessName']}\n"
+                f"{config.public_app_url.rstrip('/')}/?reset={link['token']}"
+                for link in links
+            )
             try:
                 Mailer(config).send(
                     str(data.email),
                     "Reset your StockCast password",
-                    f"Open {config.public_app_url.rstrip('/')}/?reset={raw} within 30 minutes. This link works once.",
+                    "Choose the store whose password you want to reset. Each link works once "
+                    "within 30 minutes and changes only that store account.\n\n" + instructions,
                 )
             except MailUnavailable:
                 logger.warning("Password recovery email delivery unavailable")
@@ -333,6 +346,19 @@ def create_auth_router(repo_dependency) -> APIRouter:
         )
         set_session(response, session, csrf, config)
         return {"data": principal_data(user)}
+
+    @router.post("/sign-in/stores")
+    def sign_in_stores(
+        data: SignIn,
+        request: Request,
+        response: Response,
+        repository: AuthRepository = Depends(repo_dependency),
+        config: Settings = Depends(get_settings),
+    ):
+        origin_guard(request, config)
+        throttle(request, "login", str(data.email))
+        response.headers["Cache-Control"] = "no-store"
+        return {"data": repository.sign_in_stores(str(data.email), data.password)}
 
     @router.post("/sign-up", status_code=201)
     def sign_up(

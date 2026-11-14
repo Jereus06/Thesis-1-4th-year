@@ -62,7 +62,9 @@ const { demoSplit, forecastDemoProduct } = await server.ssrLoadModule(
 const { runPipeline } = await server.ssrLoadModule("/src/lib/forecast/pipeline.ts");
 const { selectTrainScope } = await server.ssrLoadModule("/src/lib/forecast/prepare.ts");
 const { pipelineKey } = await server.ssrLoadModule("/src/lib/forecast/cache.ts");
-const { forecastChartPoints } = await server.ssrLoadModule("/src/lib/forecast/chart.ts");
+const { forecastChartPoints, savedForecastDays } = await server.ssrLoadModule(
+  "/src/lib/forecast/chart.ts",
+);
 const { earlierChartPredictions, needsChartHistory } = await server.ssrLoadModule(
   "/src/lib/forecast/chart-history.ts",
 );
@@ -581,6 +583,25 @@ test("single-point line, area and step observations remain visible and use a non
   }
 });
 
+test("saved forecast dates determine the chart period independently of obsolete display preferences", () => {
+  const daily = {
+    grain: "daily",
+    future: enumerateDays("2026-01-01", "2026-01-30").map((date) => ({ date })),
+  };
+  assert.equal(savedForecastDays(daily, 30), 30);
+  assert.equal(savedForecastDays(daily, 14), 30, "Never hide saved forecast dates");
+  assert.equal(savedForecastDays(daily), 30, "Legacy runs use their actual saved date span");
+  assert.equal(
+    savedForecastDays({
+      grain: "weekly",
+      future: [{ date: "2026-01-01" }, { date: "2026-01-08" }],
+    }),
+    14,
+  );
+  assert.equal(savedForecastDays({ grain: "daily", future: [] }, 83), 83);
+  assert.equal(savedForecastDays({ grain: "daily", future: [{ date: "invalid" }] }, NaN), 1);
+});
+
 test("forecast chart preferences validate saved styles and remain scoped to the signed-in account", () => {
   const previousWindow = globalThis.window;
   const previousSession = globalThis.forecastTestSession;
@@ -603,22 +624,21 @@ test("forecast chart preferences validate saved styles and remain scoped to the 
     };
     globalThis.forecastTestSession = session;
     assert.equal(read().chartType, "line");
-    update({ chartType: "candlestick", days: 14, view: "monthly", compare: true });
+    update({ chartType: "candlestick", view: "monthly", compare: true });
     assert.deepEqual(read(), {
       view: "monthly",
-      days: 14,
       compare: true,
       chartType: "candlestick",
     });
     update({ chartType: "step" });
     assert.equal(read().chartType, "step");
     globalThis.forecastTestSession = { ...session, userId: "staff" };
-    assert.deepEqual(read(), { view: "daily", days: 30, compare: false, chartType: "line" });
+    assert.deepEqual(read(), { view: "daily", compare: false, chartType: "line" });
     saved.set(
       "stockcast-forecast-view:business-a:staff",
       JSON.stringify({ view: "weekly", days: 7, chartType: "pie" }),
     );
-    assert.deepEqual(read(), { view: "weekly", days: 7, compare: false, chartType: "line" });
+    assert.deepEqual(read(), { view: "weekly", compare: false, chartType: "line" });
     globalThis.forecastTestSession = null;
     assert.equal(read().chartType, "line");
     update({ chartType: "area" });

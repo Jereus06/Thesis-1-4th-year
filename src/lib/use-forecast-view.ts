@@ -5,11 +5,10 @@ import { useAppStore } from "./store";
 export type ForecastView = "daily" | "weekly" | "monthly";
 type Preferences = {
   view: ForecastView;
-  days: number;
   compare: boolean;
   chartType: ForecastChartType;
 };
-const defaults: Preferences = { view: "daily", days: 30, compare: false, chartType: "line" };
+const defaults: Preferences = { view: "daily", compare: false, chartType: "line" };
 
 function read(scope: string): Preferences {
   try {
@@ -18,10 +17,6 @@ function read(scope: string): Preferences {
     );
     return {
       view: ["daily", "weekly", "monthly"].includes(saved?.view) ? saved.view : defaults.view,
-      days:
-        Number.isInteger(saved?.days) && saved.days >= 1 && saved.days <= 365
-          ? saved.days
-          : defaults.days,
       compare: typeof saved?.compare === "boolean" ? saved.compare : defaults.compare,
       chartType:
         saved?.chartType === "bar"

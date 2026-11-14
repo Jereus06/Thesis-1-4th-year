@@ -379,7 +379,7 @@ Exports are useful copies of business records. Ask the person managing the insta
 1. Check the forecast status, notices, and displayed dates.
 2. The results dropdown opens the highest-ranked active product from the saved forecast. Choose another product to see its own results; a newly completed refresh returns to the saved top-ranked product.
 3. Read its expected daily sales, chart, and any notices about its records.
-4. Hover over the chart to inspect a date's available actual sales and predictions.
+4. Hover over the chart to inspect a date's available actual sales and predictions. Use **Chart options** to switch Daily, Weekly, or Monthly view and compare models. The forecast period is set in **Inventory > Account & settings**; save it and refresh forecasts to apply.
 5. Read the **MAE / RMSE** scores in the three method cards. MAE shows average error; RMSE gives more weight to larger mistakes. Lower is better. **Past forecast errors by product** shows every product's results below the chart.
 
 XGBoost requires sufficient usable training history and an eligible place within the configured ML product limit. A product can use Moving Average when those requirements are not met. **0 ML SKUs** means none currently qualifies for machine learning; it does not mean your products or recorded sales disappeared.
@@ -390,8 +390,8 @@ The **Top products for XGBoost** panel is near the top of **Forecasts**. It list
 products, rank, product code, quantities sold during the saved training period, expected sales
 per day, and current forecast confidence. The saved selection counts and sales dates appear above the table.
 
-To use a limit of five, open **Inventory > Account & settings > Advanced forecasting settings**,
-set **Forecast product limit** to **Top 5 eligible products**, and choose **Save settings**. Then open
+To use a limit of five, open **Inventory > Account & settings > Forecast methods**,
+set **Forecast product limit** to **Top 5 products**, and choose **Save settings**. Then open
 **Forecasts** and choose **Refresh forecasts**. After it completes, the panel shows up to five
 eligible products ranked by training-period sales quantities. The limit is a maximum: a list
 of two products means only two qualified, not that three products disappeared.
@@ -545,8 +545,8 @@ Use **Disable** to stop a staff member's access; it also ends their active sessi
 
 1. Find the **Store & forecast settings** card in Account & settings.
 2. Review the store name, location, forecast horizon, and cover days after delivery. For the forecast horizon, choose a suggestion or type a whole number from 1 to 365 future days. A warning appears if the number is invalid; correct it before saving. This does not limit how many years of past sales the model can learn from. You can also type a whole number of cover days (zero or more), or choose a suggested value.
-3. Find **Advanced forecasting settings** if you need the Moving Average window or Forecast product limit. Moving Average offers **3, 7, 14, 28, and 30 days**.
-4. Check the saved-window status below the Moving Average control, then choose **Save settings**. Selecting a value alone does not save it.
+3. Find **Forecast methods** if you need the Moving Average window or Forecast product limit. Moving Average offers **3, 7, 14, 28, and 30 days**.
+4. Choose **Save settings** to save your changes.
 5. Open **Forecasts**, choose **Refresh forecasts**, and wait for completion. Saving settings or reloading the browser alone does not start training. While a replacement runs, the previous result keeps its original window and scores.
 
 The ML product limit is a maximum; increasing it does not make products with insufficient history eligible. Keep product lead times and safety stock accurate in **Products**.

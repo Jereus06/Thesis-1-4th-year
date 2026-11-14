@@ -114,24 +114,12 @@
     animation: ambient-mint 46s ease-in-out infinite alternate;
   }
 
-  .ambient-background__grid {
-    position: absolute;
-    inset: 0;
-    background-image:
-      linear-gradient(rgba(64, 107, 75, 0.035) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(64, 107, 75, 0.035) 1px, transparent 1px);
-    background-size: 48px 48px;
-    mask-image: linear-gradient(135deg, transparent 15%, black 100%);
-  }
-
-  .ambient-background__contours {
+  .ambient-background__network {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
-    stroke: #74947a;
-    stroke-width: 0.7;
-    opacity: 0.12;
+    display: block;
   }
 
   .ambient-background[data-paused="true"] .ambient-background__glow {

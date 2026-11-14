@@ -136,7 +136,7 @@ function RestockPage() {
       ) : products.length === 0 ? (
         <p className="text-sm text-muted">
           {canManageProducts
-            ? "No active products to assess. Add or activate products in Inventory before reviewing restocking recommendations."
+            ? "Add or activate products in Inventory to see restocking recommendations."
             : "No active products to assess. Ask the owner to add or activate products."}
         </p>
       ) : filteredProducts.length === 0 ? (

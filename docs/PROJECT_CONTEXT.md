@@ -35,7 +35,7 @@ claim a new runtime execution or completed client findings.
 | Imports            | Inventory snapshots are atomic; historical SKU-mapped sales imports preserve current stock                                                                                                                                                                                 |
 | Exports            | Sales/stock-movement downloads use authenticated Python CSV endpoints                                                                                                                                                                                                      |
 | Forecasts          | Official Python XGBoost, immutable queued inputs, chronological selection/testing, saved predictions/metrics/models                                                                                                                                                        |
-| Sales tools        | Browser-demo dashboard cards open forecast options and an owner sales report with date/product/category filters, trend summaries, product ranking, and holdout comparison; monetary totals use recorded unit cost as an estimate until selling prices are modeled |
+| Sales tools        | Browser-demo dashboard cards open forecast options and an owner sales report with date/product/category filters, trend summaries, product ranking, and holdout comparison; monetary totals use recorded unit cost as an estimate until selling prices are modeled          |
 | Restock            | Python reads the operating forecast or baseline and current stock; zero suggestions or unavailable demand still allow recording actual deliveries from Restock or Inventory                                                                                                |
 | Data quality       | Missing/incomplete dates, explicit zeros, closures, and stockouts have reviewed classifications, audit history, and CSV export                                                                                                                                             |
 | Backups            | `npm run backup` creates a PostgreSQL dump; CI checks a separate restore and container recreation                                                                                                                                                                          |
@@ -592,8 +592,26 @@ permission confirmation. Both paths create empty catalogs; this operational prov
 does not establish a research partner or findings. Existing demo stores and browser-demo data
 remain visibly identified and are not migrated, deleted, or relabeled. Signup passwords are
 12 to 128 characters.
-New emails are reserved across businesses; existing tenant users remain intact and can use
-optional Business ID login when credentials are ambiguous.
+An email can now be reused to create another store, using the existing password to verify
+access to an active account with that email. Each store retains its own user ID, password
+hash, role and business-scoped records; no accounts are merged. Repeated signup with the
+same normalized store name/location is rejected. Email/password sign-in asks which store
+to open when credentials match several active stores; optional Business ID login remains
+available. Store names are disclosed only after password verification, and selection
+rechecks credentials before issuing a session. Recovery sends one email containing an
+independent, single-use link for each matching store (or only the supplied Business ID).
+Changing one store's password does not change its other store accounts. Google links keep
+their existing store association. This 2026-11-14 change uses existing tables and migrations.
+See [the multi-store email contract](../backend/docs/MULTI_STORE_EMAIL_CONTRACT.md).
+
+The email-reuse change passed 40 focused Python cases, 38 frontend cases and all 20
+synthetic Edge auth browser groups, plus typecheck, build and lint (the same three
+warnings). The full Python suite finished with 574 passed, 143 failed, 14 setup errors
+and 14 passed subtests; the same 157 product-schema failures described above remain.
+API and web were updated locally; matched web assets, API health and the new endpoint's
+OpenAPI entry were verified read-only. Database and worker services were not restarted,
+and no real account or recovery email was generated for verification. See
+[the full email-reuse verification record](MULTI_STORE_EMAIL_VERIFICATION.md).
 
 Sign-in, account creation, recovery, and token password forms use synchronous submission guards
 and disable their controls while a request is pending. Password fields have visible labels and
@@ -698,18 +716,17 @@ left null; missing archive records still leave a gap, and failed reads offer Ret
 This is chart-only data: current future predictions, demand, stock advice, final-test metrics,
 confidence, and expiry behavior remain unchanged. No API or database schema change is needed.
 
-Forecast options was subsequently simplified at the owner's request. The initial chart shows
-daily sales quantities for up to 30 future days, Actual sales, and the chosen forecast. A closed
-Advanced options disclosure contains Daily/Weekly/Monthly view, Days to show, and Compare models.
-The separate days/weeks and estimated-value selectors were removed; chart quantities use the
-product's counting unit. The description follows the selected view/day count, and the disclosure
-states that these controls change the chart only rather than generate more predictions.
+Chart options shows Daily/Weekly/Monthly view and Compare models directly. At the owner's
+request on 2026-11-14, Days to show and the Advanced options disclosure were removed. The
+forecast period is managed in Inventory settings; charts use the displayed completed run's
+saved horizon and available prediction dates, including while new settings await a refresh.
+Legacy chart-day preferences are ignored so they cannot hide saved predictions. Initial display
+remains Daily with Actual sales and the chosen forecast, using the product's counting unit.
 Saved forecast settings, all model score cards, archived chart predictions, intervals, product
 selection, and the error table remain available.
 
-The follow-up fixes the 14-day display resetting after refresh: view, day count and comparison
-choices persist in browser storage separately for each business/account (and separately for the
-optional demo). The initial default remains Daily/30 days. Monthly totals summarize only available
+View, chart style and comparison choices persist in browser storage separately for each
+business/account (and separately for the optional demo). Monthly totals summarize only available
 daily dates, keep test/future periods separate, and identify partial months; they neither extend a
 saved forecast nor sum daily intervals into a monthly confidence range.
 
@@ -780,13 +797,28 @@ quantity/unit rows, preserving unlike units and full currency values. Mobile nav
 keeps all seven routes on one row, and the sticky header stays above page filters. Sales
 chart tooltips wrap long labels and remain contained after resizing.
 
-A CSS/SVG background adds slow decorative movement behind the authenticated shell.
-Its pause/resume preference persists locally; operating-system reduced motion stops the
-animation, and print omits it. Decoration is hidden from assistive technology and cannot
-intercept input. No external image asset, backend contract or database change is required.
+A light-green canvas network now adds slow decorative movement behind the authenticated
+shell, adapting the owner's supplied LATTICE ZIP to the existing sage/ivory theme. Its
+React-owned renderer replaces the standalone script's global injection and negative layer.
+Dots, curved connections, travelling signals, mouse parallax and gentle click ripples stay
+behind opaque content; touch gestures remain available for scrolling. CSS glows provide a
+fallback if canvas is unavailable. No external dependencies or network assets are required.
+Its existing pause/resume preference persists locally; operating-system reduced motion keeps
+a still image, hidden tabs and printing stop the renderer, and print omits the decoration.
+Rendering targets at most 30 frames/second, 36–110 points (at most 48 on narrow screens),
+device scale at most 1.5 and approximately 1.6 million canvas pixels. Resizing and context
+restoration redraw safely; unmounting removes its observers, input listeners and animation
+frame. Decoration is hidden from assistive technology and cannot intercept input. No backend
+contract, database or forecasting calculation changed.
 See [the interface verification record](UI_REFRESH_VERIFICATION.md).
 
-This refresh passed 63 focused frontend cases and 60 synthetic Edge browser groups,
+The LATTICE adaptation on 2026-11-14 passed seven focused background lifecycle/rendering
+browser groups and all 15 forecast browser groups, plus typecheck/build/lint (the same
+three warnings). Browser checks used synthetic intercepted HTTP and 390px touch/high-DPI
+emulation, including unavailable canvas and simulated context loss/visibility. Physical
+phone hardware and Safari remain unverified. See [background verification](LATTICE_BACKGROUND_VERIFICATION.md).
+
+The earlier interface refresh passed 63 focused frontend cases and 60 synthetic Edge browser groups,
 typecheck, production build and lint (the same three existing warnings). Only the local
 web service was updated; matching HTML, JavaScript/CSS assets and API health were verified.
 The full frontend and Python suites were not rerun for this frontend-only change.
@@ -1218,6 +1250,36 @@ local verification of the supplied CI failures; the next GitHub workflow run rem
 Deployment account/DNS/storage settings and real-partner policies (corrections/voids, units,
 import mapping, retention, collection permission, and independent research cutoffs) use confirmed
 team/business requirements. They are not filled in with fictional research results.
+
+## Client wording and account-email feedback (2026-11-14)
+
+Dashboard, sales report, forecast evidence, inventory/import dialogs, settings and account
+screens use shorter task wording. Forecast history warnings, nonzero missing/excluded day
+counts, limited test scope, confidence/range evidence, unit-cost valuation and irreversible
+action notices remain explicit. Routine zero issue counts are omitted. Formal questionnaire
+items and thesis text are unchanged. The user guide matches the visible Forecast methods
+settings and Chart options controls.
+
+The existing account limits remain five registration attempts per hour and ten other account
+operations per minute per operation/address/identity, plus the shared 120/minute IP limit.
+HTTP 429 now gives the remaining wait in seconds/minutes and an accurately rounded-up
+Retry-After; rejected requests do not extend the original window. This is temporary throttling,
+not an email-address ban.
+
+SMTP STARTTLS now verifies the server certificate and uses advertised LOGIN authentication
+where supported, avoiding the observed provider disconnect during PLAIN. Mail failures
+distinguish sender authentication, recipient rejection and connection/delivery problems without
+exposing credentials or raw provider diagnostics. Password recovery remains account-neutral.
+Read-only authentication checks against the configured Gmail server returned 535 for both
+the supplied password and its space-normalized form. Runtime settings matched the private
+.env; no messages were sent. Gmail sender authorization remains unresolved, independently
+of the UI fixes. No environment secrets or database schema were changed.
+
+Verification: 125 focused frontend cases, 38 focused Python mail/account cases, 15 forecast
+Edge browser groups and 10 client-UI browser groups passed. Typecheck/build passed; lint
+has the same three warnings. The full backend run and its follow-up mail assertions,
+remaining schema issue and sender-authorization limitation are recorded in
+[client simplification verification](CLIENT_SIMPLIFICATION_VERIFICATION.md).
 
 ## File map
 

@@ -109,7 +109,7 @@ function SalesReportPage() {
               Sales report
             </h1>
             <p className="mt-2 text-sm leading-relaxed text-white/80">
-              Review saved sales by day, period and product. Value estimates use recorded unit cost.
+              Review sales by date and product. Values use unit cost.
             </p>
           </div>
           <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-2 text-xs text-white/90">
@@ -126,7 +126,7 @@ function SalesReportPage() {
               <CalendarRange className="size-5 text-primary" aria-hidden="true" /> Report filters
             </CardTitle>
             <CardDescription className="text-xs leading-relaxed">
-              Choose a day or an inclusive period. Store dates · {timezone}
+              Choose one day or a date range.
             </CardDescription>
           </div>
           <div
@@ -283,9 +283,7 @@ function SalesReportPage() {
           <Card>
             <CardHeader>
               <CardTitle>Actual versus forecast</CardTitle>
-              <CardDescription>
-                Holdout-period comparison for the selected products and dates.
-              </CardDescription>
+              <CardDescription>Past sales compared with saved predictions.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 sm:grid-cols-3">
               <div>
@@ -313,8 +311,7 @@ function SalesReportPage() {
             <CardHeader>
               <CardTitle>Product performance</CardTitle>
               <CardDescription>
-                Ranked by units sold for the selected product and date range. Records counts saved
-                sale entries; an imported daily total is one entry.
+                Ranked by quantity sold. Records counts saved entries, including daily totals.
               </CardDescription>
             </CardHeader>
             <CardContent className="record-scroll" tabIndex={0}>
@@ -368,8 +365,7 @@ function SalesReportPage() {
           </Card>
 
           <p className="text-xs text-muted">
-            Data-quality note: this report summarizes saved demo or imported records only. It does
-            not infer missing sales, stockouts, or partner-business findings.
+            Only recorded sales are included. Missing records do not mean zero sales.
           </p>
         </>
       )}

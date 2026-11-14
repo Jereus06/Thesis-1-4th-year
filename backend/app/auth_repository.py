@@ -1,7 +1,7 @@
 """Business-scoped public registration and Google identity persistence.
 
-Existing inventory and forecast operations remain in Repository. Public signups
-reserve an email across businesses without changing historical email constraints.
+Existing inventory and forecast operations remain in Repository. An email can
+identify separate store accounts using the existing business-scoped constraints.
 """
 
 import base64
@@ -24,16 +24,26 @@ class AuthRepository(Repository):
     def sign_in(
         self, business_id: UUID | None, email: str, password: str, hours: int
     ) -> tuple[str, str, Principal]:
+        matching = self._matching_password_accounts(business_id, email, password)
+        if len(matching) > 1:
+            raise HTTPException(409, "Choose a store to sign in, or enter its Business ID")
+        return self.issue_session(self._principal(matching[0]), hours)
+
+    def _matching_password_accounts(
+        self, business_id: UUID | None, email: str, password: str
+    ) -> list[dict[str, Any]]:
         normalized_email = email.strip().lower()
         if business_id is None:
             rows = self.conn.execute(
-                """SELECT u.* FROM users u JOIN businesses b ON b.id=u.business_id
-                   WHERE u.email=%s AND u.is_active AND b.is_active""",
+                """SELECT u.*,b.name AS business_name,b.location AS business_location
+                   FROM users u JOIN businesses b ON b.id=u.business_id
+                   WHERE u.email=%s AND u.is_active AND b.is_active ORDER BY b.name,b.id""",
                 (normalized_email,),
             ).fetchall()
         else:
             rows = self.conn.execute(
-                """SELECT u.* FROM users u JOIN businesses b ON b.id=u.business_id
+                """SELECT u.*,b.name AS business_name,b.location AS business_location
+                   FROM users u JOIN businesses b ON b.id=u.business_id
                    WHERE u.business_id=%s AND u.email=%s AND u.is_active AND b.is_active""",
                 (business_id, normalized_email),
             ).fetchall()
@@ -44,9 +54,19 @@ class AuthRepository(Repository):
         ]
         if not matching:
             raise HTTPException(401, "Invalid business, email, or password")
-        if len(matching) > 1:
-            raise HTTPException(409, "Enter your Business ID to select your store")
-        return self.issue_session(self._principal(matching[0]), hours)
+        return matching
+
+    def sign_in_stores(self, email: str, password: str) -> list[dict[str, Any]]:
+        # Names and IDs are disclosed only for active accounts whose password matches.
+        return [
+            {
+                "businessId": str(row["business_id"]),
+                "businessName": row["business_name"],
+                "businessLocation": row["business_location"],
+                "role": row["role"],
+            }
+            for row in self._matching_password_accounts(None, email, password)
+        ]
 
     def authenticate(self, session: str) -> tuple[Principal, str]:
         row = self.conn.execute(
@@ -235,14 +255,37 @@ class AuthRepository(Repository):
         password_hash = hash_password(password) if password is not None else None
         changed_at = datetime.now(UTC) if password_hash else None
         with self.conn.transaction():
-            # The SQL history allows an email in multiple businesses. Registration
-            # is intentionally stricter without rewriting those existing records.
+            # Serialize email reuse and repeated submissions without schema changes.
             self._lock("stockcast:signup-email:" + normalized_email)
             existing = self.conn.execute(
-                "SELECT id FROM users WHERE email=%s LIMIT 1", (normalized_email,)
-            ).fetchone()
+                """SELECT u.password_hash,u.is_active,b.is_active AS business_active,
+                          b.name,b.location
+                   FROM users u JOIN businesses b ON b.id=u.business_id WHERE u.email=%s""",
+                (normalized_email,),
+            ).fetchall()
             if existing:
-                raise HTTPException(409, "An account with this email exists. Sign in instead.")
+                if google_subject:
+                    raise HTTPException(409, "An account with this email exists. Sign in instead.")
+                if not any(
+                    row["is_active"] and row["business_active"] and row["password_hash"]
+                    and password is not None and verify_password(password, row["password_hash"])
+                    for row in existing
+                ):
+                    raise HTTPException(
+                        409,
+                        "This email already has a store. Use its current password to create "
+                        "another store, or reset your password first.",
+                    )
+                normalized_location = (location or "").strip().casefold()
+                if any(
+                    row["name"].strip().casefold() == store_name.casefold()
+                    and (row["location"] or "").strip().casefold() == normalized_location
+                    for row in existing
+                ):
+                    raise HTTPException(
+                        409, "You already have a store with this name and location. Sign in to it "
+                        "or use a different store name or location for another business.",
+                    )
             business = self.conn.execute(
                 """INSERT INTO businesses(name,location,data_origin)
                    VALUES(%s,%s,%s) RETURNING id""",
@@ -314,6 +357,32 @@ class AuthRepository(Repository):
                 (row["id"], token_hash(raw_token)),
             )
             return True
+
+    def create_store_resets(
+        self, email: str, business_id: UUID | None = None
+    ) -> list[dict[str, str]]:
+        with self.conn.transaction():
+            query = """SELECT u.id,b.name FROM users u JOIN businesses b ON b.id=u.business_id
+                       WHERE u.email=%s AND u.is_active AND b.is_active"""
+            params: tuple = (email.strip().lower(),)
+            if business_id is not None:
+                query += " AND u.business_id=%s"
+                params += (business_id,)
+            # Same lock order as existing recovery: concurrent requests replace all old links.
+            rows = self.conn.execute(query + " ORDER BY u.id FOR UPDATE OF u", params).fetchall()
+            links = []
+            for row in rows:
+                raw = new_token()
+                self.conn.execute(
+                    "UPDATE password_reset_tokens SET consumed_at=now() "
+                    "WHERE user_id=%s AND consumed_at IS NULL", (row["id"],),
+                )
+                self.conn.execute(
+                    "INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) "
+                    "VALUES(%s,%s,now()+interval '30 minutes')", (row["id"], token_hash(raw)),
+                )
+                links.append({"businessName": row["name"], "token": raw})
+            return links
 
     def consume_reset(self, raw_token: str, password: str) -> None:
         if not 12 <= len(password) <= 128:

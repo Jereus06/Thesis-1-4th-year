@@ -113,6 +113,13 @@ export type SignUpRequest = BusinessRegistration & {
 
 export type GooglePending = { email: string; displayName: string };
 
+export type SignInStore = {
+  businessId: string;
+  businessName: string;
+  businessLocation: string | null;
+  role: "owner" | "staff";
+};
+
 export const api = {
   authOptions: () => request<AuthOptions>("/auth/options"),
   signUp: (details: SignUpRequest) =>
@@ -129,6 +136,11 @@ export const api = {
       body: { businessId, email, password },
     }),
   signOut: () => request<{ signedOut: boolean }>("/auth/sign-out", { method: "POST" }),
+  signInStores: (email: string, password: string) =>
+    request<SignInStore[]>("/auth/sign-in/stores", {
+      method: "POST",
+      body: { email, password },
+    }),
   me: () => request<SessionUser>("/auth/me"),
   changePassword: (currentPassword: string, newPassword: string) =>
     request<{ changed: boolean }>("/auth/password/change", {

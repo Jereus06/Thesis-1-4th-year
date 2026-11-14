@@ -14,7 +14,6 @@ export function AccountMaintenance() {
   const { canManageMembers } = usePermissions();
   const session = useAppStore((state) => state.session);
   const storeName = useAppStore((state) => state.settings.storeName);
-  const storeLocation = useAppStore((state) => state.settings.storeLocation);
   const accountKey = session ? `${session.businessId}/${session.userId}/${session.role}` : "";
   const ownerKey = canManageMembers ? accountKey : null;
   const [current, setCurrent] = useState("");
@@ -123,7 +122,7 @@ export function AccountMaintenance() {
       if (version !== accountVersion.current) return;
       setEmail("");
       setName("");
-      toast.success("Single-use staff invitation sent.");
+      toast.success("Staff invitation sent.");
     } catch (error) {
       if (version !== accountVersion.current) return;
       const message = errorMessage(error, "The staff invitation could not be sent.");
@@ -249,10 +248,7 @@ export function AccountMaintenance() {
         <>
           <div className="border-t border-border pt-4">
             <p className="font-medium">Invite staff</p>
-            <p className="text-sm text-muted">
-              Send a formal StockCast invitation for {storeName}
-              {storeLocation ? ` in ${storeLocation}` : ""}.
-            </p>
+            <p className="text-sm text-muted">Invite staff to {storeName}.</p>
           </div>
           <form onSubmit={invite} className="grid gap-3">
             <fieldset disabled={busy} className="grid gap-2 sm:grid-cols-2">
