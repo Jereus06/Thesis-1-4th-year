@@ -5,7 +5,7 @@
   --font-sans: "Figtree", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 
-  --color-bg: #f5f6ef;
+  --color-bg: #e4eee7;
   --color-surface: #fffdf8;
   --color-surface-2: #eef1e7;
   --color-fg: #1d2e25;
@@ -17,7 +17,7 @@
   --color-danger: #9b2c2c;
   --color-warning: #9a6700;
   --color-success: #17634c;
-  --color-sidebar: #edf2e8;
+  --color-sidebar: #174c3c;
   --color-ink: #1d2e25;
   --color-chart-ma: #8c7654;
   --color-chart-xgb: #17634c;
@@ -103,14 +103,14 @@
   .ambient-background__glow--sage {
     top: -28%;
     right: -18%;
-    background: radial-gradient(ellipse, rgba(161, 193, 149, 0.24), transparent 69%);
+    background: radial-gradient(ellipse, rgba(111, 164, 121, 0.26), transparent 69%);
     animation: ambient-sage 38s ease-in-out infinite alternate;
   }
 
   .ambient-background__glow--mint {
     bottom: -42%;
     left: -10%;
-    background: radial-gradient(ellipse, rgba(137, 186, 164, 0.19), transparent 68%);
+    background: radial-gradient(ellipse, rgba(116, 173, 148, 0.24), transparent 68%);
     animation: ambient-mint 46s ease-in-out infinite alternate;
   }
 
@@ -127,8 +127,12 @@
   }
 
   .app-sidebar {
-    border-right: 1px solid var(--color-border);
-    background: linear-gradient(165deg, #f1f5eb, var(--color-sidebar) 70%);
+    --color-fg: #f4faf6;
+    --color-muted: #d1e4d8;
+    --color-ring: #d6eee0;
+    color: var(--color-fg);
+    border-right: 1px solid #164835;
+    background: linear-gradient(165deg, #23664e, var(--color-sidebar) 75%);
   }
 
   .app-brand {
@@ -170,8 +174,10 @@
   }
 
   .app-store-card {
-    border: 1px solid var(--color-border);
-    background: var(--color-surface);
+    --color-muted: #576f60;
+    color: #1d2e25;
+    border: 1px solid #cadfd3;
+    background: #edf5ef;
     box-shadow: 0 2px 8px -6px rgba(34, 62, 42, 0.1);
   }
 
@@ -181,12 +187,12 @@
   }
 
   .app-nav-link:hover {
-    background: rgba(255, 253, 248, 0.65);
+    background: rgba(235, 247, 239, 0.12);
   }
 
   .app-nav-link[aria-current="page"] {
-    border-color: #d4e0cf;
-    background: var(--color-surface);
+    border-color: #e0eee4;
+    background: #edf5ef;
     box-shadow: 0 2px 8px -5px rgba(34, 62, 42, 0.14);
     font-weight: 600;
   }
@@ -205,7 +211,7 @@
 
   .app-nav-link[aria-current="page"] .app-nav-icon {
     color: var(--color-primary);
-    background: #e4eee0;
+    background: #d9ece1;
   }
 
   .app-header {
@@ -223,14 +229,14 @@
   }
 
   .app-mobile-nav {
-    border-top: 1px solid var(--color-border);
-    background: var(--color-surface);
+    border-top: 1px solid #c7dbd0;
+    background: #dcebdd;
     padding-bottom: env(safe-area-inset-bottom, 0px);
     box-shadow: 0 -4px 20px -15px rgba(34, 62, 42, 0.2);
   }
 
   .app-mobile-nav-link[aria-current="page"] .app-mobile-nav-icon {
-    background: #e4eee0;
+    background: #d9ece1;
   }
 
   .record-scroll {

@@ -12,8 +12,8 @@ const TAU = Math.PI * 2;
 const FRAME_INTERVAL = 1000 / 30;
 const INTERACTIVE =
   "a,button,input,select,textarea,label,summary,[role=button],[role=combobox],[contenteditable]";
-const INK = "33, 116, 82";
-const LIGHT = "84, 161, 111";
+const INK = "36, 113, 101";
+const LIGHT = "99, 159, 141";
 
 function seed(index: number) {
   const value = Math.sin(index * 127.1 + 3.7) * 43758.5453;

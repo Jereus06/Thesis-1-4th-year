@@ -812,6 +812,23 @@ frame. Decoration is hidden from assistive technology and cannot intercept input
 contract, database or forecasting calculation changed.
 See [the interface verification record](UI_REFRESH_VERIFICATION.md).
 
+The 2026-11-14 palette follow-up uses a cooler mint page background and teal network,
+with a deeper sage desktop sidebar, pale green store/selected-navigation panels and
+matching mobile navigation. Ivory content cards and chart-series colors stay intact.
+The latest staff-invite screenshot reports the existing SMTP authentication error;
+sender authorization remains unresolved and is independent of the palette change.
+This palette update passed typecheck, production build, lint (the same three warnings)
+and all seven existing synthetic background browser groups, including mobile overflow
+and motion controls. The desktop screenshot was also visually reviewed.
+
+The owner's subsequent color adjustment deepens the page to soft sage and the desktop
+sidebar to forest green, matching the primary green controls. Sidebar labels use pale
+text; the store card and selected route retain light surfaces and dark readable text.
+Mobile navigation uses a deeper pale green. The owner reports email is now working;
+no new live delivery check or email-configuration change was performed for this styling task.
+Typecheck, build, lint (the same three warnings), and the seven synthetic background browser
+groups passed again for the forest-green palette; the desktop screenshot was visually reviewed.
+
 The LATTICE adaptation on 2026-11-14 passed seven focused background lifecycle/rendering
 browser groups and all 15 forecast browser groups, plus typecheck/build/lint (the same
 three warnings). Browser checks used synthetic intercepted HTTP and 390px touch/high-DPI
