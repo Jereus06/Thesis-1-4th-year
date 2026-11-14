@@ -25,13 +25,8 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci --no-audit --no-fund
-      - run: npm run typecheck
-      - run: npm run lint
-      - name: Check all frontend, account, survey, benchmark, and Compose regressions
-        run: node --test --test-concurrency=1 scripts/test-*.mjs
-      - run: npm run build
       - name: Configure disposable test installation
+        id: test-installation
         run: |
           node --input-type=module <<'JS'
           import { readFileSync, writeFileSync } from 'node:fs';
@@ -40,6 +35,12 @@ jobs:
             .replace('replace_with_a_second_random_hex_password', 'ci-app-password-123456')
             .replace('replace_with_at_least_12_characters', 'ci-owner-password-123456'));
           JS
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run lint
+      - name: Check all frontend, account, survey, benchmark, and Compose regressions
+        run: node --test --test-concurrency=1 scripts/test-*.mjs
+      - run: npm run build
       - name: Compile Python sources before building services
         run: python -m compileall -q backend/app
       - name: Build backend images and import API/worker modules
@@ -95,8 +96,8 @@ jobs:
           npm start
           docker compose exec -T api python -m backend.app.smoke --check-persistence
       - name: Service logs on failure
-        if: failure()
+        if: failure() && steps.test-installation.outcome == 'success'
         run: docker compose logs --no-color --tail 100
       - name: Stop test installation
-        if: always()
+        if: always() && steps.test-installation.outcome == 'success'
         run: docker compose down

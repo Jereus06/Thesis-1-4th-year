@@ -6,6 +6,7 @@ export type DailySalesProduct = {
   name: string;
   sku: string;
   unit: string;
+  unitCost: number;
   quantity: number;
   totalAmount: number;
   recordCount: number;
@@ -61,7 +62,7 @@ export function summarizeDailySales(
   const catalog = new Map(products.map((product) => [product.id, product]));
   const byProduct = new Map<string, DailySalesProduct>();
   const byDateProduct = new Map<string, DailySalesRow>();
-  const byUnit = new Map<string, number>();
+  const byUnit = new Map<string, { quantity: number; totalAmount: number }>();
   const query = search.trim().toLocaleLowerCase();
   for (const sale of sales) {
     if (sale.date < startDate || sale.date > endDate) continue;
@@ -100,10 +101,13 @@ export function summarizeDailySales(
     };
     // Saved quantities have at most three decimals. Sum thousandths to avoid float noise.
     const thousandths = Math.round(sale.qty * 1000);
+    // Unit costs allow four decimals. Accumulate integer ten-millionths so fractional
+    // quantities retain their full value without rounding each sale to whole cents.
+    const amount = thousandths * Math.round(details.unitCost * 10000);
     const imported = isImportedSale(sale);
     for (const group of [row, datedRow]) {
       group.quantity += thousandths;
-      group.totalAmount += (thousandths / 1000) * details.unitCost;
+      group.totalAmount += amount;
       group.recordCount += 1;
       if (imported) group.importedCount += 1;
       else group.recordedCount += 1;
@@ -116,24 +120,26 @@ export function summarizeDailySales(
     }
     byProduct.set(sale.productId, row);
     byDateProduct.set(dateKey, datedRow);
-    byUnit.set(row.unit, (byUnit.get(row.unit) ?? 0) + thousandths);
-    summary.totalAmount += (thousandths / 1000) * details.unitCost;
+    const unit = byUnit.get(row.unit) ?? { quantity: 0, totalAmount: 0 };
+    unit.quantity += thousandths;
+    unit.totalAmount += amount;
+    byUnit.set(row.unit, unit);
+    summary.totalAmount += amount;
   }
 
   summary.products = [...byProduct.values()]
-    .map((row) => ({ ...row, quantity: row.quantity / 1000 }))
+    .map((row) => ({ ...row, quantity: row.quantity / 1000, totalAmount: row.totalAmount / 1e7 }))
     .sort(compareProducts);
   summary.rows = [...byDateProduct.values()]
-    .map((row) => ({ ...row, quantity: row.quantity / 1000 }))
+    .map((row) => ({ ...row, quantity: row.quantity / 1000, totalAmount: row.totalAmount / 1e7 }))
     .sort((a, b) => b.date.localeCompare(a.date) || compareProducts(a, b));
   summary.totals = [...byUnit]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([unit, thousandths]) => ({
+    .map(([unit, totals]) => ({
       unit,
-      quantity: thousandths / 1000,
-      totalAmount: summary.products
-        .filter((product) => product.unit === unit)
-        .reduce((total, product) => total + product.totalAmount, 0),
+      quantity: totals.quantity / 1000,
+      totalAmount: totals.totalAmount / 1e7,
     }));
+  summary.totalAmount /= 1e7;
   return summary;
 }

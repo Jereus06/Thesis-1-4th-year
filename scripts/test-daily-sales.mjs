@@ -40,6 +40,7 @@ const empty = {
   recordCount: 0,
   recordedCount: 0,
   importedCount: 0,
+  totalAmount: 0,
 };
 
 test("one selected day uses the sale date for recorded and imported records", () => {
@@ -55,7 +56,9 @@ test("one selected day uses the sale date for recorded and imported records", ()
         name: "Product a",
         sku: "SKU-a",
         unit: "piece",
+        unitCost: 1,
         quantity: 5,
+        totalAmount: 5,
         recordCount: 2,
         recordedCount: 1,
         importedCount: 1,
@@ -67,14 +70,17 @@ test("one selected day uses the sale date for recorded and imported records", ()
         name: "Product a",
         sku: "SKU-a",
         unit: "piece",
+        unitCost: 1,
         date,
         quantity: 5,
+        totalAmount: 5,
         recordCount: 2,
         recordedCount: 1,
         importedCount: 1,
       },
     ],
-    totals: [{ unit: "piece", quantity: 5 }],
+    totals: [{ unit: "piece", quantity: 5, totalAmount: 5 }],
+    totalAmount: 5,
     recordCount: 2,
     recordedCount: 1,
     importedCount: 1,
@@ -94,7 +100,7 @@ test("totals include records beyond the 40-row ledger page", () => {
       ["b", 7, 1],
     ],
   );
-  assert.deepEqual(summary.totals, [{ unit: "piece", quantity: 103 }]);
+  assert.deepEqual(summary.totals, [{ unit: "piece", quantity: 103, totalAmount: 103 }]);
   assert.deepEqual(
     summary.rows.map((row) => [row.date, row.productId, row.quantity, row.recordCount]),
     [
@@ -112,7 +118,16 @@ test("three-decimal quantities aggregate without floating-point artifacts", () =
     summary.products.map((row) => row.quantity),
     [0.967, 1],
   );
-  assert.deepEqual(summary.totals, [{ unit: "kg", quantity: 1.967 }]);
+  assert.deepEqual(summary.totals, [{ unit: "kg", quantity: 1.967, totalAmount: 1.967 }]);
+  assert.deepEqual(
+    summary.products.map((row) => row.totalAmount),
+    [0.967, 1],
+  );
+  assert.equal(summary.totalAmount, 1.967);
+  assert.deepEqual(
+    summarizeDailySales([...records].reverse(), [product("a", "kg"), product("b", "kg")], date),
+    summary,
+  );
 });
 
 test("pieces, bottles, packs, and other units stay separate without conversion", () => {
@@ -128,11 +143,45 @@ test("pieces, bottles, packs, and other units stay separate without conversion",
     date,
   );
   assert.deepEqual(summary.totals, [
-    { unit: "bottle", quantity: 2 },
-    { unit: "kg", quantity: 4 },
-    { unit: "pack", quantity: 3 },
-    { unit: "piece", quantity: 1 },
+    { unit: "bottle", quantity: 2, totalAmount: 2 },
+    { unit: "kg", quantity: 4, totalAmount: 4 },
+    { unit: "pack", quantity: 3, totalAmount: 3 },
+    { unit: "piece", quantity: 1, totalAmount: 1 },
   ]);
+});
+
+test("fractional sales preserve four-decimal costs across products, dates, units, and order", () => {
+  const catalog = [
+    product("a", "kg", { unitCost: 12.3456 }),
+    product("b", "bottle", { unitCost: 0.1 }),
+  ];
+  const records = [
+    sale("a-current", "a", 1.125),
+    sale("a-earlier", "a", 0.125, { date: "2026-11-08", source: "csv_import" }),
+    sale("b-first", "b", 0.1),
+    sale("b-second", "b", 0.2),
+  ];
+  const summary = summarizeDailySales(records, catalog, "2026-11-08", date);
+  assert.equal(summary.totalAmount, 15.462);
+  assert.deepEqual(
+    summary.products.map((row) => [row.unitCost, row.totalAmount]),
+    [
+      [12.3456, 15.432],
+      [0.1, 0.03],
+    ],
+  );
+  assert.deepEqual(
+    summary.rows.map((row) => row.totalAmount),
+    [13.8888, 0.03, 1.5432],
+  );
+  assert.deepEqual(summary.totals, [
+    { unit: "bottle", quantity: 0.3, totalAmount: 0.03 },
+    { unit: "kg", quantity: 1.25, totalAmount: 15.432 },
+  ]);
+  assert.deepEqual(
+    summarizeDailySales([...records].reverse(), [...catalog].reverse(), "2026-11-08", date),
+    summary,
+  );
 });
 
 test("source counts follow existing explicit and legacy import provenance", () => {
@@ -202,7 +251,7 @@ test("historical sales retain inactive products and their catalog units", () => 
   );
   assert.equal(summary.products[0].sku, "SKU-a");
   assert.equal(summary.products[0].quantity, 4);
-  assert.deepEqual(summary.totals, [{ unit: "bottle", quantity: 4 }]);
+  assert.deepEqual(summary.totals, [{ unit: "bottle", quantity: 4, totalAmount: 4 }]);
 });
 
 test("missing catalog entries retain quantities with explicit unavailable details", () => {
@@ -213,20 +262,22 @@ test("missing catalog entries retain quantities with explicit unavailable detail
       name: "orphan",
       sku: "Unavailable",
       unit: "Unknown unit",
+      unitCost: 0,
       quantity: 2.125,
+      totalAmount: 0,
       recordCount: 1,
       recordedCount: 1,
       importedCount: 0,
     },
   ]);
-  assert.deepEqual(summary.totals, [{ unit: "Unknown unit", quantity: 2.125 }]);
+  assert.deepEqual(summary.totals, [{ unit: "Unknown unit", quantity: 2.125, totalAmount: 0 }]);
 });
 
 test("saved zero-quantity records remain distinguishable from no matching records", () => {
   const summary = summarizeDailySales([sale("explicit-zero", "a", 0)], [product("a")], date);
   assert.equal(summary.recordCount, 1);
   assert.equal(summary.products[0].quantity, 0);
-  assert.deepEqual(summary.totals, [{ unit: "piece", quantity: 0 }]);
+  assert.deepEqual(summary.totals, [{ unit: "piece", quantity: 0, totalAmount: 0 }]);
   assert.deepEqual(summarizeDailySales([], [product("a")], date), empty);
 });
 
@@ -309,8 +360,8 @@ test("a product keeps separate actual sale dates while summary products remain u
   );
   assert.equal(summary.products.find((row) => row.productId === "a").quantity, 1);
   assert.deepEqual(summary.totals, [
-    { unit: "kg", quantity: 1 },
-    { unit: "pack", quantity: 2 },
+    { unit: "kg", quantity: 1, totalAmount: 1 },
+    { unit: "pack", quantity: 2, totalAmount: 2 },
   ]);
   assert.deepEqual(
     summarizeDailySales([...records].reverse(), [...catalog].reverse(), "2026-11-08", date),
@@ -348,8 +399,8 @@ test("search matches product names case-insensitively and trims surrounding whit
   assert.equal(summary.recordedCount, 2);
   assert.equal(summary.importedCount, 2);
   assert.deepEqual(summary.totals, [
-    { unit: "bottle", quantity: 9 },
-    { unit: "pack", quantity: 5 },
+    { unit: "bottle", quantity: 9, totalAmount: 9 },
+    { unit: "pack", quantity: 5, totalAmount: 5 },
   ]);
 });
 
@@ -370,7 +421,7 @@ test("SKU search filters all saved pages and updates every total", () => {
   assert.equal(summary.recordCount, 2);
   assert.equal(summary.recordedCount, 1);
   assert.equal(summary.importedCount, 1);
-  assert.deepEqual(summary.totals, [{ unit: "bottle", quantity: 5 }]);
+  assert.deepEqual(summary.totals, [{ unit: "bottle", quantity: 5, totalAmount: 5 }]);
 });
 
 test("blank search preserves all results and no match produces an empty summary", () => {

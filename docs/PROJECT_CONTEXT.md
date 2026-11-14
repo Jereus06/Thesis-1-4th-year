@@ -1300,6 +1300,15 @@ remaining schema issue and sender-authorization limitation are recorded in
 
 ## File map
 
+The 2026-11-14 CI log repair updates stale Daily sales summary assertions, Settings icon
+imports in the isolated test harness, and the stock-ledger demo/audit labels. Daily sales
+value totals now accumulate with the existing quantity/cost precision. CI creates disposable
+settings before tests and guards log collection/cleanup when setup fails. No private local
+settings or database contract changed. See [CI regression repair](CI_REGRESSION_REPAIR.md)
+for the supplied-log failure counts, local verification and hosted-run limits.
+The repaired full serial frontend suite passed 519 tests with no failures/skips; typecheck,
+build, lint (the same three warnings), workflow YAML/order/guard checks and diff checks passed.
+
 - `compose.yaml`, `Dockerfile`, `backend/Dockerfile`, `deploy/`, `scripts/`: startup/hosting/backup.
 - `src/components/csv-importer.tsx`, `csv-import-review.tsx`: shared upload/paste preparation, automatic column/format choices and previews, optional adjustments/product matching, bounded diagnostics, and explicit import controls.
 - `src/lib/csv-import.worker.ts`, `csv-preparation.ts`: worker source/row cache, decoding/parsing/validation timings, preview bounds, and existing API row limits.
