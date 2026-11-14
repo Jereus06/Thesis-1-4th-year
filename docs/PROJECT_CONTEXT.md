@@ -1318,6 +1318,9 @@ omitted, and stock-only updates preserve saved attributes. Regression coverage c
 an upgrade from migration 011, repeated migration execution, unchanged stock/audit records,
 and attribute creation, editing and inventory imports. The hosted workflow verifies the
 complete application against PostgreSQL; no checks are disabled or made optional.
+With the migration applied, the hosted run exposed five CSV export failures from untyped
+null date parameters. Sales and stock-movement exports explicitly cast optional bounds
+to SQL dates. Regression cases cover omitted, one-sided, and inclusive date ranges.
 
 - `compose.yaml`, `Dockerfile`, `backend/Dockerfile`, `deploy/`, `scripts/`: startup/hosting/backup.
 - `src/components/csv-importer.tsx`, `csv-import-review.tsx`: shared upload/paste preparation, automatic column/format choices and previews, optional adjustments/product matching, bounded diagnostics, and explicit import controls.

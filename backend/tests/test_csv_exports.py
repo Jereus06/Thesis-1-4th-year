@@ -2,6 +2,7 @@
 
 import csv
 import io
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -12,6 +13,42 @@ from test_postgres_integration import create_product, fresh_auth_limiter, pg_cli
 def exported_rows(response):
     assert response.status_code == 200, response.text
     return list(csv.DictReader(io.StringIO(response.text)))
+
+
+@pytest.mark.parametrize("kind,date_column", [
+    ("sales", "sale_date"), ("inventory-movements", "movement_date"),
+])
+@pytest.mark.parametrize("bounds,days", [
+    ({}, [1, 2, 3, 4]),
+    ({"fromDate": "2026-01-02"}, [2, 3, 4]),
+    ({"toDate": "2026-01-02"}, [1, 2]),
+    ({"fromDate": "2026-01-02", "toDate": "2026-01-02"}, [2]),
+    ({"fromDate": "2026-01-02", "toDate": "2026-01-03"}, [2, 3]),
+])
+def test_csv_exports_accept_optional_inclusive_date_bounds(pg_client, monkeypatch, kind, date_column, bounds, days):
+    from app.repository import Repository
+
+    monkeypatch.setattr(Repository, "business_day", lambda self, business_id: date(2026, 1, 4))
+    client, business, _dsn = pg_client
+    product = create_product(client, business)
+    base = f"/api/v1/businesses/{business}"
+    for day in (1, 2, 3):
+        recorded = f"2026-01-0{day}"
+        sale = client.post(base + "/sales", json={
+            "productId": product["id"], "saleDate": recorded, "quantity": "1",
+        })
+        assert sale.status_code == 201, sale.text
+        movement = client.post(base + "/inventory-movements", json={
+            "productId": product["id"], "movementDate": recorded,
+            "movementType": "receipt", "quantityDelta": "1",
+        })
+        assert movement.status_code == 201, movement.text
+    rows = exported_rows(client.get(base + f"/exports/{kind}.csv", params=bounds))
+    # Each sale and receipt has its own movement, plus the opening balance on day 4.
+    expected_days = [day for day in days if kind == "inventory-movements" or day != 4]
+    if kind == "inventory-movements":
+        expected_days = [day for day in expected_days for _ in range(1 if day == 4 else 2)]
+    assert [row[date_column] for row in rows] == [f"2026-01-0{day}" for day in expected_days]
 
 
 def test_sales_csv_preserves_stored_keys_without_inventing_unkeyed_identities(pg_client):

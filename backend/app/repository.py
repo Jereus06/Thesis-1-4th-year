@@ -808,8 +808,8 @@ class Repository:
             """SELECT s.id,p.sku,s.sale_date,s.quantity,s.source,s.data_origin,s.source_record_key
                FROM sales s JOIN products p ON p.business_id=s.business_id AND p.id=s.product_id
                WHERE s.business_id=%s AND s.voided_at IS NULL
-                 AND (%s IS NULL OR s.sale_date >= %s)
-                 AND (%s IS NULL OR s.sale_date <= %s)
+                 AND (%s::date IS NULL OR s.sale_date >= %s::date)
+                 AND (%s::date IS NULL OR s.sale_date <= %s::date)
                ORDER BY s.sale_date,s.id""",
             (business_id, from_date, from_date, to_date, to_date),
         ).fetchall()
@@ -821,8 +821,8 @@ class Repository:
                FROM inventory_movements m
                JOIN products p ON p.business_id=m.business_id AND p.id=m.product_id
                WHERE m.business_id=%s
-                 AND (%s IS NULL OR m.movement_date >= %s)
-                 AND (%s IS NULL OR m.movement_date <= %s)
+                 AND (%s::date IS NULL OR m.movement_date >= %s::date)
+                 AND (%s::date IS NULL OR m.movement_date <= %s::date)
                ORDER BY m.movement_date,m.created_at,m.id""",
             (business_id, from_date, from_date, to_date, to_date),
         ).fetchall()
