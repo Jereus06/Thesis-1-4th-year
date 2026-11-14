@@ -1321,6 +1321,11 @@ complete application against PostgreSQL; no checks are disabled or made optional
 With the migration applied, the hosted run exposed five CSV export failures from untyped
 null date parameters. Sales and stock-movement exports explicitly cast optional bounds
 to SQL dates. Regression cases cover omitted, one-sided, and inclusive date ranges.
+The full hosted Python suite then passed 749 tests and 14 subtests, and ZIP recovery
+passed. The transaction-retry browser verifier subsequently rejected the current
+Inventory page's product-photo listing request. The transaction and shared-state
+synthetic API fixtures now return empty photo and account-activity listings for those GET requests while
+retaining their existing strict handling of unexpected requests and transaction checks.
 
 - `compose.yaml`, `Dockerfile`, `backend/Dockerfile`, `deploy/`, `scripts/`: startup/hosting/backup.
 - `src/components/csv-importer.tsx`, `csv-import-review.tsx`: shared upload/paste preparation, automatic column/format choices and previews, optional adjustments/product matching, bounded diagnostics, and explicit import controls.

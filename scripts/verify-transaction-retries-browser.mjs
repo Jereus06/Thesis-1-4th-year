@@ -101,6 +101,8 @@ try {
       });
     if (path.endsWith("/auth/options")) return json({ signUpEnabled: false, googleEnabled: false });
     if (path.endsWith("/auth/google/pending")) return json(null);
+    if (request.method() === "GET" && path.endsWith("/auth/activity"))
+      return json({ events: [], nextCursor: null });
     if (request.method() === "POST" && path.endsWith("/products")) {
       const input = request.postDataJSON();
       const key = request.headers()["idempotency-key"];
@@ -252,6 +254,7 @@ try {
       }
       return json(result.data);
     }
+    if (request.method() === "GET" && path.endsWith("/product-photos")) return json([]);
     if (path.endsWith("/products")) {
       productReads++;
       if (failProductRead)
