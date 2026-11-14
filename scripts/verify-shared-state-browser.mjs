@@ -627,7 +627,7 @@ try {
   assert.equal(queuedWindow, 28);
   assert.equal(await mismatch.isVisible(), true);
   assert.equal(
-    await a.page.getByText(/Uses the previous 7 days of sales for each average/).isVisible(),
+    await a.page.getByText("Uses the previous 7 days of sales.", { exact: true }).isVisible(),
     true,
   );
   stage = "running";
@@ -642,7 +642,7 @@ try {
   completedGeneration++;
   completedWindow = queuedWindow;
   revision++;
-  await a.page.getByText(/Uses the previous 28 days of sales for each average/).waitFor();
+  await a.page.getByText("Uses the previous 28 days of sales.", { exact: true }).waitFor();
   assert.equal(await mismatch.count(), 0);
   passed(
     "Remote saved settings do not relabel old completed results while queued/running; the completed replacement uses its frozen window28.",

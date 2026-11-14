@@ -1326,6 +1326,8 @@ passed. The transaction-retry browser verifier subsequently rejected the current
 Inventory page's product-photo listing request. The transaction and shared-state
 synthetic API fixtures now return empty photo and account-activity listings for those GET requests while
 retaining their existing strict handling of unexpected requests and transaction checks.
+Shared-state window assertions match the current Moving Average explanation and still
+check the saved 7-day and replacement 28-day windows separately.
 
 - `compose.yaml`, `Dockerfile`, `backend/Dockerfile`, `deploy/`, `scripts/`: startup/hosting/backup.
 - `src/components/csv-importer.tsx`, `csv-import-review.tsx`: shared upload/paste preparation, automatic column/format choices and previews, optional adjustments/product matching, bounded diagnostics, and explicit import controls.
