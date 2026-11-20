@@ -4,6 +4,23 @@ CSV importer, account access, and imported-sale deletion source reviewed against
 
 ## Purpose and confirmed research context
 
+### Guided CSV workflow completion waits — 2026-11-20
+
+GitHub run 44759424547 passed the 100,000-row import and stock-preservation checks,
+then timed out after 20 seconds waiting for the overlap warning. Its failure screenshot
+shows 100,003 saved records while the importer is still uploading: the warning follows
+the complete paginated ledger refresh, not just the committed POST response.
+The verifier now uses the existing bounded 240-second import budget for this warning
+and successful import completion; preparation and ordinary UI waits remain short.
+It also asserts the exact duplicate-source-key error before checking the warning and
+retained source. No checks are skipped and no product/API/database behavior is changed.
+Typecheck, build, lint (three existing React Refresh warnings), and diff checks passed.
+The updated mocked browser run passed the overlap and failed-refresh recovery checks;
+its remaining scenarios and the new hosted run are pending. A local real-PostgreSQL
+attempt hit the existing 240-second limit on the large POST before reaching the overlap
+check, so it is not evidence of a complete real-database pass. Its disposable installation
+was removed without changing the user's store.
+
 ### GitHub history reconciliation — 2026-11-20
 
 The local price/deletion changes were merged with GitHub's product-attribute migration,

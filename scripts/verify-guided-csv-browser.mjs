@@ -190,8 +190,12 @@ try {
       return (await response.json()).data;
     }, `/api/v1/businesses/${session.businessId}${path}`);
   const importer = () => page.locator("[data-csv-state]");
+  const importTimeout = 240_000;
   const waitState = async (state) => {
-    await page.locator(`[data-csv-state="${state}"]`).waitFor({ timeout: 30_000 });
+    // Idle follows the committed write AND the complete paginated ledger reload.
+    await page.locator(`[data-csv-state="${state}"]`).waitFor({
+      timeout: state === "idle" ? importTimeout : 30_000,
+    });
   };
   const upload = async (text, name = "synthetic.csv", activation = "click") => {
     const chooserPromise = page.waitForEvent("filechooser");
@@ -219,7 +223,7 @@ try {
   const writeResponse = (suffix) =>
     page.waitForResponse(
       (response) => response.request().method() === "POST" && response.url().endsWith(suffix),
-      { timeout: 240_000 },
+      { timeout: importTimeout },
     );
   const check = (name) => {
     report.checks.push({ name, passed: true });
@@ -460,10 +464,16 @@ try {
   const overlapResult = await (await overlapResponse).json();
   assert.equal(overlapResult.data.acceptedRows, 1);
   assert.equal(overlapResult.data.rejectedRows, 1);
+  assert.deepEqual(overlapResult.data.errors, [
+    { row: 1, code: "duplicate_source_record_key" },
+  ]);
+  // The POST commits before importSales reloads all 100,000+ saved rows. The
+  // warning is emitted only after that refresh, so use the import-operation
+  // budget rather than the default timeout for a small UI interaction.
   await page
     .getByText(/already imported rows skipped/)
     .first()
-    .waitFor();
+    .waitFor({ timeout: importTimeout });
   await waitState("ready");
   assert.match(await importer().innerText(), /synthetic-overlap\.csv/);
   check("backend overlap detection remains authoritative and retains a partially rejected source");
