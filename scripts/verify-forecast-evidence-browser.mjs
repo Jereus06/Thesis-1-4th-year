@@ -24,9 +24,21 @@ page.setDefaultTimeout(30_000);
 const checks = [];
 
 const restockCard = (name) =>
-  page
-    .locator("main .rounded-2xl")
-    .filter({ has: page.getByText(name, { exact: true }) });
+  page.locator("main .rounded-2xl").filter({ has: page.getByText(name, { exact: true }) });
+
+async function openRestockGroups() {
+  for (const name of [
+    "Order now",
+    "Watch list",
+    "Enough stock",
+    "No sales expected",
+    "Sales estimate unavailable",
+  ]) {
+    const toggle = page.getByRole("button", { name, exact: true });
+    await toggle.waitFor();
+    if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
+  }
+}
 
 async function openForecastDetails(card, text) {
   const details = card.locator("details");
@@ -74,9 +86,9 @@ try {
     unitCost: "10",
   });
   await page.goto(base + "/restock", { waitUntil: "domcontentloaded" });
-  await page
-    .locator("main span")
-    .filter({ hasText: /^Sales estimate unavailable$/ })
+  await openRestockGroups();
+  await restockCard(product.name)
+    .getByText("Sales estimate unavailable", { exact: true })
     .waitFor();
   assert.doesNotMatch(await page.locator("main").innerText(), /Low confidence|High confidence/);
   checks.push("Empty history shows unavailable advice without a confidence score.");
@@ -92,6 +104,7 @@ try {
   assert.equal(imported.acceptedRows, rows.length);
   await page.reload({ waitUntil: "domcontentloaded" });
   const untrainedCard = restockCard(product.name);
+  await openRestockGroups();
   await untrainedCard.getByText("Low confidence", { exact: true }).waitFor();
   await openForecastDetails(untrainedCard, /Not tested on past sales yet/);
   checks.push("Usable untrained history shows Low confidence with an explicit no-test reason.");
@@ -176,6 +189,7 @@ try {
   assert.equal(tested.modelComparison.finalTest.observationCount, evidence.testObservations * 5);
   await page.reload({ waitUntil: "domcontentloaded" });
   const testedCard = restockCard(product.name);
+  await openRestockGroups();
   await testedCard.getByText("High confidence", { exact: true }).waitFor();
   await openForecastDetails(
     testedCard,
@@ -192,7 +206,7 @@ try {
 
   await page.goto(base + "/forecasts", { waitUntil: "domcontentloaded" });
   const topProducts = page.getByRole("region", { name: "Top products for XGBoost" });
-  await topProducts.getByText(/5 selected/).waitFor();
+  await topProducts.getByText(/5 products · Sales history:/).waitFor();
   const rankedRows = await topProducts.locator("tbody tr").allTextContents();
   assert.equal(rankedRows.length, 5);
   for (let index = 0; index < 5; index++)
@@ -238,6 +252,7 @@ try {
   await request(`/products/${product.id}`, "PATCH", { name: "Updated synthetic test product" });
   await page.goto(base + "/restock", { waitUntil: "domcontentloaded" });
   const staleCard = restockCard("Updated synthetic test product");
+  await openRestockGroups();
   await staleCard.getByText("Refresh needed", { exact: true }).waitFor();
   await openForecastDetails(staleCard, /Results are from an older forecast/);
   assert.equal(await page.getByText("High confidence", { exact: true }).count(), 0);

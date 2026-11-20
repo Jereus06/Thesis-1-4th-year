@@ -101,6 +101,8 @@ try {
       });
     if (path.endsWith("/auth/options")) return json({ signUpEnabled: false, googleEnabled: false });
     if (path.endsWith("/auth/google/pending")) return json(null);
+    if (request.method() === "GET" && path.endsWith("/auth/activity"))
+      return json({ events: [], nextCursor: null });
     if (request.method() === "POST" && path.endsWith("/products")) {
       const input = request.postDataJSON();
       const key = request.headers()["idempotency-key"];
@@ -252,6 +254,7 @@ try {
       }
       return json(result.data);
     }
+    if (request.method() === "GET" && path.endsWith("/product-photos")) return json([]);
     if (path.endsWith("/products")) {
       productReads++;
       if (failProductRead)
@@ -496,8 +499,17 @@ try {
   }
   async function openBaseSale(quantity, date = "2026-10-15") {
     await openSale(quantity);
-    await dialog().getByLabel("Product", { exact: true }).selectOption(product.id);
+    await selectSaleProduct(product.id);
     await dialog().getByLabel("Date", { exact: true }).fill(date);
+  }
+  async function selectSaleProduct(productId) {
+    const picker = dialog().getByLabel("Product", { exact: true });
+    await picker.click();
+    await dialog()
+      .getByRole("listbox", { name: "Products", exact: true })
+      .locator(`[data-product-id="${productId}"]`)
+      .click();
+    assert.equal(await picker.getAttribute("data-product-id"), productId);
   }
   async function openBaseDelivery(quantity) {
     if (!page.url().endsWith("/inventory"))
@@ -1295,7 +1307,10 @@ try {
   const savedInactiveSale = saved.get(inactiveSale.key).data;
   await setProductActive(product.id, false);
   await refreshMovements();
-  assert.equal(await dialog().getByLabel("Product", { exact: true }).inputValue(), product.id);
+  assert.equal(
+    await dialog().getByLabel("Product", { exact: true }).getAttribute("data-product-id"),
+    product.id,
+  );
   await save("Save sale");
   await dialog().waitFor({ state: "hidden" });
   assert.equal(requests.at(-1).key, inactiveSale.key);
@@ -1316,10 +1331,13 @@ try {
   await setProductActive(product.id, false);
   await dialog().getByLabel("Quantity", { exact: true }).fill("4");
   const beforeBlockedSaleEdit = requests.length;
-  assert.equal(await dialog().getByLabel("Product", { exact: true }).inputValue(), product.id);
+  assert.equal(
+    await dialog().getByLabel("Product", { exact: true }).getAttribute("data-product-id"),
+    product.id,
+  );
   await submitHandler();
   assert.equal(requests.length, beforeBlockedSaleEdit);
-  await dialog().getByLabel("Product", { exact: true }).selectOption(alternateId);
+  await selectSaleProduct(alternateId);
   await dialog().getByLabel("Quantity", { exact: true }).fill("2");
   await save("Save sale");
   await dialog().waitFor({ state: "hidden" });
@@ -1479,7 +1497,7 @@ try {
   assert.deepEqual(requests.at(-1).input, unsavedInactiveSale.input);
   assert.equal(sales.length, salesBeforeUnsaved);
   assert.equal(stock, 20);
-  await dialog().getByLabel("Product", { exact: true }).selectOption(alternateId);
+  await selectSaleProduct(alternateId);
   await save("Save sale");
   await dialog().waitFor({ state: "hidden" });
   assert.notEqual(requests.at(-1).key, unsavedInactiveSale.key);
@@ -1563,7 +1581,7 @@ try {
     await submitHandler();
     assert.equal(requests.length, beforeNewSessionSubmit);
   } else await openSale(1);
-  await dialog().getByLabel("Product", { exact: true }).selectOption(alternateId);
+  await selectSaleProduct(alternateId);
   await dialog().getByLabel("Quantity", { exact: true }).fill("1");
   await dialog().getByLabel("Date", { exact: true }).fill("2026-10-15");
   await save("Save sale");
