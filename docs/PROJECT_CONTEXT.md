@@ -15,11 +15,15 @@ and successful import completion; preparation and ordinary UI waits remain short
 It also asserts the exact duplicate-source-key error before checking the warning and
 retained source. No checks are skipped and no product/API/database behavior is changed.
 Typecheck, build, lint (three existing React Refresh warnings), and diff checks passed.
-The updated mocked browser run passed the overlap and failed-refresh recovery checks;
-its remaining scenarios and the new hosted run are pending. A local real-PostgreSQL
-attempt hit the existing 240-second limit on the large POST before reaching the overlap
-check, so it is not evidence of a complete real-database pass. Its disposable installation
-was removed without changing the user's store.
+The isolated mocked-browser rerun passed all 24 scenarios. The complete hosted workflow
+[44765372910](https://github.com/Jereus06/Thesis-1-4th-year/actions/runs/44765372910)
+passed for code commit `a356cb2`, including real PostgreSQL tests, the guided 100,000-row
+import, forecast evidence, backup restoration, and restart persistence. Both the system
+and Windows startup jobs succeeded. An earlier local real-PostgreSQL attempt hit the
+existing 240-second limit on the large POST before reaching the overlap check; that
+attempt is not evidence of a complete pass. Its disposable installation was removed
+without changing the user's store. The first concurrent mocked runs also timed out;
+the final isolated run and the hosted result above are the successful verification.
 
 ### GitHub history reconciliation — 2026-11-20
 
