@@ -566,7 +566,7 @@ try {
   );
   await a.page.getByRole("button", { name: "Order now", exact: true }).click();
   const card = a.page
-    .locator("main .rounded-2xl")
+    .locator("main div.rounded-2xl")
     .filter({ has: a.page.getByText(products[0].name, { exact: true }) })
     .first();
   const statistic = (label) => card.getByText(label, { exact: true }).locator("..").locator("dd");

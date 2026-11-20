@@ -366,8 +366,8 @@ export function DailySalesPanel() {
               </p>
               <p className="mt-2 text-xs text-muted">
                 {summary.unpricedCount
-                  ? `Incomplete: ${summary.unpricedCount} unpriced records`
-                  : "Saved sale prices"}
+                  ? `Incomplete: ${summary.unpricedCount} ${summary.unpricedCount === 1 ? "sale has" : "sales have"} no saved selling price`
+                  : "Based on selling prices saved with each sale"}
               </p>
             </div>
             <div className="col-span-2 rounded-2xl border border-border bg-surface p-4 sm:p-5 lg:col-span-1">
@@ -389,7 +389,9 @@ export function DailySalesPanel() {
                   <p className="text-2xl text-muted">—</p>
                 )}
               </div>
-              <p className="mt-3 text-xs text-muted">Each counting unit has its own total.</p>
+              <p className="mt-3 text-xs text-muted">
+                Pieces, boxes, and other units are counted separately.
+              </p>
             </div>
           </div>
           <div className="overflow-hidden rounded-2xl border border-border bg-surface">
@@ -475,7 +477,9 @@ export function DailySalesPanel() {
                           <span className="tabular">{peso(product.totalAmount)}</span>
                           {product.unpricedCount > 0 && (
                             <small className="block text-muted">
-                              Incomplete: {product.unpricedCount} unpriced records
+                              Incomplete: {product.unpricedCount}{" "}
+                              {product.unpricedCount === 1 ? "sale has" : "sales have"} no saved
+                              price
                             </small>
                           )}
                           <p className="mt-1 text-[11px] whitespace-nowrap text-muted">

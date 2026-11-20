@@ -155,7 +155,7 @@ function ForecastsPage() {
                 checked={compareModels}
                 onChange={(event) => updateView({ compare: event.target.checked })}
               />
-              Compare models
+              Compare forecasting methods
             </label>
           </div>
         </CardContent>
@@ -214,8 +214,8 @@ function ForecastsPage() {
         )}
       {mode === "api" && ready && selected && (
         <p className="text-sm text-muted">
-          MAE is average error; RMSE highlights larger errors. Both are in {selected.unit} per{" "}
-          {forecast?.grain === "weekly" ? "week" : "day"}. Lower is better.
+          Average error shows how far estimates were from actual sales. Both error measures are in{" "}
+          {selected.unit} per {forecast?.grain === "weekly" ? "week" : "day"}. Lower is better.
         </p>
       )}
 
@@ -360,16 +360,16 @@ function ForecastsPage() {
                     Sales days
                   </th>
                   <th scope="col" className="px-4 py-3 text-center font-medium">
-                    MA MAE
+                    Moving Average error
                   </th>
                   <th scope="col" className="px-4 py-3 text-center font-medium">
-                    XGB MAE
+                    XGBoost error
                   </th>
                   <th scope="col" className="px-4 py-3 text-center font-medium">
-                    Ens MAE
+                    Ensemble error
                   </th>
                   <th scope="col" className="px-4 py-3 font-medium">
-                    Chosen method
+                    Recommended method
                   </th>
                   <th scope="col" className="px-4 py-3 font-medium">
                     Past results
@@ -519,11 +519,15 @@ function Score({
         <div>
           <p className="text-xs tracking-wide text-muted uppercase">{name}</p>
           {ready ? (
-            <p className="mt-1 font-mono text-sm tabular">
-              MAE {metric(mae)}
-              <span className="mx-2 text-border">/</span>
-              RMSE {metric(rmse)}
-            </p>
+            <div className="mt-1 text-sm tabular">
+              <p>Average error: {metric(mae)}</p>
+              <details className="mt-2 text-xs text-muted">
+                <summary className="cursor-pointer text-primary">Technical details</summary>
+                <p className="mt-2">
+                  MAE {metric(mae)} · RMSE {metric(rmse)} (gives more weight to large mistakes).
+                </p>
+              </details>
+            </div>
           ) : (
             <Skeleton className="mt-2 h-5 w-40" />
           )}

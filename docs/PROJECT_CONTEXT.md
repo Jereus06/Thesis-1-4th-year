@@ -4,6 +4,37 @@ CSV importer, account access, and imported-sale deletion source reviewed against
 
 ## Purpose and confirmed research context
 
+### Client wording and report layout — 2026-11-21
+
+The primary client screens now explain units, saved-price revenue, purchase cost, supplier
+delivery time, safety stock, and forecast errors in plain language. Report quantity and revenue
+calculations, chronological forecast evaluation, data contracts, and migration history are unchanged.
+Actual versus forecast uses separate cards for each unit with actual/forecast quantities and daily
+average error; matched-test counts, method names, MAE, and RMSE remain in expandable details.
+Forecast and Overview error labels use “Average error” with technical measures available on demand.
+The report's per-priced-record average card was removed to focus on useful sales totals.
+
+Estimated revenue now uses responsive product cards, search over name/SKU/category/brand/model/
+variant, eight cards per page, clear-search and empty states. Each card retains the assumed price,
+assumption date, method, future dates, and quantity; missing prices/forecasts explain the next step
+without replacing unknown values with zero. The panel explains that its future dates are separate
+from historical date filters. Selecting a report product sets its actual unit; changing to a different
+unit clears an incompatible product selection. Inactive products remain in historical totals.
+Restock disclosure boxes show product counts and explicit Show products/Hide controls. Expired
+forecast notices explain that reloading only displays saved results. The client guide reflects these
+controls. All verification fixtures are synthetic and do not change the user's business records.
+
+Verification: all 535 serial frontend tests passed. The final browser runs passed eight pricing/
+report groups (including revenue search, pagination, missing-price states, unit synchronization,
+inactive history, and 390px layout), ten client-UI checks, 15 forecast-module checks, 11 shared-state
+checks, and 44 transaction checks. Initial runs exposed old wording selectors and selectors that
+matched both Restock sections and their product cards; those checks now target the current text
+and actual card elements. A concurrent cold-start browser attempt timed out before loading the
+app; the serial rerun passed. Typecheck, build, lint (three existing React Refresh warnings), and
+diff checks passed. `npm start` rebuilt the local installation successfully and its HTTP health
+endpoint reports a connected database. No backend code or migration changed; Python tests were
+not rerun for this frontend-only change. Logs and screenshots remain under ignored `benchmarks/`.
+
 ### Guided CSV workflow completion waits — 2026-11-20
 
 GitHub run 44759424547 passed the 100,000-row import and stock-preservation checks,

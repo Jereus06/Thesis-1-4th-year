@@ -73,7 +73,11 @@ export function SalesReportChart({
   if (pie ? !shares.length : !trend.points.length) {
     return (
       <p className="py-16 text-center text-sm text-muted">
-        No comparable values. For quantity shares, select one counting unit.
+        {view === "revenue"
+          ? "No saved selling prices are available for these sales. Add verified prices to see revenue."
+          : pie
+            ? "Choose one unit above to compare product shares. If a unit is already selected, no sales match these filters."
+            : "No recorded sales match these dates and products. Try changing the report filters."}
       </p>
     );
   }
@@ -262,8 +266,8 @@ export function SalesReportChart({
         {pie
           ? `Each slice uses ${measure}. Smaller groups appear as Other products.`
           : view === "revenue"
-            ? "Revenue includes priced value only. Gaps are unavailable."
-            : "Quantities are grouped by counting unit. Gaps indicate missing records."}
+            ? "Revenue includes only sales with saved prices. Gaps mean no revenue value is available."
+            : "Each unit is shown separately. Gaps mean there are no saved records for those dates."}
       </p>
     </div>
   );

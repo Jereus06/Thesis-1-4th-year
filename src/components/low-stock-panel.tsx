@@ -233,8 +233,8 @@ export function LowStockPanel() {
                       </div>
                       <p className="mt-1 text-[11px] whitespace-nowrap text-muted">
                         {alert.thresholdSource === "reorder_point"
-                          ? "Reorder point"
-                          : "Safety stock minimum"}
+                          ? "Order more at this stock level"
+                          : "Minimum stock to keep"}
                       </p>
                     </td>
                     <td className="px-3 py-4 whitespace-nowrap">

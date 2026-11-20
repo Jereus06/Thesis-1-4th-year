@@ -807,11 +807,16 @@ function ProductDetailsForm({
             step={0.0001}
             value={draft.sellingPrice}
             onChange={(event) => edit("sellingPrice", event.target.value)}
+            aria-describedby={`${prefix}-price-help`}
           />
+          <p id={`${prefix}-price-help`} className="text-xs text-muted">
+            What you charge customers for one unit. Leave blank if the price is unknown.
+          </p>
         </div>
         <TextField
           id={`${prefix}-unit`}
           label="Unit"
+          hint="How you count this product, such as piece, can, box, or kg. Use the same unit in sales and stock records."
           value={draft.unit}
           onChange={(value) => edit("unit", value)}
           required
@@ -828,6 +833,7 @@ function ProductDetailsForm({
         <NumericField
           id={`${prefix}-lead`}
           label="Lead time (days)"
+          hint="How many days a supplier usually takes to deliver after you order."
           required={!product}
           value={draft.leadTimeDays}
           onChange={(value) => edit("leadTimeDays", value)}
@@ -836,6 +842,7 @@ function ProductDetailsForm({
         <NumericField
           id={`${prefix}-safety`}
           label="Safety stock"
+          hint="Extra stock you want to keep in case sales rise or a delivery is late."
           required={!product}
           value={draft.safetyStock}
           onChange={(value) => edit("safetyStock", value)}
@@ -843,6 +850,7 @@ function ProductDetailsForm({
         <NumericField
           id={`${prefix}-cost`}
           label="Unit cost (PHP)"
+          hint="What you pay for one unit. Used for stock value and purchase estimates."
           required={!product}
           value={draft.unitCost}
           onChange={(value) => edit("unitCost", value)}
@@ -1117,6 +1125,7 @@ function TextField({
   onChange,
   required,
   maxLength,
+  hint,
 }: {
   id: string;
   label: string;
@@ -1124,6 +1133,7 @@ function TextField({
   onChange: (value: string) => void;
   required?: boolean;
   maxLength: number;
+  hint?: string;
 }) {
   return (
     <div className="grid gap-1.5">
@@ -1134,7 +1144,13 @@ function TextField({
         onChange={(event) => onChange(event.target.value)}
         required={required}
         maxLength={maxLength}
+        aria-describedby={hint ? `${id}-help` : undefined}
       />
+      {hint && (
+        <p id={`${id}-help`} className="text-xs text-muted">
+          {hint}
+        </p>
+      )}
     </div>
   );
 }
@@ -1146,6 +1162,7 @@ function NumericField({
   onChange,
   step = 0.001,
   required = true,
+  hint,
 }: {
   id: string;
   label: string;
@@ -1153,6 +1170,7 @@ function NumericField({
   onChange: (value: string) => void;
   step?: number;
   required?: boolean;
+  hint?: string;
 }) {
   return (
     <div className="grid gap-1.5">
@@ -1165,7 +1183,13 @@ function NumericField({
         step={step}
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        aria-describedby={hint ? `${id}-help` : undefined}
       />
+      {hint && (
+        <p id={`${id}-help`} className="text-xs text-muted">
+          {hint}
+        </p>
+      )}
     </div>
   );
 }

@@ -21,7 +21,8 @@ export function TrainingBanner() {
         <p role="status" className="rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm">
           <strong>Forecast expired.</strong>{" "}
           {forecastThrough && `It covered dates through ${forecastThrough}. `}
-          Restock suggestions need an updated forecast. Check recent sales, then {advice}.
+          Restock suggestions need an updated forecast. Check recent sales, then {advice}. Reloading
+          this page only shows the saved results.
         </p>
       )}
       {error && (

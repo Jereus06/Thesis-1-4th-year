@@ -210,16 +210,29 @@ function Section({
 }) {
   const [expanded, setExpanded] = useState(false);
   const items = Array.isArray(children) ? children : [children];
-  const has = items.filter(Boolean).length > 0;
+  const count = items.filter(Boolean).length;
+  const has = count > 0;
   return (
-    <section className="flex flex-col gap-3">
+    <section className="flex flex-col gap-3 rounded-2xl border border-border bg-surface p-4">
       <button
         type="button"
-        className="flex items-center justify-between text-left"
+        className="flex items-center justify-between gap-3 text-left"
+        aria-label={title}
         aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
       >
-        <span className="font-display text-xl font-medium">{title}</span>
+        <span className="font-display text-lg font-medium">
+          {title}
+          <span
+            aria-hidden="true"
+            className="ml-2 rounded-full bg-surface-2 px-2 py-1 font-sans text-xs"
+          >
+            {count}
+          </span>
+        </span>
+        <span aria-hidden="true" className="ml-auto text-xs text-muted">
+          {expanded ? "Hide" : "Show products"}
+        </span>
         <ChevronDown
           className={`size-5 transition-transform ${expanded ? "" : "-rotate-90"}`}
           aria-hidden="true"

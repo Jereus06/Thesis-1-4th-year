@@ -235,11 +235,11 @@ test("staff retain delivery entry while forecast refresh controls belong to owne
   assert.match(staff, /The owner can refresh forecasts/);
 });
 
-test("the overview MAE card has a Forecasts link", () => {
+test("the overview average-error card has a Forecasts link", () => {
   const markup = renderPage(overviewRoute);
   const stats = markup.match(/<section\b[^>]*>([\s\S]*?)<\/section>/)?.[1];
   assert.ok(stats);
-  assert.match(stats, /MAE/);
+  assert.match(stats, /average error/);
   assert.match(stats, /<a\b[^>]*href="\/forecasts"[^>]*>Forecasts/);
 });
 
@@ -409,7 +409,7 @@ test("unavailable history on overview omits demand evidence and never shows heal
       },
     ],
   });
-  assert.match(markup, /1 without current demand/);
+  assert.match(markup, /1 product needs a current sales estimate/);
   assert.match(markup, /Current reorder advice is unavailable/);
   assert.doesNotMatch(markup, /Demand evidence|Days with missing records:|Days left out:/);
   assert.doesNotMatch(markup, /Healthy cover across|Stock is above reorder points/);
@@ -420,7 +420,7 @@ test("overview distinguishes an empty catalog and missing current recommendation
   assert.match(empty, /Add or activate inventory and record sales history/);
   assert.match(empty, /No active products to assess/);
   const waiting = renderPage(overviewRoute, { rows: [] });
-  assert.match(waiting, /1 without current demand/);
+  assert.match(waiting, /1 product needs a current sales estimate/);
   assert.match(waiting, /Current reorder advice is unavailable/);
   assert.doesNotMatch(waiting, /Healthy cover across|Stock is above reorder points/);
 });

@@ -54,7 +54,10 @@ function DataQualityPage() {
     <div className="mx-auto grid max-w-5xl gap-6">
       <header>
         <h1 className="font-display text-3xl">Sales record review</h1>
-        <p className="mt-2 text-muted">Tell us what happened on days with missing sales records.</p>
+        <p className="mt-2 text-muted">
+          Tell us what happened on days with missing sales records. A blank day could mean no sales,
+          a closed store, or missing records.
+        </p>
       </header>
       <Card>
         <CardHeader>

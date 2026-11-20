@@ -233,6 +233,12 @@ Use this task for a verified counting correction. Use **Record sale**, **Record 
 
 Use one consistent counting unit for the product. For example, if the unit is pack, its stock, sales, deliveries, safety stock, and cost must all use packs. Positive opening stock creates an opening-balance record; it does not create sales history.
 
+**Unit** means how you count or measure the product, such as piece, can, box, or kg.
+**Lead time** is how many days your supplier takes to deliver after an order.
+**Safety stock** is the extra stock you want to keep for busy days or late deliveries.
+**Unit cost** is what you pay for one unit; **Selling price** is what you charge the customer.
+Use your actual records for these values.
+
 ### Find or edit a product
 
 1. Use **Search by product, SKU, or category** to find the item.
@@ -390,22 +396,40 @@ switch **Quantity / Revenue**. The primary total, chart axes/tooltips, rankings,
 follow this selection. Quantity shares require one counting unit; revenue shares use saved revenue.
 Inactive products remain labeled and cannot be used for new sales.
 
+The **Unit (e.g. piece, can, box)** filter groups products by how you count them. Choosing a
+product automatically selects its unit. Changing to a different unit clears a product that no
+longer matches, so the filters cannot accidentally hide all of that product's sales.
+
 Daily sales, Sales report, and Sales ledger display pesos to two decimals while preserving stored
 price/amount precision. Revenue uses saved sale prices and amounts. Unpriced history is
 **Unavailable**. Totals containing only the priced portion say **Incomplete** and show the number
 of unpriced records. Inventory valuation and purchasing estimates still use unit cost. Voided sales
 are excluded; returns remain separate stock movements under the existing return policy.
 
-**Actual versus forecast** uses the selected model or each product's operating model. Only matching
-saved final-test product/date observations contribute, with separate counting units, observation
-counts, MAE, and RMSE. Missing daily test evidence is unavailable. These are quantity metrics and
-remain independent of historical prices.
+**Actual versus forecast** shows **Actually sold**, **Forecast quantity**, and the average daily
+error for each unit. Only products and dates with both actual sales and saved final-test estimates
+are compared. Open **How this was checked** for the number of daily comparisons, methods, MAE,
+and RMSE. Open **Choose a forecasting method** to compare another method; this also changes the
+method used for Estimated revenue. Missing comparison results are explained, even when prices
+are available. These compare quantities and do not require past selling prices.
 
 **Estimated revenue** multiplies future predicted quantity by the displayed assumed current selling
 price. Its assumption date is the report's business date; the price is assumed constant throughout
 the displayed saved forecast period. This is not profit or guaranteed earnings. Missing prices,
 unavailable forecasts, and expired forecasts stay unavailable. Price assumptions do not change
 quantity model training, validation, or final testing.
+
+Use **Find a product** inside Estimated revenue to search by name, SKU, category, brand, model,
+or size/variant. Up to eight product cards appear per page; use **Previous** and **Next** for more.
+The search applies to the products already selected by your report filters. **Clear search**
+restores that list. Each card shows the price used, expected quantity, forecast dates, and a
+specific next step if a price or current forecast is missing. Open **Estimate details** for the
+method and price assumption date. The historical sales date filter does not change future forecast
+dates. The report summary shows quantity, revenue, and the number of saved sales entries.
+
+On **Restock**, each group shows how many products it contains. Choose **Show products** to open
+the group. If a forecast is expired, reloading the page shows the saved results; use **Refresh
+forecasts** (or ask the owner) to request current estimates.
 
 **Who can do this:** owner or staff.
 

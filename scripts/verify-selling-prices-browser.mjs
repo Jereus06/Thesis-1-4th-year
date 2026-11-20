@@ -181,7 +181,10 @@ try {
   await page.goto(`${base}sales-report`, { waitUntil: "domcontentloaded", timeout: 120000 });
   await page.getByRole("heading", { name: "Sales report", exact: true }).waitFor();
   await page.getByText("Synthetic retired cable (Inactive)", { exact: false }).waitFor();
-  assert.match(await page.locator("main").innerText(), /Incomplete: 1 unpriced records/);
+  assert.match(
+    await page.locator("main").innerText(),
+    /Incomplete: 1 sale has no saved selling price/,
+  );
   assert.match(
     await page.getByRole("group", { name: "Revenue", exact: true }).innerText(),
     /₱20\.00/,
@@ -192,10 +195,7 @@ try {
     await page.getByLabel("Product share legend", { exact: true }).innerText(),
     /20\.00.*100%/,
   );
-  assert.match(
-    await page.locator("main").innerText(),
-    /Unavailable: no matching daily test evidence/,
-  );
+  assert.match(await page.locator("main").innerText(), /No past forecast comparison is available/);
   report.checks.push(
     "Inactive history, incomplete revenue, peso precision, revenue shares, and absent test evidence",
   );
@@ -261,11 +261,68 @@ try {
   report.checks.push(
     "Cost/sell separation, attribute search/edit, and historical amounts after catalog price change",
   );
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: resolve(output, "daily-sales-mobile.png"), fullPage: true });
+  // Extra products exist only in intercepted synthetic HTTP, never the live store.
+  products.push(
+    ...Array.from({ length: 10 }, (_, index) => ({
+      ...product,
+      id: `report-${index}`,
+      sku: `SYNTHETIC-${index}`,
+      name: `Synthetic report product ${index}`,
+      unit: "can",
+      brand: index === 9 ? "Searchable brand" : "Example",
+      sellingPrice: index === 9 ? null : "130",
+    })),
+  );
   await page.goto(`${base}sales-report`, { waitUntil: "domcontentloaded", timeout: 120000 });
   await page.getByRole("heading", { name: "Sales report", exact: true }).waitFor();
+  const estimates = page.getByRole("region", { name: "Estimated revenue", exact: true });
+  const estimateSearch = estimates.getByLabel("Find a product", { exact: true });
+  await estimates.getByText("Showing 1–8 of 11 products", { exact: true }).waitFor();
+  await estimates.getByRole("button", { name: "Next", exact: true }).click();
+  await estimates.getByText("Showing 9–11 of 11 products", { exact: true }).waitFor();
+  await estimateSearch.fill("Searchable brand");
+  await estimates
+    .getByRole("heading", { name: "Synthetic report product 9", exact: true })
+    .waitFor();
+  assert.equal(await estimates.locator("article").count(), 1);
+  assert.match(await estimates.innerText(), /Add a selling price in Inventory/);
+  assert.match(await estimates.innerText(), /current, complete sales forecast is needed/);
+  assert.doesNotMatch(await estimates.innerText(), /Unavailable · Unavailable|₱0\.00/);
+  await estimateSearch.fill("no matching product");
+  await estimates.getByRole("button", { name: "Clear search", exact: true }).click();
+  await estimates.getByText("Showing 1–8 of 11 products", { exact: true }).waitFor();
+  const unitFilter = page.getByLabel("Unit (e.g. piece, can, box)", { exact: true });
+  await unitFilter.selectOption("can");
+  await page.getByRole("button", { name: "Product", exact: true }).click();
+  await page.getByRole("option", { name: /Synthetic cable.*SYNTHETIC-CABLE/ }).click();
+  assert.equal(await unitFilter.inputValue(), "pc");
+  assert.match(
+    await page.getByRole("group", { name: "Revenue", exact: true }).innerText(),
+    /₱24\.69/,
+  );
+  await unitFilter.selectOption("can");
+  assert.match(
+    await page.getByRole("button", { name: "Product", exact: true }).innerText(),
+    /All products/,
+  );
+  await unitFilter.selectOption("all");
+  await estimateSearch.fill("SYNTHETIC-9");
+  assert.equal(await estimates.locator("article").count(), 1);
+  await page.screenshot({ path: resolve(output, "report-clear-desktop.png"), fullPage: true });
+  report.checks.push(
+    "Revenue search by brand/SKU, pagination, clear search, specific missing-data messages, and synchronized unit/product filters",
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await estimates.scrollIntoViewIfNeeded();
+  assert.equal(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    true,
+  );
   await page.screenshot({ path: resolve(output, "sales-report-mobile.png"), fullPage: true });
+  await page.goto(`${base}inventory`, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.getByRole("tab", { name: "Daily sales", exact: true }).click();
+  await page.getByLabel("Sales date", { exact: true }).fill("2026-11-19");
+  await page.screenshot({ path: resolve(output, "daily-sales-mobile.png"), fullPage: true });
   await page.goto(`${base}inventory`, { waitUntil: "domcontentloaded", timeout: 120000 });
   await page.getByRole("tab", { name: "Products", exact: true }).click();
   const deleteCategory = page

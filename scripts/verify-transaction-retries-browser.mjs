@@ -1380,7 +1380,7 @@ try {
   // either group still allows recording the actual receipt under test.
   await page.getByRole("button", { name: "Sales estimate unavailable", exact: true }).click();
   const restockCard = page
-    .locator("main .rounded-2xl")
+    .locator("main div.rounded-2xl")
     .filter({ has: page.getByText(productDetails.name, { exact: true }) })
     .first();
   await restockCard.getByRole("button", { name: "Record delivery", exact: true }).click();

@@ -293,17 +293,17 @@ try {
   await page.getByRole("heading", { name: /Morning briefing/ }).waitFor();
   const card = (name) =>
     page
-      .locator("main .rounded-2xl")
+      .locator("main div.rounded-2xl")
       .filter({ has: page.getByText(name, { exact: true }) })
       .first();
-  const maeCard = card("XGBoost MAE");
+  const maeCard = card("XGBoost average error");
   const forecastAction = maeCard.getByRole("link", { name: "Forecasts", exact: true });
   await forecastAction.waitFor();
   await page.screenshot({ path: `${output}/overview.png`, fullPage: true, animations: "disabled" });
   await forecastAction.click();
   await page.waitForURL("**/forecasts");
   await page.getByRole("heading", { name: "Sales forecasts", exact: true }).waitFor();
-  passed("Overview MAE card opens Forecasts through its own compact action.");
+  passed("Overview average-error card opens Forecasts through its own compact action.");
 
   const selector = page.locator('main button[aria-haspopup="listbox"]');
   const selectedProduct = (id) =>

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
 const server = await createServer({
   configFile: false,
@@ -23,6 +25,9 @@ const { suggestCsvOptions, validateGuidedCsv } =
   await server.ssrLoadModule("/src/lib/guided-csv.ts");
 const { deduplicateSales } = await server.ssrLoadModule("/src/lib/sales-import.ts");
 const { peso } = await server.ssrLoadModule("/src/lib/format.ts");
+const { ReportForecastPanels } = await server.ssrLoadModule(
+  "/src/components/report-forecast-panels.tsx",
+);
 const product = {
   id: "p",
   sku: "SYNTHETIC",
@@ -211,6 +216,51 @@ test("estimated revenue uses explicit current price/date and requires a complete
     estimatedRevenue(product, { ...forecast, future: [point(day, null, 1, NaN, 3)] }, day).amount,
     null,
   );
+});
+
+test("client report explains matched quantities, preserves technical evidence, and states price assumptions", () => {
+  const markup = renderToStaticMarkup(
+    createElement(ReportForecastPanels, {
+      products: [product, { ...product, id: "kg", unit: "kg" }],
+      result: { byProduct: { p: forecast, kg: forecast }, forecastHorizonDays: 1 },
+      today: day,
+      from: day,
+      to: "2026-01-02",
+      model: "operating",
+      onModelChange() {},
+    }),
+  );
+  assert.match(markup, /Products counted in pc/);
+  assert.match(markup, /Products counted in kg/);
+  assert.match(markup, /Actually sold/);
+  assert.match(markup, /2\.00 pc per product per day on average/);
+  assert.match(markup, /<summary[^>]*>How this was checked<\/summary>/);
+  assert.match(markup, /Average error \(MAE\): 2\.00/);
+  assert.match(markup, /RMSE\): 2\.00/);
+  assert.match(markup, /₱60\.00/);
+  assert.match(markup, /Price assumed as of 2026-01-01/);
+  assert.match(markup, /2026-02-01 to 2026-02-01/);
+  assert.match(markup, /Prices are assumed to stay the same/);
+  assert.match(markup, /not profit or guaranteed sales/);
+});
+
+test("client report explains missing prices and expired forecasts without displaying invented amounts", () => {
+  const markup = renderToStaticMarkup(
+    createElement(ReportForecastPanels, {
+      products: [{ ...product, sellingPrice: null }],
+      result: { byProduct: { p: { ...forecast, forecastExpired: true } } },
+      today: day,
+      from: "2027-01-01",
+      to: "2027-01-02",
+      model: "operating",
+      onModelChange() {},
+    }),
+  );
+  assert.match(markup, /No past forecast comparison is available/);
+  assert.match(markup, /Add a selling price in Inventory/);
+  assert.match(markup, /Refresh forecasts to get an estimate for current dates/);
+  assert.match(markup, /Not available yet/);
+  assert.doesNotMatch(markup, /₱0\.00|Unavailable.*Unavailable/);
 });
 
 test("browser demonstration preserves attributes, sale prices, and price changes without reseeding", async () => {

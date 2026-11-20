@@ -88,19 +88,21 @@ function Overview() {
             stockouts.length
               ? `${stockouts.length} already at zero`
               : unavailableCount
-                ? `${unavailableCount} without current demand`
-                : "Below reorder point"
+                ? `${unavailableCount} ${unavailableCount === 1 ? "product needs" : "products need"} a current sales estimate`
+                : restock.length
+                  ? "Stock has reached the level for ordering more"
+                  : "No products currently need an order"
           }
         />
         <Kpi
           icon={Wallet}
           label="Inventory value"
           value={peso(inventoryValue)}
-          hint={`${products.length} products`}
+          hint={`${products.length} ${products.length === 1 ? "product" : "products"}, valued at purchase cost`}
         />
         <Kpi
           icon={Scale}
-          label={ready ? `${winner} MAE` : "Forecast error"}
+          label={ready ? `${winner} average error` : "Forecast error"}
           value={ready ? (Number.isFinite(winnerMae) ? metric(winnerMae) : "") : null}
           hint={
             mixedUnits
@@ -269,8 +271,8 @@ function Overview() {
                 />
                 {mixedUnits && (
                   <p className="text-xs text-muted">
-                    Products use different units. Choose a product in Forecasts to see its MAE and
-                    RMSE.
+                    Products use different units. Choose a product in Forecasts to see how close its
+                    past estimates were to actual sales.
                   </p>
                 )}
                 <p className="text-xs text-muted">
@@ -346,9 +348,13 @@ function MetricBar({
         <p className="text-sm font-medium">{label}</p>
         {active && <span className="text-xs font-medium text-primary">Selected</span>}
       </div>
-      <p className="mt-1 font-mono text-sm text-muted tabular">
-        MAE {metric(mae)} · RMSE {metric(rmse)}
-      </p>
+      <p className="mt-1 text-sm text-muted tabular">Average error: {metric(mae)}</p>
+      <details className="mt-2 text-xs text-muted">
+        <summary className="cursor-pointer text-primary">Technical details</summary>
+        <p className="mt-2">
+          MAE {metric(mae)} · RMSE {metric(rmse)}. RMSE gives more weight to large mistakes.
+        </p>
+      </details>
     </div>
   );
 }

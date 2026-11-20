@@ -24,7 +24,7 @@ page.setDefaultTimeout(30_000);
 const checks = [];
 
 const restockCard = (name) =>
-  page.locator("main .rounded-2xl").filter({ has: page.getByText(name, { exact: true }) });
+  page.locator("main div.rounded-2xl").filter({ has: page.getByText(name, { exact: true }) });
 
 async function openRestockGroups() {
   for (const name of [
@@ -219,7 +219,7 @@ try {
   const selectedEvidence = tested.recommendations.find(
     (row) => row.productId === selectedProduct.id,
   ).forecastEvidence;
-  const selectedCard = page.locator("main .rounded-2xl").filter({
+  const selectedCard = page.locator("main div.rounded-2xl").filter({
     has: page.getByRole("heading", { name: selectedProduct.name, exact: true }),
   });
   await selectedCard.getByText("High confidence", { exact: true }).waitFor();
