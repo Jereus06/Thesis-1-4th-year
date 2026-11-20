@@ -114,7 +114,7 @@ def write_once(
 ):
     if not key:
         return callback()
-    return repository.idempotent(user, operation, key, data.model_dump(mode="json"), callback)
+    return repository.idempotent(user, operation, key, data.idempotency_payload(), callback)
 
 
 def principal_data(user: Principal) -> dict[str, str]:
@@ -280,12 +280,15 @@ def update_product(
 def delete_product(
     business_id: str,
     product_id: UUID,
+    delete_history: bool = Query(default=False, alias="deleteHistory"),
     repository: Repository = Depends(repo),
     user: Principal = Depends(csrf_protected),
 ):
     business_user(business_id, user)
     if user.role != "owner":
         raise HTTPException(403, "Owner role required")
+    if delete_history:
+        return {"data": repository.delete_product(user, product_id, delete_history=True)}
     return {"data": repository.delete_product(user, product_id)}
 
 
@@ -418,7 +421,7 @@ def export_sales(
     business_user(business_id, user)
     if from_date and to_date and from_date > to_date:
         raise HTTPException(422, "fromDate must not be after toDate")
-    columns = ["id", "sku", "sale_date", "quantity", "source", "data_origin", "source_record_key"]
+    columns = ["id", "sku", "sale_date", "quantity", "selling_price", "sales_amount", "source", "data_origin", "source_record_key"]
     return csv_response(
         "stockcast-sales.csv", columns, repository.export_sales(business_id, from_date, to_date)
     )

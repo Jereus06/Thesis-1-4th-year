@@ -1,5 +1,19 @@
 # Guided CSV imports
 
+## Prices and product attributes
+
+Inventory mapping supports separate Unit Cost and Selling Price, plus Brand, Model, and Size/Variant
+(including Cable Type). Each variation keeps its own SKU. Count-only imports preserve saved details;
+metadata updates require **Update existing product details from CSV**.
+
+Sales mapping supports Actual Selling Price / Selling Price / Unit Price and Sales Amount / Line
+Amount / Revenue. These are line values, not receipt totals or quantities. Preview, numeric-format
+detection, validation, API payloads, and saved records retain them. A supplied amount requires a
+verified actual price and must equal quantity × price exactly. Blank prices/amounts stay unavailable;
+historical imports never use the catalog price or change stock. Exports carry the same values and
+source IDs. Prices allow four decimals, amounts seven. Changed prices under a saved source ID are
+conflicts. See [the user guide](USER_GUIDE.md#import-past-sales) for the synthetic format example.
+
 Current inventory snapshots and historical sales are supported; the file-selection interface was
 updated on 2026-10-09. Everyday steps are in
 [the User guide](USER_GUIDE.md#import-current-inventory). This document describes the

@@ -16,7 +16,15 @@ export function deduplicateSales(existing: Sale[], incoming: Sale[]) {
     const key = row.sourceRecordKey?.trim();
     if (!key) return;
     const records = recordsByKey.get(key) ?? new Set<string>();
-    records.add(JSON.stringify([row.productId, row.date, row.qty]));
+    records.add(
+      JSON.stringify([
+        row.productId,
+        row.date,
+        row.qty,
+        row.sellingPrice ?? null,
+        row.salesAmount ?? null,
+      ]),
+    );
     recordsByKey.set(key, records);
   }
   existing.forEach(remember);
@@ -28,7 +36,16 @@ export function deduplicateSales(existing: Sale[], incoming: Sale[]) {
     const records = key ? recordsByKey.get(key) : undefined;
     if (records) {
       const matches =
-        records.size === 1 && records.has(JSON.stringify([row.productId, row.date, row.qty]));
+        records.size === 1 &&
+        records.has(
+          JSON.stringify([
+            row.productId,
+            row.date,
+            row.qty,
+            row.sellingPrice ?? null,
+            row.salesAmount ?? null,
+          ]),
+        );
       errors.push({
         row: index + 1,
         code: matches ? "duplicate_source_record_key" : "source_record_key_conflict",

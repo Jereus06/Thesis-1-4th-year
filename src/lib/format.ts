@@ -1,8 +1,10 @@
-export function peso(value: number): string {
+export function peso(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "Unavailable";
   return new Intl.NumberFormat("en-PH", {
     style: "currency",
     currency: "PHP",
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(value);
 }
 

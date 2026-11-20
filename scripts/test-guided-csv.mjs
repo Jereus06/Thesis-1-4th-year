@@ -296,7 +296,7 @@ test("equivalent interpretations need no question but revenue is never guessed a
 test("common export aliases and punctuation automatically extract needed fields without receipt-wide keys", async () => {
   const result = await prepareCsv(
     request(
-      "Customer;Qty. Sold;Item No.;Sale Date;Unit of Measure;Receipt No.;Amount;Line Key\nIgnored;1,25;000123;15/10/2026;bag;receipt:1;50;line:1",
+      "Customer;Qty. Sold;Item No.;Sale Date;Unit of Measure;Receipt No.;Amount;Line Key;Selling Price\nIgnored;1,25;000123;15/10/2026;bag;receipt:1;50;line:1;40",
     ),
   );
   assert.equal(result.summary.error, null);
@@ -306,10 +306,12 @@ test("common export aliases and punctuation automatically extract needed fields 
     date: "2026-10-15",
     qty: 1.25,
     sourceRecordKey: "line:1",
+    sellingPrice: 40,
+    salesAmount: 50,
   });
   const noLineKey = await prepareCsv(
     request(
-      "Sale Date,Product ID,Sales Qty,Receipt No.,Revenue,Unit Cost\n2026-10-05,synthetic-1,2,receipt:1,80,40",
+      "Sale Date,Product ID,Sales Qty,Receipt No.,Revenue,Unit Cost,Selling Price\n2026-10-05,synthetic-1,2,receipt:1,80,40,40",
     ),
   );
   assert.equal(noLineKey.summary.error, null);
@@ -540,6 +542,10 @@ test("saved inventory metadata is previewed but omitted from count-only update r
     "3",
     "1",
     "40",
+    "",
+    "",
+    "",
+    "",
   ]);
 });
 
@@ -561,6 +567,10 @@ test("automatic existing-product counts ignore unused metadata and preserve thei
     "3",
     "1",
     "40",
+    "",
+    "",
+    "",
+    "",
   ]);
   const updateDetails = await prepareCsv(
     request(text, {
@@ -721,6 +731,8 @@ test("suggested aliases and reordered columns ignore extras without losing leadi
     quantity: 1,
     key: 4,
     unit: null,
+    price: null,
+    amount: null,
   });
   assert.deepEqual(result.data.rows[0], {
     id: "prepared-2",

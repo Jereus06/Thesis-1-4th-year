@@ -1,17 +1,19 @@
 import type { DailySalesProduct, DailySalesRow } from "./daily-sales";
 
+export type SalesView = "quantity" | "revenue";
 export type SalesReportChartType = "bar" | "line" | "area" | "pie";
 
 export type SalesTrendSeries = { key: string; unit: string };
 export type SalesTrendPoint = {
   date: string;
   timestamp: number;
+  unpricedCount: number;
   values: Record<string, number | null>;
 };
-export type SalesRecordShare = {
+export type SalesProductShare = {
   id: string;
   name: string;
-  records: number;
+  value: number;
   percentage: number;
 };
 
@@ -21,7 +23,11 @@ export function salesSharePercentage(value: number): string {
 }
 
 /** Place percentage labels outside the circle with room between labels on the same side. */
-export function salesPieLayout(shares: readonly SalesRecordShare[], width: number, height: number) {
+export function salesPieLayout(
+  shares: readonly SalesProductShare[],
+  width: number,
+  height: number,
+) {
   const cx = width / 2;
   const cy = height / 2;
   const radius = Math.max(24, Math.min(104, width / 2 - 70, height / 2 - 34));
@@ -69,23 +75,34 @@ function salesTimestamp(date: string) {
 }
 
 /** Keep catalog counting units distinct and leave unrecorded dates unknown. */
-export function buildSalesTrend(rows: readonly DailySalesRow[]): {
+export function buildSalesTrend(
+  rows: readonly DailySalesRow[],
+  view: SalesView = "quantity",
+): {
   points: SalesTrendPoint[];
   series: SalesTrendSeries[];
   domain: [number, number];
 } {
+  const scale = view === "revenue" ? 1e7 : 1000;
   const validRows = rows.filter(
     (row) => salesTimestamp(row.date) !== null && Number.isFinite(row.quantity),
   );
-  const units = [...new Set(validRows.map((row) => row.unit))].sort((a, b) => a.localeCompare(b));
+  const units = [...new Set(validRows.map((row) => (view === "revenue" ? "PHP" : row.unit)))].sort(
+    (a, b) => a.localeCompare(b),
+  );
   const series = units.map((unit, index) => ({ unit, key: `unit${index}` }));
   const keys = new Map(series.map((item) => [item.unit, item.key]));
+  const missingPrices = new Map<number, number>();
   const observed = new Map<number, Record<string, number>>();
   for (const row of validRows) {
     const timestamp = salesTimestamp(row.date)!;
     const quantities = observed.get(timestamp) ?? {};
-    const key = keys.get(row.unit)!;
-    quantities[key] = (quantities[key] ?? 0) + Math.round(row.quantity * 1000);
+    missingPrices.set(timestamp, (missingPrices.get(timestamp) ?? 0) + (row.unpricedCount ?? 0));
+    const key = keys.get(view === "revenue" ? "PHP" : row.unit)!;
+    if (view === "quantity" || row.totalAmount != null)
+      quantities[key] =
+        (quantities[key] ?? 0) +
+        Math.round((view === "revenue" ? row.totalAmount! : row.quantity) * scale);
     observed.set(timestamp, quantities);
   }
   const timestamps = [...observed.keys()].sort((a, b) => a - b);
@@ -105,8 +122,9 @@ export function buildSalesTrend(rows: readonly DailySalesRow[]): {
     points.push({
       date: new Date(timestamp).toISOString().slice(0, 10),
       timestamp,
+      unpricedCount: missingPrices.get(timestamp) ?? 0,
       values: Object.fromEntries(
-        series.map(({ key }) => [key, recorded?.[key] == null ? null : recorded[key] / 1000]),
+        series.map(({ key }) => [key, recorded?.[key] == null ? null : recorded[key] / scale]),
       ),
     });
   }
@@ -114,19 +132,25 @@ export function buildSalesTrend(rows: readonly DailySalesRow[]): {
   return { points, series, domain: [first - DAY_MS / 2, last + DAY_MS / 2] };
 }
 
-/** Product shares use sale-record counts, so different counting units are never added. */
-export function buildSalesRecordShares(products: readonly DailySalesProduct[]): SalesRecordShare[] {
+/** Revenue shares use saved revenue; quantity shares require one counting unit. */
+export function buildSalesShares(
+  products: readonly DailySalesProduct[],
+  view: SalesView = "quantity",
+): SalesProductShare[] {
+  if (view === "quantity" && new Set(products.map((product) => product.unit)).size > 1) return [];
+  const value = (product: DailySalesProduct) =>
+    view === "revenue" ? product.totalAmount : product.quantity;
   const ranked = products
-    .filter((product) => Number.isFinite(product.recordCount) && product.recordCount > 0)
+    .filter(
+      (product) => value(product) != null && Number.isFinite(value(product)) && value(product)! > 0,
+    )
     .map((product) => ({
       id: product.productId,
       name: `${product.name} (${product.sku})`,
-      records: product.recordCount,
+      value: value(product)!,
     }))
-    .sort(
-      (a, b) => b.records - a.records || a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
-    );
-  const total = ranked.reduce((sum, product) => sum + product.records, 0);
+    .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  const total = ranked.reduce((sum, product) => sum + product.value, 0);
   if (!total) return [];
   const slices =
     ranked.length > 8
@@ -135,9 +159,9 @@ export function buildSalesRecordShares(products: readonly DailySalesProduct[]): 
           {
             id: "other-products",
             name: `Other products (${ranked.length - 7})`,
-            records: ranked.slice(7).reduce((sum, product) => sum + product.records, 0),
+            value: ranked.slice(7).reduce((sum, product) => sum + product.value, 0),
           },
         ]
       : ranked;
-  return slices.map((slice) => ({ ...slice, percentage: (slice.records / total) * 100 }));
+  return slices.map((slice) => ({ ...slice, percentage: (slice.value / total) * 100 }));
 }

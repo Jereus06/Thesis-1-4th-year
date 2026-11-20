@@ -1,3 +1,4 @@
+import { salePricing } from "./sale-pricing.ts";
 import type { CsvDelimiter, CsvRecord } from "./import-csv";
 import type { InventoryImportRow, Product, Sale } from "./types";
 
@@ -112,6 +113,20 @@ export const CSV_IMPORT_FIELDS: Record<GuidedCsvKind, CsvField[]> = {
       required: true,
       aliases: ["unitcost", "costperunit", "cost"],
     },
+    {
+      key: "price",
+      label: "Selling Price",
+      required: false,
+      aliases: ["sellingprice", "saleprice", "retailprice", "unitprice"],
+    },
+    { key: "brand", label: "Brand", required: false, aliases: ["brand"] },
+    { key: "model", label: "Model", required: false, aliases: ["model", "modelnumber"] },
+    {
+      key: "variant",
+      label: "Size / variant",
+      required: false,
+      aliases: ["variant", "size", "sizevariant", "cabletype"],
+    },
   ],
   sales: [
     {
@@ -177,6 +192,18 @@ export const CSV_IMPORT_FIELDS: Record<GuidedCsvKind, CsvField[]> = {
       label: "Source Record Key",
       required: false,
       aliases: ["sourcerecordkey", "salelineid", "transactionlineid", "linekey"],
+    },
+    {
+      key: "price",
+      label: "Actual Selling Price",
+      required: false,
+      aliases: ["sellingprice", "actualsellingprice", "saleprice", "unitprice"],
+    },
+    {
+      key: "amount",
+      label: "Sales Amount",
+      required: false,
+      aliases: ["salesamount", "amount", "revenue", "lineamount", "linetotal"],
     },
     {
       key: "unit",
@@ -303,7 +330,7 @@ export function suggestCsvOptions(
         (!(kind === "sales" && field.key === "product") || candidates.length === 1)
         ? candidates[0]
         : null
-      : position < first.length && !(kind === "sales" && field.key === "unit")
+      : position < first.length && position < (kind === "sales" ? 4 : 8)
         ? position
         : null;
   });
@@ -574,12 +601,13 @@ export function analyzeCsvOptions(
   if (!options.numberConfirmed) {
     const numericFields =
       kind === "sales"
-        ? [["quantity", 3] as const]
+        ? [["quantity", 3] as const, ["price", 4] as const, ["amount", 7] as const]
         : ([
             ["stock", 3],
             ["lead", 0],
             ["safety", 3],
             ["cost", 4],
+            ["price", 4],
           ] as const);
     function* observations() {
       for (const row of rows)
@@ -703,8 +731,21 @@ export function validateGuidedCsv(
             "Lead Time",
             "Safety Stock",
             "Unit Cost",
+            "Selling Price",
+            "Brand",
+            "Model",
+            "Size / variant",
           ]
-        : ["Date", "SKU", "Product", "Quantity", "Unit", "Source Record Key"],
+        : [
+            "Date",
+            "SKU",
+            "Product",
+            "Quantity",
+            "Unit",
+            "Source Record Key",
+            "Actual Selling Price",
+            "Sales Amount",
+          ],
     unresolvedProducts: [],
     unresolvedProductCount: 0,
     reusedInventoryRows: 0,
@@ -773,6 +814,10 @@ export function validateGuidedCsv(
     lead: "leadTimeDays",
     safety: "safetyStock",
     cost: "unitCost",
+    price: "sellingPrice",
+    brand: "brand",
+    model: "model",
+    variant: "variant",
   } as const;
   const unitAliases = CSV_IMPORT_FIELDS.inventory.find((field) => field.key === "unit")!.aliases;
   const unitColumns = first.flatMap((name, column) =>
@@ -799,13 +844,13 @@ export function validateGuidedCsv(
         Object.hasOwn(options.constants ?? {}, key));
     const value = (key: string) => {
       const property = metadataFields[key as keyof typeof metadataFields];
-      if (keepSavedDetails && property) return String(savedProduct![property]);
+      if (keepSavedDetails && property) return String(savedProduct![property] ?? "");
       const index = options.mapping[key];
       if (index !== null && index !== undefined) return (record.fields[index] ?? "").trim();
       if (kind !== "inventory") return "";
       if (Object.hasOwn(options.constants ?? {}, key))
         return (options.constants?.[key] ?? "").trim();
-      return savedProduct && property ? String(savedProduct[property]) : "";
+      return savedProduct && property ? String(savedProduct[property] ?? "") : "";
     };
     const check = <T>(field: string, operation: () => T): T | undefined => {
       try {
@@ -859,6 +904,21 @@ export function validateGuidedCsv(
       const leadTimeDays = detailNumber("lead", 0);
       const safetyStock = detailNumber("safety", 3);
       const unitCost = detailNumber("cost", 4);
+      const sellingPrice = value("price")
+        ? check("price", () =>
+            convertedNumber(
+              value("price"),
+              suppliedField("price") ? options.numberFormat : "decimal-point",
+              4,
+            ),
+          )
+        : null;
+      const attributes = Object.fromEntries(
+        (["brand", "model", "variant"] as const).map((key) => [
+          key,
+          value(key) ? text(key, key === "brand" ? 100 : 150) : "",
+        ]),
+      );
       if (code) {
         const folded = code.toLowerCase(),
           previous = inventorySkus.get(folded);
@@ -895,6 +955,10 @@ export function validateGuidedCsv(
             leadTimeDays?.toString() ?? "",
             safetyStock?.toString() ?? "",
             unitCost?.toString() ?? "",
+            sellingPrice?.toString() ?? "",
+            attributes.brand ?? "",
+            attributes.model ?? "",
+            attributes.variant ?? "",
           ].map((item) => short(item)),
         });
       if (result.issues.length === before) {
@@ -905,6 +969,10 @@ export function validateGuidedCsv(
           leadTimeDays: leadTimeDays!,
           safetyStock: safetyStock!,
           unitCost: unitCost!,
+          sellingPrice,
+          brand: attributes.brand,
+          model: attributes.model,
+          variant: attributes.variant,
         };
         const row: InventoryImportRow = { sku: code!, currentStock: currentStock! };
         for (const [field, property] of Object.entries(metadataFields)) {
@@ -921,6 +989,14 @@ export function validateGuidedCsv(
       const qty = check("quantity", () =>
         convertedNumber(value("quantity"), options.numberFormat, 3, true),
       );
+      const price = value("price")
+        ? check("price", () => convertedNumber(value("price"), options.numberFormat, 4))
+        : null;
+      const amount = value("amount")
+        ? check("amount", () => convertedNumber(value("amount"), options.numberFormat, 7))
+        : null;
+      const pricing =
+        qty === undefined ? undefined : check("amount", () => salePricing(qty, price, amount));
       const key = value("product");
       let match: Product | null | undefined;
       if (Object.hasOwn(options.productMatches, key)) {
@@ -1009,6 +1085,8 @@ export function validateGuidedCsv(
             qty?.toString() ?? "",
             match?.unit ?? "",
             sourceRecordKey,
+            pricing?.sellingPrice?.toString() ?? "",
+            pricing?.salesAmount?.toString() ?? "",
           ].map((item) => short(item)),
         });
       if (result.issues.length === before)
@@ -1017,6 +1095,7 @@ export function validateGuidedCsv(
           productId: match!.id,
           date: date!,
           qty: qty!,
+          ...(options.mapping.price != null || options.mapping.amount != null ? pricing : {}),
           ...(sourceRecordKey ? { sourceRecordKey } : {}),
         });
     }

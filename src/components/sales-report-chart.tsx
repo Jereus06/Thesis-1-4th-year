@@ -15,13 +15,14 @@ import {
 } from "recharts";
 import { chartColors } from "@/lib/chart-theme";
 import type { DailySalesProduct, DailySalesRow } from "@/lib/daily-sales";
-import { quantity } from "@/lib/format";
+import { peso, quantity } from "@/lib/format";
 import {
-  buildSalesRecordShares,
+  buildSalesShares,
   buildSalesTrend,
   salesPieLayout,
   salesSharePercentage,
   type SalesReportChartType,
+  type SalesView,
 } from "@/lib/sales-report-chart";
 
 const colors = [
@@ -54,25 +55,33 @@ export function SalesReportChart({
   rows,
   products,
   chartType = "bar",
+  view = "quantity",
 }: {
   rows: DailySalesRow[];
   products: DailySalesProduct[];
   chartType?: SalesReportChartType;
+  view?: SalesView;
 }) {
-  const trend = useMemo(() => buildSalesTrend(rows), [rows]);
-  const shares = useMemo(() => buildSalesRecordShares(products), [products]);
+  const trend = useMemo(() => buildSalesTrend(rows, view), [rows, view]);
+  const shares = useMemo(() => buildSalesShares(products, view), [products, view]);
+  const format = view === "revenue" ? peso : quantity;
+  const measure = view === "revenue" ? "Revenue (PHP)" : `Quantity (${products[0]?.unit ?? ""})`;
   const descriptionId = useId();
   const [chartSize, setChartSize] = useState({ width: 300, height: 288 });
   const pieLayout = salesPieLayout(shares, chartSize.width, chartSize.height);
   const pie = chartType === "pie";
   if (pie ? !shares.length : !trend.points.length) {
-    return <p className="py-16 text-center text-sm text-muted">No sales match these filters.</p>;
+    return (
+      <p className="py-16 text-center text-sm text-muted">
+        No comparable values. For quantity shares, select one counting unit.
+      </p>
+    );
   }
 
   const legend = pie
     ? shares.map((share) => ({
         key: share.id,
-        text: `${share.name}: ${quantity(share.records)} records (${salesSharePercentage(share.percentage)})`,
+        text: `${share.name}: ${format(share.value)} ${measure} (${salesSharePercentage(share.percentage)})`,
       }))
     : trend.series.map((series) => ({ key: series.key, text: series.unit || "Unspecified unit" }));
 
@@ -82,7 +91,7 @@ export function SalesReportChart({
         role="img"
         aria-label={
           pie
-            ? "Product share of sales records"
+            ? `Product share of ${measure}`
             : `Sales trend — ${chartType[0].toUpperCase()}${chartType.slice(1)}`
         }
         aria-describedby={descriptionId}
@@ -102,13 +111,13 @@ export function SalesReportChart({
               <Tooltip
                 contentStyle={tooltipStyle}
                 formatter={(value, _name, item) => [
-                  `${quantity(Number(value))} records (${salesSharePercentage(Number(item.payload.percentage))})`,
-                  "Sales records",
+                  `${format(Number(value))} (${salesSharePercentage(Number(item.payload.percentage))})`,
+                  measure,
                 ]}
               />
               <Pie
                 data={shares}
-                dataKey="records"
+                dataKey="value"
                 nameKey="name"
                 cx="50%"
                 cy="50%"
@@ -169,16 +178,21 @@ export function SalesReportChart({
               />
               <YAxis
                 tick={{ fill: chartColors.muted, fontSize: 12 }}
-                tickFormatter={quantity}
+                tickFormatter={format}
                 tickLine={false}
                 axisLine={false}
-                width={52}
+                width={95}
                 domain={[0, "auto"]}
               />
               <Tooltip
                 contentStyle={tooltipStyle}
                 labelFormatter={(value) => new Date(Number(value)).toISOString().slice(0, 10)}
-                formatter={(value, name) => [quantity(Number(value)), `Quantity (${name})`]}
+                formatter={(value, name, item) => [
+                  format(Number(value)),
+                  view === "revenue"
+                    ? `Revenue (PHP)${item.payload.unpricedCount ? ` - incomplete: ${item.payload.unpricedCount} unpriced records` : ""}`
+                    : `Quantity (${name})`,
+                ]}
               />
               {chartType === "bar" &&
                 trend.series.map((series, index) => (
@@ -246,8 +260,10 @@ export function SalesReportChart({
       </ul>
       <p id={descriptionId} className="text-xs text-muted">
         {pie
-          ? "Each slice counts sales records. Smaller groups appear as Other products."
-          : "Quantities are grouped by counting unit. Gaps indicate missing records."}
+          ? `Each slice uses ${measure}. Smaller groups appear as Other products.`
+          : view === "revenue"
+            ? "Revenue includes priced value only. Gaps are unavailable."
+            : "Quantities are grouped by counting unit. Gaps indicate missing records."}
       </p>
     </div>
   );

@@ -45,7 +45,11 @@ function ProductMatchControl({
   const [query, setQuery] = useState("");
   const search = query.trim().toLowerCase();
   const matching = products.filter(
-    (item) => !search || `${item.sku} ${item.name}`.toLowerCase().includes(search),
+    (item) =>
+      !search ||
+      `${item.sku} ${item.name} ${item.brand ?? ""} ${item.model ?? ""} ${item.variant ?? ""}`
+        .toLowerCase()
+        .includes(search),
   );
   const choices = matching.slice(0, 50);
   const selected = products.find((item) => item.id === productId);
@@ -58,7 +62,7 @@ function ProductMatchControl({
           aria-label={`Find catalog product for ${source}`}
           value={query}
           disabled={disabled}
-          placeholder="Search SKU or product name"
+          placeholder="Search SKU, product, brand, model, or variant"
           onChange={(event) => setQuery(event.target.value)}
         />
       </label>
@@ -112,7 +116,13 @@ export function CsvImportReview({
     [options.productMatches],
   );
   const productLabels = useMemo(
-    () => new Map(products.map((product) => [product.id, `${product.sku} ${product.name}`])),
+    () =>
+      new Map(
+        products.map((product) => [
+          product.id,
+          `${product.sku} ${product.name} ${product.brand ?? ""} ${product.model ?? ""} ${product.variant ?? ""}`,
+        ]),
+      ),
     [products],
   );
   const filteredMatches = useMemo(() => {

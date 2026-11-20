@@ -31,6 +31,13 @@ export function clearDemoPhotos() {
   }
   if (typeof window !== "undefined") window.dispatchEvent(new Event("stockcast-demo-photos-reset"));
 }
+export function removeDemoPhoto(productId: string) {
+  const photos = readDemoPhotos();
+  if (!(productId in photos)) return;
+  delete photos[productId];
+  writeDemoPhotos(photos);
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("stockcast-demo-photos-reset"));
+}
 export function validatePhotoFile(file: File) {
   if (!file.size || file.size > 5 * 1024 * 1024) throw new Error("Choose a photo of 5 MB or less.");
   if (file.type && !["image/jpeg", "image/png", "image/webp"].includes(file.type))

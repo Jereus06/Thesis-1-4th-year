@@ -10,7 +10,7 @@ const server = await createServer({
   server: { middlewareMode: true, watch: null },
 });
 after(() => server.close());
-const { buildSalesTrend, buildSalesRecordShares, salesPieLayout, salesSharePercentage } =
+const { buildSalesTrend, buildSalesShares, salesPieLayout, salesSharePercentage } =
   await server.ssrLoadModule("/src/lib/sales-report-chart.ts");
 const { summarizeDailySales } = await server.ssrLoadModule("/src/lib/daily-sales.ts");
 
@@ -124,33 +124,36 @@ test("bad dates and unavailable quantities are omitted instead of manufacturing 
   assert.deepEqual(buildSalesTrend([]).points, []);
 });
 
-test("pie shares count sales records rather than mixed units or estimated monetary amounts", () => {
-  const result = buildSalesRecordShares([
-    product("a", { name: "Same name", unit: "kg", quantity: 50, totalAmount: 500, recordCount: 2 }),
-    product("b", { name: "Same name", unit: "piece", quantity: 1, totalAmount: 1, recordCount: 6 }),
-  ]);
+test("pie shares use revenue across units and refuse mixed quantity shares", () => {
+  const products = [
+    product("a", { unit: "kg", quantity: 50, totalAmount: 3, recordCount: 2 }),
+    product("b", { unit: "piece", quantity: 1, totalAmount: 1, recordCount: 6 }),
+  ];
+  assert.deepEqual(buildSalesShares(products), []);
   assert.deepEqual(
-    result.map(({ id, records, percentage }) => [id, records, percentage]),
+    buildSalesShares(products, "revenue").map(({ id, value, percentage }) => [
+      id,
+      value,
+      percentage,
+    ]),
     [
-      ["b", 6, 75],
-      ["a", 2, 25],
+      ["a", 3, 75],
+      ["b", 1, 25],
     ],
   );
-  assert.equal(result[0].name, "Same name (SKU-b)");
-  assert.equal(result[1].name, "Same name (SKU-a)");
 });
 
-test("pie retains every sales record in seven leading products and Other", () => {
+test("pie retains all quantity in seven leading products and Other", () => {
   const products = Array.from({ length: 15 }, (_, index) =>
-    product(String(index), { recordCount: index + 1 }),
+    product(String(index), { recordCount: index + 1, quantity: index + 1 }),
   );
-  const result = buildSalesRecordShares(products);
+  const result = buildSalesShares(products);
   assert.equal(result.length, 8);
   assert.equal(result[0].id, "14");
   assert.equal(result.at(-1).id, "other-products");
-  assert.equal(result.at(-1).records, 36);
+  assert.equal(result.at(-1).value, 36);
   assert.equal(
-    result.reduce((sum, slice) => sum + slice.records, 0),
+    result.reduce((sum, slice) => sum + slice.value, 0),
     120,
   );
   assert.ok(Math.abs(result.reduce((sum, slice) => sum + slice.percentage, 0) - 100) < 1e-10);
@@ -160,24 +163,24 @@ test("pie retains every sales record in seven leading products and Other", () =>
   );
 });
 
-test("pie shows up to eight products directly and handles empty saved record counts", () => {
+test("pie shows up to eight products directly and handles empty quantities", () => {
   const products = Array.from({ length: 8 }, (_, index) => product(String(index)));
-  assert.equal(buildSalesRecordShares(products).length, 8);
-  assert.ok(buildSalesRecordShares(products).every(({ id }) => id !== "other-products"));
-  assert.deepEqual(buildSalesRecordShares([]), []);
+  assert.equal(buildSalesShares(products).length, 8);
+  assert.ok(buildSalesShares(products).every(({ id }) => id !== "other-products"));
+  assert.deepEqual(buildSalesShares([]), []);
   assert.deepEqual(
-    buildSalesRecordShares([
-      product("a", { recordCount: 0 }),
-      product("b", { recordCount: Number.NaN }),
+    buildSalesShares([
+      product("a", { recordCount: 0, quantity: 0 }),
+      product("b", { recordCount: Number.NaN, quantity: Number.NaN }),
     ]),
     [],
   );
 });
 
 test("clustered pie percentages stay outside the circle, separated and within mobile bounds", () => {
-  const shares = buildSalesRecordShares(
+  const shares = buildSalesShares(
     Array.from({ length: 129 }, (_, index) =>
-      product(String(index), { recordCount: index < 7 ? 13 : index === 128 ? 150 : 1 }),
+      product(String(index), { quantity: index < 7 ? 13 : index === 128 ? 150 : 1 }),
     ),
   );
   for (const width of [220, 280, 390, 1100]) {
@@ -201,7 +204,7 @@ test("clustered pie percentages stay outside the circle, separated and within mo
 });
 
 test("pie labels handle one product, rounded percentages and tiny positive shares", () => {
-  const layout = salesPieLayout(buildSalesRecordShares([product("a")]), 280, 288);
+  const layout = salesPieLayout(buildSalesShares([product("a")]), 280, 288);
   assert.equal(layout.labels[0].text, "100%");
   assert.equal(salesSharePercentage(3.59116022), "3.59%");
   assert.equal(salesSharePercentage(0.0001), "<0.01%");

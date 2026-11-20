@@ -365,7 +365,9 @@ export function DailySalesPanel() {
                 {peso(summary.totalAmount)}
               </p>
               <p className="mt-2 text-xs text-muted">
-                Based on unit cost
+                {summary.unpricedCount
+                  ? `Incomplete: ${summary.unpricedCount} unpriced records`
+                  : "Saved sale prices"}
               </p>
             </div>
             <div className="col-span-2 rounded-2xl border border-border bg-surface p-4 sm:p-5 lg:col-span-1">
@@ -454,7 +456,10 @@ export function DailySalesPanel() {
                             >
                               <Package2 className="size-4" />
                             </span>
-                            <span className="min-w-32 font-medium">{product.name}</span>
+                            <span className="min-w-32 font-medium">
+                              {product.name}
+                              {!product.isActive && " (Inactive)"}
+                            </span>
                           </div>
                         </td>
                         <td className="px-3 py-4 text-xs whitespace-nowrap text-muted">
@@ -468,6 +473,11 @@ export function DailySalesPanel() {
                         </td>
                         <td className="px-5 py-4 text-center">
                           <span className="tabular">{peso(product.totalAmount)}</span>
+                          {product.unpricedCount > 0 && (
+                            <small className="block text-muted">
+                              Incomplete: {product.unpricedCount} unpriced records
+                            </small>
+                          )}
                           <p className="mt-1 text-[11px] whitespace-nowrap text-muted">
                             {quantity(product.quantity)} {product.unit} sold
                           </p>

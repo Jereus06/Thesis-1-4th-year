@@ -33,7 +33,7 @@ def test_sales_csv_preserves_stored_keys_without_inventing_unkeyed_identities(pg
     response = client.get(base + "/exports/sales.csv")
     rows = exported_rows(response)
     assert list(rows[0]) == [
-        "id", "sku", "sale_date", "quantity", "source", "data_origin", "source_record_key",
+        "id", "sku", "sale_date", "quantity", "selling_price", "sales_amount", "source", "data_origin", "source_record_key",
     ]
     assert [row["source_record_key"] for row in rows] == ["verified-pos:line-1", "", ""]
     assert len({row["id"] for row in rows}) == 3

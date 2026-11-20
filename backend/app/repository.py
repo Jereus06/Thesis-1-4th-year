@@ -20,6 +20,7 @@ from .data_quality import (
 )
 from .inventory import calculate_reorder
 from .schemas import (
+    sale_amount,
     BusinessUpdate,
     DataQualityDelete,
     DataQualityUpsert,
@@ -42,6 +43,12 @@ logger = logging.getLogger(__name__)
 
 def decimal_text(value: Decimal | str) -> str:
     return format(Decimal(value), "f")
+
+
+def canonical_decimal(value: Decimal) -> str:
+    """Remove insignificant zeros without Decimal.normalize's context rounding."""
+    text = decimal_text(value)
+    return (text.rstrip("0").rstrip(".") if "." in text else text) if value else "0"
 
 
 def refresh_split_plan(history_days: int, settings: dict[str, Any]) -> dict[str, Any]:
@@ -94,6 +101,7 @@ def product_row(row: dict[str, Any]) -> dict[str, Any]:
         "leadTimeDays": row["lead_time_days"],
         "safetyStock": decimal_text(row["safety_stock"]),
         "unitCost": decimal_text(row["unit_cost"]),
+        "sellingPrice": decimal_text(row["selling_price"]) if row.get("selling_price") is not None else None,
         "isActive": row["is_active"],
     }
 
@@ -362,9 +370,9 @@ class Repository:
             )
             row = self.conn.execute(
                 """INSERT INTO products
-                (business_id,sku,name,category,brand,model,variant,unit,current_stock,lead_time_days,safety_stock,unit_cost,
+                (business_id,sku,name,category,brand,model,variant,unit,current_stock,lead_time_days,safety_stock,unit_cost,selling_price,
                  created_at,updated_at)
-                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,clock_timestamp(),clock_timestamp()) RETURNING *""",
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,clock_timestamp(),clock_timestamp()) RETURNING *""",
                 (
                     principal.business_id,
                     data.sku.strip(),
@@ -378,6 +386,7 @@ class Repository:
                     data.lead_time_days,
                     data.safety_stock,
                     data.unit_cost,
+                    data.selling_price,
                 ),
             ).fetchone()
             if data.current_stock > 0:
@@ -399,8 +408,8 @@ class Repository:
                 )
         return product_row(row)
 
-    def delete_product(self, principal: Principal, product_id: UUID):
-        """Remove an unused empty catalog entry without deleting its history."""
+    def delete_product(self, principal: Principal, product_id: UUID, delete_history: bool = False):
+        """Remove an empty entry, or explicitly remove its records as an owner."""
         if principal.role != "owner":
             raise HTTPException(403, "Owner role required")
         with self.conn.transaction():
@@ -416,6 +425,14 @@ class Repository:
             ).fetchone()
             if not product:
                 return {"deletedRows": 0}
+            if delete_history:
+                self._delete_product_history(principal.business_id, product_id)
+                deleted = self.conn.execute(
+                    "DELETE FROM products WHERE business_id=%s AND id=%s",
+                    (principal.business_id, product_id),
+                ).rowcount
+                self._invalidate_sales_forecasts(principal.business_id)
+                return {"deletedRows": deleted}
             if product["current_stock"] != 0:
                 raise HTTPException(409, "This product still has stock and cannot be deleted. Use Deactivate to keep its records.")
             history_tables = (
@@ -455,8 +472,47 @@ class Repository:
             ).rowcount
         return {"deletedRows": deleted}
 
+    def _delete_product_history(self, business_id: str, product_id: UUID):
+        # The caller owns the business/product locks. Lock matching runs before
+        # removing them so a worker cannot claim a queued snapshot mid-deletion.
+        reference = Jsonb([{"productId": str(product_id)}])
+        runs = self.conn.execute(
+            """SELECT r.id,r.status FROM forecast_runs r WHERE r.business_id=%s AND (
+                r.data_snapshot->'products' ? %s
+                OR r.data_snapshot->'preparedProducts' ? %s
+                OR r.data_snapshot->'dailySales' @> %s::jsonb
+                OR r.data_snapshot->'dataQuality' @> %s::jsonb
+                OR r.id IN (SELECT forecast_run_id FROM forecast_predictions WHERE business_id=%s AND product_id=%s)
+                OR r.id IN (SELECT forecast_run_id FROM forecast_metrics WHERE business_id=%s AND product_id=%s)
+                OR r.id IN (SELECT forecast_run_id FROM reorder_recommendations WHERE business_id=%s AND product_id=%s)
+            ) ORDER BY r.id FOR UPDATE OF r""",
+            (business_id, str(product_id), str(product_id), reference, reference,
+             business_id, product_id, business_id, product_id, business_id, product_id),
+        ).fetchall()
+        if any(run["status"] == "running" for run in runs):
+            raise HTTPException(409, "A forecast for this product is running. Wait for it to finish, then retry deletion.")
+        run_ids = [run["id"] for run in runs]
+        self.conn.execute(
+            """DELETE FROM reorder_recommendations WHERE business_id=%s
+               AND (product_id=%s OR forecast_run_id=ANY(%s::uuid[]))""",
+            (business_id, product_id, run_ids),
+        )
+        self.conn.execute(
+            "DELETE FROM forecast_runs WHERE business_id=%s AND id=ANY(%s::uuid[])",
+            (business_id, run_ids),
+        )
+        # Stock movements must precede sales; no adjustments are applied to any
+        # other product. Import metadata and retry tombstones remain intact.
+        for table in ("inventory_movements", "sales", "sales_day_quality_audit", "sales_day_quality"):
+            self.conn.execute(
+                f"DELETE FROM {table} WHERE business_id=%s AND product_id=%s",
+                (business_id, product_id),
+            )
+
     def update_product(self, principal: Principal, product_id: UUID, data: ProductUpdate):
         fields = data.model_dump(exclude_none=True)
+        if "selling_price" in data.model_fields_set:
+            fields["selling_price"] = data.selling_price
         if not fields:
             raise HTTPException(422, "At least one field is required")
         names = {
@@ -464,6 +520,7 @@ class Repository:
             "lead_time_days",
             "safety_stock",
             "unit_cost",
+            "selling_price",
             "is_active",
             "sku",
             "name",
@@ -534,7 +591,7 @@ class Repository:
                         principal,
                         existing["id"],
                         ProductUpdate(**{
-                            **item.model_dump(exclude_none=True),
+                            **item.model_dump(exclude_unset=True),
                             "sku": item.sku.strip(),
                             "is_active": True,
                         }),
@@ -543,7 +600,8 @@ class Repository:
                 else:
                     details = item.model_dump(exclude_none=True, exclude={"is_active"})
                     missing = [
-                        field for field in ProductCreate.model_fields if field not in details
+                        field for field, definition in ProductCreate.model_fields.items()
+                        if definition.is_required() and field not in details
                     ]
                     if missing:
                         raise HTTPException(
@@ -566,7 +624,7 @@ class Repository:
             if data.sale_date > self.business_day(principal.business_id):
                 raise HTTPException(422, "Sales cannot be dated after the business's current date")
             product = self.conn.execute(
-                "SELECT current_stock FROM products WHERE business_id=%s AND id=%s AND is_active FOR UPDATE",
+                "SELECT current_stock,selling_price FROM products WHERE business_id=%s AND id=%s AND is_active FOR UPDATE",
                 (principal.business_id, data.product_id),
             ).fetchone()
             if not product:
@@ -574,10 +632,12 @@ class Repository:
             balance = product["current_stock"] - data.quantity
             if balance < 0:
                 raise HTTPException(409, "Sale quantity exceeds current stock")
+            price = data.selling_price if "selling_price" in data.model_fields_set else product.get("selling_price")
+            amount = sale_amount(data.quantity, price) if price is not None else None
             sale = self.conn.execute(
                 """INSERT INTO sales
-                (business_id,product_id,sale_date,quantity,source,data_origin,recorded_by,created_at)
-                SELECT %s,%s,%s,%s,'manual',data_origin,%s,clock_timestamp()
+                (business_id,product_id,sale_date,quantity,source,data_origin,recorded_by,selling_price,sales_amount,created_at)
+                SELECT %s,%s,%s,%s,'manual',data_origin,%s,%s,%s,clock_timestamp()
                 FROM businesses WHERE id=%s RETURNING *""",
                 (
                     principal.business_id,
@@ -585,6 +645,8 @@ class Repository:
                     data.sale_date,
                     data.quantity,
                     principal.user_id,
+                    price,
+                    amount,
                     principal.business_id,
                 ),
             ).fetchone()
@@ -613,6 +675,8 @@ class Repository:
             "productId": str(data.product_id),
             "saleDate": str(data.sale_date),
             "quantity": decimal_text(data.quantity),
+            "sellingPrice": decimal_text(price) if price is not None else None,
+            "salesAmount": decimal_text(amount) if amount is not None else None,
             "source": "manual",
             "dataOrigin": sale["data_origin"],
         }
@@ -686,6 +750,9 @@ class Repository:
                 "productId": str(r["product_id"]),
                 "saleDate": str(r["sale_date"]),
                 "quantity": decimal_text(r["quantity"]),
+                "sellingPrice": decimal_text(r["selling_price"]) if r.get("selling_price") is not None else None,
+                "salesAmount": decimal_text(r["sales_amount"]) if r.get("sales_amount") is not None else None,
+                "sourceRecordKey": r.get("source_record_key"),
                 "source": r["source"],
                 "dataOrigin": r["data_origin"],
                 "importId": str(r["import_id"]) if r["import_id"] else None,
@@ -804,11 +871,11 @@ class Repository:
 
     def export_sales(self, business_id: str, from_date=None, to_date=None):
         return self.conn.execute(
-            """SELECT s.id,p.sku,s.sale_date,s.quantity,s.source,s.data_origin,s.source_record_key
+            """SELECT s.id,p.sku,s.sale_date,s.quantity,s.selling_price,s.sales_amount,s.source,s.data_origin,s.source_record_key
                FROM sales s JOIN products p ON p.business_id=s.business_id AND p.id=s.product_id
                WHERE s.business_id=%s AND s.voided_at IS NULL
-                 AND (%s IS NULL OR s.sale_date >= %s)
-                 AND (%s IS NULL OR s.sale_date <= %s)
+                 AND (%s::date IS NULL OR s.sale_date >= %s)
+                 AND (%s::date IS NULL OR s.sale_date <= %s)
                ORDER BY s.sale_date,s.id""",
             (business_id, from_date, from_date, to_date, to_date),
         ).fetchall()
@@ -820,8 +887,8 @@ class Repository:
                FROM inventory_movements m
                JOIN products p ON p.business_id=m.business_id AND p.id=m.product_id
                WHERE m.business_id=%s
-                 AND (%s IS NULL OR m.movement_date >= %s)
-                 AND (%s IS NULL OR m.movement_date <= %s)
+                 AND (%s::date IS NULL OR m.movement_date >= %s)
+                 AND (%s::date IS NULL OR m.movement_date <= %s)
                ORDER BY m.movement_date,m.created_at,m.id""",
             (business_id, from_date, from_date, to_date, to_date),
         ).fetchall()
@@ -941,9 +1008,12 @@ class Repository:
                     "sale_date": str(item.sale_date),
                     "quantity": quantity,
                     "source_record_key": item.source_record_key,
+                    **({"selling_price": canonical_decimal(item.selling_price),
+                        "sales_amount": canonical_decimal(item.sales_amount)}
+                       if item.selling_price is not None else {}),
                 })
             canonical_rows.sort(key=lambda row: (
-                row["sku"], row["sale_date"], row["quantity"], row["source_record_key"] or ""
+                row["sku"], row["sale_date"], row["quantity"], row["source_record_key"] or "", row.get("selling_price", ""), row.get("sales_amount", "")
             ))
             canonical = json.dumps(
                 {"source": data.source, "rows": canonical_rows},
@@ -953,7 +1023,7 @@ class Repository:
             digest = hashlib.sha256(canonical).hexdigest()
             # Preserve exact retries of batches recorded before canonical fingerprints.
             legacy_digest = hashlib.sha256(json.dumps(
-                {"source": data.source, "rows": [row.model_dump(mode="json") for row in data.rows]},
+                {"source": data.source, "rows": [row.model_dump(mode="json", exclude={"selling_price", "sales_amount"}) if row.selling_price is None else row.model_dump(mode="json") for row in data.rows]},
                 sort_keys=True,
                 separators=(",", ":"),
             ).encode()).hexdigest()
@@ -979,7 +1049,7 @@ class Repository:
                 # Legacy rows can have surrounding whitespace in their saved keys.
                 # Normalize them without modifying previously imported records.
                 keyed_sales = self.conn.execute(
-                    """SELECT source_record_key,product_id,sale_date,quantity FROM sales
+                    """SELECT source_record_key,product_id,sale_date,quantity,selling_price,sales_amount FROM sales
                        WHERE business_id=%s AND voided_at IS NULL AND source_record_key IS NOT NULL""",
                     (principal.business_id,),
                 ).fetchall()
@@ -987,7 +1057,7 @@ class Repository:
                     key = sale["source_record_key"].strip()
                     if key in requested_keys:
                         content_by_key.setdefault(key, set()).add((
-                            str(sale["product_id"]), sale["sale_date"], sale["quantity"]
+                            str(sale["product_id"]), sale["sale_date"], sale["quantity"], sale.get("selling_price"), sale.get("sales_amount")
                         ))
 
             errors = []
@@ -1002,7 +1072,7 @@ class Repository:
                         continue
                     if folded_matches:
                         product_id = folded_matches[0]
-                content = (str(product_id), item.sale_date, item.quantity)
+                content = (str(product_id), item.sale_date, item.quantity, item.selling_price, item.sales_amount)
                 previous = content_by_key.get(item.source_record_key)
                 if previous:
                     code = (
@@ -1038,8 +1108,8 @@ class Repository:
                 self.conn.execute(
                     """INSERT INTO sales
                     (business_id,product_id,sale_date,quantity,source,data_origin,import_id,
-                     source_row_number,source_record_key,recorded_by,created_at)
-                    SELECT %s,%s,%s,%s,%s,data_origin,%s,%s,%s,%s,%s
+                     source_row_number,source_record_key,recorded_by,created_at,selling_price,sales_amount)
+                    SELECT %s,%s,%s,%s,%s,data_origin,%s,%s,%s,%s,%s,%s,%s
                     FROM businesses WHERE id=%s""",
                     (
                         principal.business_id,
@@ -1052,6 +1122,8 @@ class Repository:
                         item.source_record_key,
                         principal.user_id,
                         imported_at,
+                        item.selling_price,
+                        item.sales_amount,
                         principal.business_id,
                     ),
                 )

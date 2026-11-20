@@ -23,6 +23,12 @@ Read [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) before changing this p
 8. Run `python -m pytest backend/tests` for Python changes. Do not implement the groupmate-reserved
    `is_valid_iso_date(value: str) -> bool` or its dedicated tests; its contract is documented in
    `backend/docs/RESERVED_DATE_HELPER.md`.
+9. Keep purchasing `unitCost` separate from product `sellingPrice` and immutable sale
+   `sellingPrice`/`salesAmount`. Never backfill historical prices from current catalog values.
+   Unpriced revenue stays unavailable; partial totals disclose unpriced-record counts. Historical
+   reports include inactive products, while new transactions keep the active-product guard.
+   Quantity forecasts must remain usable without prices. Estimated revenue states its assumed
+   selling price and assumption date and does not change model evaluation or selection.
 
 ## Documentation
 

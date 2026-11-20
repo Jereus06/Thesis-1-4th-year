@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
-import { num, quantity } from "@/lib/format";
+import { peso, num, quantity } from "@/lib/format";
 import { usePermissions } from "@/lib/permissions";
 import { isImportedSale } from "@/lib/sales-import";
 import { useAppStore } from "@/lib/store";
@@ -40,7 +40,13 @@ export function SalesLedgerCard() {
   const [search, setSearch] = useState("");
   const pending = useRef(false);
   const nameById = useMemo(
-    () => Object.fromEntries(products.map((product) => [product.id, product.name])),
+    () =>
+      Object.fromEntries(
+        products.map((product) => [
+          product.id,
+          `${product.name}${product.isActive === false ? " (Inactive)" : ""}`,
+        ]),
+      ),
     [products],
   );
   const sortedSales = useMemo(
@@ -52,7 +58,7 @@ export function SalesLedgerCard() {
     if (!query) return sortedSales;
     return sortedSales.filter((sale) => {
       const product = products.find((item) => item.id === sale.productId);
-      return `${product?.name ?? sale.productId} ${product?.sku ?? ""}`
+      return `${product?.name ?? sale.productId} ${product?.sku ?? ""} ${product?.brand ?? ""} ${product?.model ?? ""} ${product?.variant ?? ""} ${product?.category ?? ""}`
         .toLocaleLowerCase()
         .includes(query);
     });
@@ -160,17 +166,7 @@ export function SalesLedgerCard() {
       </CardHeader>
       <CardContent className="grid gap-4">
         <div className="record-scroll" tabIndex={0} role="region" aria-label="Sales records">
-          <table
-            aria-label="Recent sales"
-            className="w-full min-w-[34rem] table-fixed text-left text-sm"
-          >
-            <colgroup>
-              <col className="w-[22%]" />
-              <col className={canDeleteSales ? "w-[28%]" : "w-[46%]"} />
-              <col className={canDeleteSales ? "w-[10%]" : "w-[14%]"} />
-              <col className={canDeleteSales ? "w-[17%]" : "w-[18%]"} />
-              {canDeleteSales && <col className="w-[23%]" />}
-            </colgroup>
+          <table aria-label="Recent sales" className="w-full min-w-[52rem] text-left text-sm">
             <thead className="text-xs tracking-wide text-muted uppercase">
               <tr>
                 <th scope="col" className="px-4 py-3 font-medium">
@@ -184,6 +180,12 @@ export function SalesLedgerCard() {
                 </th>
                 <th scope="col" className="px-4 py-3 font-medium">
                   Source
+                </th>
+                <th scope="col" className="px-4 py-3 text-center">
+                  Selling price
+                </th>
+                <th scope="col" className="px-4 py-3 text-center">
+                  Sales amount
                 </th>
                 {canDeleteSales && (
                   <th scope="col" className="px-4 py-3 text-center font-medium">
@@ -209,6 +211,8 @@ export function SalesLedgerCard() {
                           ? "Demo"
                           : "Unknown"}
                   </td>
+                  <td className="px-4 py-3 text-center tabular">{peso(sale.sellingPrice)}</td>
+                  <td className="px-4 py-3 text-center tabular">{peso(sale.salesAmount)}</td>
                   {canDeleteSales && (
                     <td className="px-4 py-3 text-center">
                       {(isImportedSale(sale) || sale.source === "manual") && (
@@ -230,7 +234,7 @@ export function SalesLedgerCard() {
               ))}
               {!filteredSales.length && (
                 <tr>
-                  <td colSpan={canDeleteSales ? 5 : 4} className="px-4 py-6 text-muted">
+                  <td colSpan={canDeleteSales ? 7 : 6} className="px-4 py-6 text-muted">
                     {sales.length ? "No sales match your search." : "No sales recorded yet."}
                   </td>
                 </tr>

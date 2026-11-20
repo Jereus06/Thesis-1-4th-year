@@ -11,6 +11,7 @@ export type Product = {
   leadTimeDays: number;
   safetyStock: number;
   unitCost: number;
+  sellingPrice?: number | null;
   isActive?: boolean;
 };
 
@@ -32,6 +33,7 @@ export type ProductPatch = Partial<
     | "leadTimeDays"
     | "safetyStock"
     | "unitCost"
+    | "sellingPrice"
     | "isActive"
   >
 >;
@@ -64,6 +66,8 @@ export type Sale = {
   productId: string;
   date: string;
   qty: number;
+  sellingPrice?: number | null;
+  salesAmount?: number | null;
   sourceRecordKey?: string;
   source?: "demo" | "manual" | "csv_import" | "pos_import" | "migration";
 };

@@ -19,7 +19,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { SalesReportChart } from "@/components/sales-report-chart";
-import type { SalesReportChartType } from "@/lib/sales-report-chart";
+import { modelLabel } from "@/lib/forecast/constants";
+import { compareSalesForecast, estimatedRevenue, type ReportModel } from "@/lib/sales-forecast";
+import type { SalesReportChartType, SalesView } from "@/lib/sales-report-chart";
 import { useAppStore } from "@/lib/store";
 import { useForecast } from "@/components/forecast-context";
 import { summarizeDailySales } from "@/lib/daily-sales";
@@ -58,15 +60,18 @@ function SalesReportPage() {
   const from = dateMode === "day" ? selectedDay : rangeFrom;
   const to = dateMode === "day" ? selectedDay : rangeTo;
   const [productId, setProductId] = useState("all");
+  const [view, setView] = useState<SalesView>("quantity");
+  const [unit, setUnit] = useState("all");
+  const [model, setModel] = useState<ReportModel>("operating");
   const [chartType, setChartType] = useState<SalesReportChartType>("bar");
   const selectedProductIds = useMemo(() => {
-    const active = products.filter((product) => product.isActive !== false);
+    const active = products.filter((product) => unit === "all" || product.unit === unit);
     return new Set(
       active
         .filter((product) => productId === "all" || product.id === productId)
         .map((product) => product.id),
     );
-  }, [products, productId]);
+  }, [products, productId, unit]);
   const filteredSales = useMemo(
     () => sales.filter((sale) => selectedProductIds.has(sale.productId)),
     [sales, selectedProductIds],
@@ -75,22 +80,37 @@ function SalesReportPage() {
     () => summarizeDailySales(filteredSales, products, from, to),
     [filteredSales, products, from, to],
   );
-  const productRanking = [...summary.products].sort((a, b) => b.quantity - a.quantity).slice(0, 8);
-  const transactionAverage = summary.recordCount ? summary.totalAmount / summary.recordCount : 0;
-  const forecastComparison = useMemo(() => {
-    let actual = 0;
-    let predicted = 0;
-    for (const productId of selectedProductIds) {
-      const forecast = forecastResult?.byProduct[productId];
-      for (const point of forecast?.holdout ?? []) {
-        if (point.date >= from && point.date <= to && point.actual !== null) {
-          actual += point.actual;
-          predicted += point.ensemble;
-        }
-      }
-    }
-    return { actual, predicted, error: Math.abs(actual - predicted) };
-  }, [forecastResult, selectedProductIds, from, to]);
+  const productRanking = [...summary.products].sort((a, b) =>
+    view === "revenue"
+      ? (b.totalAmount ?? -1) - (a.totalAmount ?? -1)
+      : a.unit.localeCompare(b.unit) || b.quantity - a.quantity,
+  );
+  const pricedRecords = summary.recordCount - summary.unpricedCount;
+  const transactionAverage =
+    pricedRecords && summary.totalAmount != null ? summary.totalAmount / pricedRecords : null;
+  const selectedProducts = products.filter((product) => selectedProductIds.has(product.id));
+  const forecastComparison = compareSalesForecast(
+    selectedProducts,
+    forecastResult,
+    from,
+    to,
+    model,
+  );
+  const estimates = selectedProducts
+    .filter((product) => product.isActive !== false)
+    .map((product) => ({
+      product,
+      ...estimatedRevenue(
+        product,
+        forecastResult?.byProduct[product.id],
+        today,
+        model,
+        forecastResult?.forecastHorizonDays,
+      ),
+    }));
+  const revenueNote = summary.unpricedCount
+    ? `Incomplete: ${summary.unpricedCount} unpriced records`
+    : "Saved sale prices";
   const validRange = validReportDate(from) && validReportDate(to) && from <= to && to <= today;
 
   return (
@@ -109,7 +129,7 @@ function SalesReportPage() {
               Sales report
             </h1>
             <p className="mt-2 text-sm leading-relaxed text-white/80">
-              Review sales by date and product. Values use unit cost.
+              Review saved quantities and revenue by date and product.
             </p>
           </div>
           <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-2 text-xs text-white/90">
@@ -198,6 +218,28 @@ function SalesReportPage() {
             </>
           )}
           <div className="grid gap-1.5">
+            <Label htmlFor="report-view">View</Label>
+            <Select
+              id="report-view"
+              value={view}
+              onChange={(event) => setView(event.target.value as SalesView)}
+            >
+              <option value="quantity">Quantity</option>
+              <option value="revenue">Revenue</option>
+            </Select>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="report-unit">Counting unit</Label>
+            <Select id="report-unit" value={unit} onChange={(event) => setUnit(event.target.value)}>
+              <option value="all">All counting units</option>
+              {[...new Set(products.map((product) => product.unit))].map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="grid gap-1.5">
             <Label htmlFor="report-product">Product</Label>
             <ProductPicker products={products} selectedId={productId} onChange={setProductId} />
           </div>
@@ -219,16 +261,18 @@ function SalesReportPage() {
             className="grid auto-rows-fr gap-3 min-[360px]:grid-cols-2 xl:grid-cols-4"
           >
             <Summary
-              label="Units sold"
+              label={view === "quantity" ? "Units sold" : "Revenue"}
               icon={Package2}
-              note="Shown by counting unit"
-              totals={summary.totals}
+              note={view === "quantity" ? "Shown by counting unit" : revenueNote}
+              totals={view === "quantity" ? summary.totals : undefined}
+              value={view === "revenue" ? peso(summary.totalAmount) : undefined}
             />
             <Summary
-              label="Estimated sales value"
+              label={view === "quantity" ? "Revenue" : "Units sold"}
               icon={Wallet}
-              value={peso(summary.totalAmount)}
-              note="Based on recorded unit cost"
+              totals={view === "revenue" ? summary.totals : undefined}
+              value={view === "quantity" ? peso(summary.totalAmount) : undefined}
+              note={view === "quantity" ? revenueNote : "Shown by counting unit"}
             />
             <Summary
               label="Sales records"
@@ -237,10 +281,10 @@ function SalesReportPage() {
               note="Saved sale entries"
             />
             <Summary
-              label="Estimated value per record"
+              label="Revenue per priced record"
               icon={Calculator}
               value={peso(transactionAverage)}
-              note="Unit-cost estimate per record"
+              note={revenueNote}
             />
           </section>
 
@@ -253,8 +297,10 @@ function SalesReportPage() {
                 </CardTitle>
                 <CardDescription>
                   {chartType === "pie"
-                    ? "Each slice shows a product's share of sales records in the selected period."
-                    : "Daily quantities in the selected period. Different counting units stay separate."}
+                    ? `Product shares by ${view}. Quantity shares require one counting unit.`
+                    : view === "revenue"
+                      ? `Daily revenue. ${revenueNote}.`
+                      : "Daily quantities. Different counting units stay separate."}
                 </CardDescription>
               </div>
               <div className="grid w-full gap-1.5 sm:w-44 sm:shrink-0">
@@ -272,10 +318,12 @@ function SalesReportPage() {
               </div>
             </CardHeader>
             <CardContent>
+              {view === "revenue" && <p className="mb-3 text-xs text-muted">{revenueNote}</p>}
               <SalesReportChart
                 rows={summary.rows}
                 products={summary.products}
                 chartType={chartType}
+                view={view}
               />
             </CardContent>
           </Card>
@@ -283,27 +331,77 @@ function SalesReportPage() {
           <Card>
             <CardHeader>
               <CardTitle>Actual versus forecast</CardTitle>
-              <CardDescription>Past sales compared with saved predictions.</CardDescription>
+              <CardDescription>
+                Quantity comparison on matching saved final-test product/date observations. Counting
+                units stay separate.
+              </CardDescription>
+              <Label htmlFor="report-model">Forecast model</Label>
+              <Select
+                id="report-model"
+                value={model}
+                onChange={(event) => setModel(event.target.value as ReportModel)}
+              >
+                <option value="operating">Operating model per product</option>
+                <option value="ma">Moving Average</option>
+                <option value="xgb">XGBoost</option>
+                <option value="ensemble">Ensemble</option>
+              </Select>
             </CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-3">
-              <div>
-                <p className="text-sm text-muted">Actual units</p>
-                <p className="mt-1 text-xl font-medium tabular">
-                  {quantity(forecastComparison.actual)}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-muted">Forecast units</p>
-                <p className="mt-1 text-xl font-medium tabular">
-                  {quantity(forecastComparison.predicted)}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-muted">Absolute difference</p>
-                <p className="mt-1 text-xl font-medium tabular">
-                  {quantity(forecastComparison.error)}
-                </p>
-              </div>
+            <CardContent className="grid gap-3">
+              {!forecastComparison.length && (
+                <p>Unavailable: no matching daily test evidence for this model and period.</p>
+              )}
+              {forecastComparison.map((row) => (
+                <div key={row.unit} className="rounded-xl bg-surface-2 p-3 text-sm">
+                  <p>
+                    {row.unit} · Models: {row.methods.map(modelLabel).join(", ")} ·{" "}
+                    {row.observations} product/date observations
+                  </p>
+                  <p>
+                    Actual: {quantity(row.actual)} · Forecast: {quantity(row.predicted)} · MAE:{" "}
+                    {num(row.mae, 2)} · RMSE: {num(row.rmse, 2)}
+                  </p>
+                </div>
+              ))}
+              <p className="text-xs text-muted">
+                Only matched observations are included; products without evidence are excluded.
+                These are quantity errors, independent of historical price availability.
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Estimated revenue</CardTitle>
+              <CardDescription>
+                Future predicted quantity × assumed selling price. Assumption date: {today}. Prices
+                are assumed constant over each saved forecast period; these estimates are not profit
+                or guaranteed earnings.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              {!estimates.length && <p>Unavailable: no active products selected.</p>}
+              {estimates.map((row) => (
+                <div key={row.productId} className="rounded-xl bg-surface-2 p-3 text-sm">
+                  <p>
+                    {row.product.name} · {row.product.sku} ·{" "}
+                    {row.method ? modelLabel(row.method) : "Model unavailable"}
+                  </p>
+                  <p>
+                    Assumed selling price: {peso(row.assumedSellingPrice)} / {row.product.unit} as
+                    of {row.assumptionDate}
+                  </p>
+                  <p>
+                    Predicted quantity:{" "}
+                    {row.predictedQuantity == null
+                      ? "Unavailable"
+                      : `${quantity(row.predictedQuantity)} ${row.product.unit}`}{" "}
+                    · Estimated revenue: {peso(row.amount)}
+                  </p>
+                  <p>
+                    {row.start ?? "Unavailable"} · {row.end ?? "Unavailable"}
+                  </p>
+                </div>
+              ))}
             </CardContent>
           </Card>
 
@@ -311,7 +409,10 @@ function SalesReportPage() {
             <CardHeader>
               <CardTitle>Product performance</CardTitle>
               <CardDescription>
-                Ranked by quantity sold. Records counts saved entries, including daily totals.
+                {view === "revenue"
+                  ? "Ranked by saved revenue."
+                  : "Ranked by quantity within each counting unit."}{" "}
+                {revenueNote}.
               </CardDescription>
             </CardHeader>
             <CardContent className="record-scroll" tabIndex={0}>
@@ -335,7 +436,7 @@ function SalesReportPage() {
                         Units
                       </th>
                       <th scope="col" className="px-4 py-3 text-center font-medium">
-                        Estimated value
+                        Revenue
                       </th>
                       <th scope="col" className="px-4 py-3 text-center font-medium">
                         Records
@@ -347,12 +448,20 @@ function SalesReportPage() {
                       <tr key={row.productId} className="border-t border-border">
                         <td className="px-4 py-3 [overflow-wrap:anywhere]">
                           {row.name}
+                          {!row.isActive && " (Inactive)"}
                           <span className="ml-2 text-xs text-muted">{row.sku}</span>
                         </td>
                         <td className="px-4 py-3 text-center tabular">
                           {quantity(row.quantity)} {row.unit}
                         </td>
-                        <td className="px-4 py-3 text-center tabular">{peso(row.totalAmount)}</td>
+                        <td className="px-4 py-3 text-center tabular">
+                          {peso(row.totalAmount)}
+                          {row.unpricedCount > 0 && (
+                            <small className="block">
+                              Incomplete: {row.unpricedCount} unpriced records
+                            </small>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-center tabular">{num(row.recordCount)}</td>
                       </tr>
                     ))}
@@ -443,13 +552,15 @@ function ProductPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const activeProducts = products.filter((product) => product.isActive !== false);
+  const activeProducts = products;
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleProducts = activeProducts.filter(
     (product) =>
       !normalizedQuery ||
       product.name.toLocaleLowerCase().includes(normalizedQuery) ||
-      product.sku.toLocaleLowerCase().includes(normalizedQuery),
+      [product.sku, product.brand, product.model, product.variant, product.category].some((value) =>
+        value?.toLocaleLowerCase().includes(normalizedQuery),
+      ),
   );
   const selectedProduct = activeProducts.find((product) => product.id === selectedId);
 
@@ -510,6 +621,7 @@ function ProductPicker({
                 }}
               >
                 {product.name}
+                {product.isActive === false && " (Inactive)"}
                 <span className="ml-2 text-xs text-muted">{product.sku}</span>
               </button>
             ))}

@@ -20,6 +20,7 @@ from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Resp
 from fastapi.middleware.cors import CORSMiddleware
 
 from .schemas import (
+    sale_amount,
     MovementCreate,
     ProductCreate,
     ProductUpdate,
@@ -75,6 +76,11 @@ def initialize() -> None:
         # Preserve files created by earlier explicit SQLite demonstrations.
         if "voided_at" not in {row["name"] for row in conn.execute("PRAGMA table_info(sales)")}:
             conn.execute("ALTER TABLE sales ADD COLUMN voided_at TEXT")
+        for table, columns in {"products": ["selling_price", "brand", "model", "variant"], "sales": ["selling_price", "sales_amount"]}.items():
+            existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+            for column in columns:
+                if column not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
         conn.execute(
             "INSERT OR IGNORE INTO businesses VALUES(?,?,?)",
             (DEMO_BUSINESS_ID, "StockCast SQLite Demo", "demo"),
@@ -112,6 +118,8 @@ def product(row: sqlite3.Row) -> dict:
         "leadTimeDays": row["lead_time_days"],
         "safetyStock": row["safety_stock"],
         "unitCost": row["unit_cost"],
+        "sellingPrice": row["selling_price"],
+        "brand": row["brand"] or "", "model": row["model"] or "", "variant": row["variant"] or "",
         "isActive": bool(row["is_active"]),
     }
 
@@ -155,7 +163,7 @@ def write_once(conn, user, key, operation, data, callback, *, status_code=200):
     """Atomically save a request and its result in the optional demo database."""
     if key and (not key.strip() or len(key) > 200):
         raise HTTPException(422, "Idempotency-Key must contain 1 to 200 characters")
-    encoded = json.dumps(data.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    encoded = json.dumps(data.idempotency_payload(), sort_keys=True, separators=(",", ":"))
     request_hash = hashlib.sha256(encoded.encode()).hexdigest()
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -321,7 +329,7 @@ def create_product(
     def apply_creation():
         product_id = str(uuid4())
         conn.execute(
-            "INSERT INTO products VALUES(?,?,?,?,?,?,?,?,?,?,1)",
+            "INSERT INTO products(id,business_id,sku,name,category,unit,current_stock,lead_time_days,safety_stock,unit_cost,selling_price,brand,model,variant,is_active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)",
             (
                 product_id,
                 business_id,
@@ -333,6 +341,8 @@ def create_product(
                 data.lead_time_days,
                 decimal_text(data.safety_stock),
                 decimal_text(data.unit_cost),
+                decimal_text(data.selling_price) if data.selling_price is not None else None,
+                data.brand, data.model, data.variant,
             ),
         )
         if data.current_stock:
@@ -375,6 +385,8 @@ def update_product(
     if user.role != "owner":
         raise HTTPException(403, "Owner role required")
     fields = data.model_dump(exclude_none=True)
+    if "selling_price" in data.model_fields_set:
+        fields["selling_price"] = data.selling_price
     if not fields:
         raise HTTPException(422, "At least one field is required")
 
@@ -415,7 +427,7 @@ def record_sale(
         if data.sale_date > datetime.now(ZoneInfo(timezone)).date():
             raise HTTPException(422, "Sales cannot be dated after the business's current date")
         row = conn.execute(
-            "SELECT current_stock FROM products WHERE id=? AND business_id=? AND is_active=1",
+            "SELECT current_stock,selling_price FROM products WHERE id=? AND business_id=? AND is_active=1",
             (str(data.product_id), business_id),
         ).fetchone()
         if not row:
@@ -423,9 +435,11 @@ def record_sale(
         balance = Decimal(row["current_stock"]) - data.quantity
         if balance < 0:
             raise HTTPException(409, "Sale quantity exceeds current stock")
+        price = data.selling_price if "selling_price" in data.model_fields_set else (Decimal(row["selling_price"]) if row["selling_price"] is not None else None)
+        amount = sale_amount(data.quantity, price) if price is not None else None
         sale_id = str(uuid4())
         conn.execute(
-            "INSERT INTO sales(id,business_id,product_id,sale_date,quantity,source,data_origin,recorded_by) VALUES(?,?,?,?,?,?,?,?)",
+            "INSERT INTO sales(id,business_id,product_id,sale_date,quantity,source,data_origin,recorded_by,selling_price,sales_amount) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (
                 sale_id,
                 business_id,
@@ -435,6 +449,8 @@ def record_sale(
                 "manual",
                 "demo",
                 user.user_id,
+                decimal_text(price) if price is not None else None,
+                decimal_text(amount) if amount is not None else None,
             ),
         )
         conn.execute(
@@ -463,6 +479,8 @@ def record_sale(
             "businessId": business_id,
             "productId": str(data.product_id),
             "saleDate": str(data.sale_date),
+            "sellingPrice": decimal_text(price) if price is not None else None,
+            "salesAmount": decimal_text(amount) if amount is not None else None,
             "quantity": decimal_text(data.quantity),
             "source": "manual",
             "dataOrigin": "demo",
@@ -494,6 +512,8 @@ def sales(
                 "id": r["id"],
                 "productId": r["product_id"],
                 "saleDate": r["sale_date"],
+                "sellingPrice": r["selling_price"],
+                "salesAmount": r["sales_amount"],
                 "quantity": r["quantity"],
                 "source": r["source"],
                 "dataOrigin": "demo",

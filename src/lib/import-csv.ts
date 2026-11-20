@@ -1,3 +1,4 @@
+import { salePricing } from "./sale-pricing.ts";
 import type { Product, Sale } from "./types";
 
 /** Read standard spreadsheet Unicode exports without guessing legacy encodings. */
@@ -286,6 +287,13 @@ const inventoryAliases: Record<string, string> = {
   leadtimedays: "lead",
   safetystock: "safety",
   unitcost: "cost",
+  sellingprice: "price",
+  unitprice: "price",
+  brand: "brand",
+  model: "model",
+  variant: "variant",
+  size: "variant",
+  cabletype: "variant",
 };
 const inventoryOrder = ["sku", "name", "category", "unit", "stock", "lead", "safety", "cost"];
 
@@ -298,12 +306,12 @@ export function parseInventoryRecords(records: CsvRecord[]): Omit<Product, "id">
   const header = headerColumns(records[0], inventoryAliases, inventoryOrder);
   const columns = header ?? Object.fromEntries(inventoryOrder.map((name, index) => [name, index]));
   return records.slice(header ? 1 : 0).map((record) => {
-    if (record.fields.length !== 8)
+    if (record.fields.length !== (header ? Object.keys(header).length : 8))
       throw recordError(
         record,
         "Expected 8 inventory columns: SKU, Product, Category, Unit, On Hand, Lead Time, Safety Stock, Unit Cost.",
       );
-    const value = (name: string) => record.fields[columns[name]].trim();
+    const value = (name: string) => (record.fields[columns[name]] ?? "").trim();
     const [sku, name, category, unit] = ["sku", "name", "category", "unit"].map(value);
     const numbers = ["stock", "lead", "safety", "cost"].map(value);
     const [currentStock, leadTimeDays, safetyStock, unitCost] = numbers.map(Number);
@@ -322,7 +330,23 @@ export function parseInventoryRecords(records: CsvRecord[]): Omit<Product, "id">
         record,
         "Inventory quantities must be nonnegative and lead time must be a whole number.",
       );
-    return { sku, name, category, unit, currentStock, leadTimeDays, safetyStock, unitCost };
+    const { sellingPrice } = salePricing(1, value("price") ? Number(value("price")) : null);
+    return {
+      sku,
+      name,
+      category,
+      unit,
+      currentStock,
+      leadTimeDays,
+      safetyStock,
+      unitCost,
+      ...(columns.price != null ? { sellingPrice } : {}),
+      ...Object.fromEntries(
+        ["brand", "model", "variant"]
+          .filter((key) => columns[key] != null)
+          .map((key) => [key, value(key)]),
+      ),
+    };
   });
 }
 
@@ -334,6 +358,12 @@ const salesAliases: Record<string, string> = {
   quantity: "quantity",
   qty: "quantity",
   sourcerecordkey: "key",
+  sellingprice: "price",
+  actualsellingprice: "price",
+  unitprice: "price",
+  salesamount: "amount",
+  amount: "amount",
+  revenue: "amount",
 };
 
 export function parseSalesCsv(text: string, products: Product[]): Sale[] {
@@ -359,7 +389,7 @@ function addMatch(lookup: ProductLookup, key: string, product: Product): void {
 /** Validate against indexed lookups, preserving each matching tier's ambiguity rules. */
 export function parseSalesRecords(records: CsvRecord[], products: Product[]): Sale[] {
   const header = headerColumns(records[0], salesAliases, ["date", "product", "quantity"]);
-  const columns = header ?? { date: 0, product: 1, quantity: 2, key: 3 };
+  const columns: Record<string, number> = header ?? { date: 0, product: 1, quantity: 2, key: 3 };
   const exact: ProductLookup = new Map();
   const foldedSku: ProductLookup = new Map();
   const foldedName: ProductLookup = new Map();
@@ -416,6 +446,13 @@ export function parseSalesRecords(records: CsvRecord[], products: Product[]): Sa
       productId: match.id,
       date,
       qty,
+      ...(columns.price != null || columns.amount != null
+        ? salePricing(
+            qty,
+            record.fields[columns.price]?.trim() ? Number(record.fields[columns.price]) : null,
+            record.fields[columns.amount]?.trim() ? Number(record.fields[columns.amount]) : null,
+          )
+        : {}),
       ...(sourceRecordKey ? { sourceRecordKey } : {}),
     };
   });

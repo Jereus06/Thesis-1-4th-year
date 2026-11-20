@@ -27,7 +27,7 @@ def deletion_api(monkeypatch):
         def __init__(self):
             self.calls = []
 
-        def delete_product(self, user, product_id):
+        def delete_product(self, user, product_id, delete_history=False):
             self.calls.append((user.business_id, product_id))
             return {"deletedRows": 1}
 
@@ -48,10 +48,11 @@ def deletion_api(monkeypatch):
         get_settings.cache_clear()
 
 
-def test_delete_product_route_requires_owner_business_and_csrf(deletion_api):
+@pytest.mark.parametrize("suffix", ["", "?deleteHistory=true"])
+def test_delete_product_route_requires_owner_business_and_csrf(deletion_api, suffix):
     client, repository, principal = deletion_api
     product_id = UUID("00000000-0000-4000-8000-000000000001")
-    path = f"/api/v1/businesses/store-1/products/{product_id}"
+    path = f"/api/v1/businesses/store-1/products/{product_id}" + suffix
     assert client.delete(path).json() == {"data": {"deletedRows": 1}}
     assert repository.calls == [("store-1", product_id)]
     assert client.delete(path.replace("store-1", "other-store")).status_code == 403
@@ -110,6 +111,9 @@ def test_delete_product_protects_stock_and_original_opening_movement(pg_client):
     assert "Deactivate" in blocked.json()["detail"]
     assert client.get(path).json()["data"] == zero_stock
     assert client.get(base + "/inventory-movements").json()["data"] == movements
+    assert client.delete(path + "?deleteHistory=true").json() == {"data": {"deletedRows": 1}}
+    assert client.delete(path + "?deleteHistory=true").json() == {"data": {"deletedRows": 0}}
+    assert client.get(base + "/inventory-movements").json()["data"] == []
 
 
 def insert_forecast(conn, business, snapshot=None, status="completed"):
@@ -200,6 +204,11 @@ def test_delete_product_preserves_each_kind_of_saved_record(pg_client, history):
     assert client.get(base + f"/products/{product_id}").json()["data"] == product
     with psycopg.connect(dsn) as conn:
         assert conn.execute(f"SELECT * FROM {table} WHERE product_id=%s", (product_id,)).fetchall() == before
+    deleted = client.delete(base + f"/products/{product_id}?deleteHistory=true")
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json() == {"data": {"deletedRows": 1}}
+    with psycopg.connect(dsn) as conn:
+        assert conn.execute(f"SELECT count(*) FROM {table} WHERE product_id=%s", (product_id,)).fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("status", ["queued", "running", "completed", "failed"])
@@ -223,6 +232,15 @@ def test_delete_product_preserves_frozen_forecast_inputs(pg_client, status, refe
     assert client.get(base + f"/products/{product_id}").json()["data"] == product
     with psycopg.connect(dsn) as conn:
         assert conn.execute("SELECT data_snapshot,status FROM forecast_runs WHERE id=%s", (run_id,)).fetchone() == (snapshot, status)
+    deleted = client.delete(base + f"/products/{product_id}?deleteHistory=true")
+    if status == "running":
+        assert deleted.status_code == 409
+        assert "running" in deleted.json()["detail"]
+        assert client.get(base + f"/products/{product_id}").status_code == 200
+    else:
+        assert deleted.status_code == 200, deleted.text
+        with psycopg.connect(dsn) as conn:
+            assert conn.execute("SELECT id FROM forecast_runs WHERE id=%s", (run_id,)).fetchone() is None
 
 
 def test_delete_does_not_touch_another_business_product(pg_client):
@@ -237,11 +255,14 @@ def test_delete_does_not_touch_another_business_product(pg_client):
         ).fetchone()[0]
     assert client.delete(f"/api/v1/businesses/{other_business}/products/{other_product}").status_code == 403
     assert client.delete(f"/api/v1/businesses/{business}/products/{other_product}").json() == {"data": {"deletedRows": 0}}
+    assert client.delete(f"/api/v1/businesses/{other_business}/products/{other_product}?deleteHistory=true").status_code == 403
+    assert client.delete(f"/api/v1/businesses/{business}/products/{other_product}?deleteHistory=true").json() == {"data": {"deletedRows": 0}}
     with psycopg.connect(dsn) as conn:
         assert conn.execute("SELECT id FROM products WHERE id=%s", (other_product,)).fetchone()
 
 
-def test_concurrent_unused_product_deletions_remove_once(pg_client):
+@pytest.mark.parametrize("delete_history", [False, True])
+def test_concurrent_unused_product_deletions_remove_once(pg_client, delete_history):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
 
@@ -256,8 +277,36 @@ def test_concurrent_unused_product_deletions_remove_once(pg_client):
         with psycopg.connect(dsn) as conn:
             repository = Repository(conn)
             barrier.wait(timeout=10)
-            return repository.delete_product(principal, UUID(product["id"]))["deletedRows"]
+            return repository.delete_product(principal, UUID(product["id"]), delete_history=delete_history)["deletedRows"]
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = [executor.submit(remove) for _ in range(2)]
         assert sorted(future.result(timeout=20) for future in futures) == [0, 1]
+
+
+def test_confirmed_deletion_with_stock_sales_keeps_other_products_and_settings(pg_client):
+    client, business, dsn = pg_client
+    product = create_product(client, business, stock="5")
+    base = f"/api/v1/businesses/{business}"
+    other_payload = {"sku": "KEEP", "name": "Keep", "category": "Test", "unit": "pc",
+                     "currentStock": "3", "leadTimeDays": 2, "safetyStock": "1", "unitCost": "5"}
+    other = client.post(base + "/products", json=other_payload).json()["data"]
+    sale_payload = {"productId": product["id"], "saleDate": "2026-01-01", "quantity": "1", "sellingPrice": "2.1234"}
+    sale = client.post(base + "/sales", json=sale_payload, headers={"Idempotency-Key": "delete-sale-test"})
+    assert sale.status_code == 201, sale.text
+    with psycopg.connect(dsn) as conn:
+        settings = conn.execute("SELECT * FROM business_settings WHERE business_id=%s", (business,)).fetchall()
+        users = conn.execute("SELECT * FROM users WHERE business_id=%s", (business,)).fetchall()
+        run = insert_forecast(conn, business, {"products": [product["id"], other["id"]]})
+    path = base + f"/products/{product['id']}?deleteHistory=true"
+    assert client.delete(path).json() == {"data": {"deletedRows": 1}}
+    assert client.delete(path).json() == {"data": {"deletedRows": 0}}
+    assert client.get(base + "/products").json()["data"] == [other]
+    assert client.get(base + "/sales").json()["data"] == []
+    assert all(row["productId"] == other["id"] for row in client.get(base + "/inventory-movements").json()["data"])
+    assert client.post(base + "/sales", json=sale_payload, headers={"Idempotency-Key": "delete-sale-test"}).status_code == 409
+    with psycopg.connect(dsn) as conn:
+        assert conn.execute("SELECT * FROM business_settings WHERE business_id=%s", (business,)).fetchall() == settings
+        assert conn.execute("SELECT * FROM users WHERE business_id=%s", (business,)).fetchall() == users
+        assert conn.execute("SELECT id FROM forecast_runs WHERE id=%s", (run,)).fetchone() is None
+        assert conn.execute("SELECT count(*) FROM products WHERE id=%s", (product["id"],)).fetchone()[0] == 0

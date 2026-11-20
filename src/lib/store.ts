@@ -1,3 +1,4 @@
+import { salePricing } from "./sale-pricing";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { createSeedProducts, createSeedSales, defaultSettings } from "@/lib/data/seed";
@@ -22,7 +23,7 @@ import type {
 } from "@/lib/types";
 import { fromApiSettings, type ApiSettings } from "@/lib/settings";
 import { deduplicateSales, isImportedSale } from "@/lib/sales-import";
-import { clearDemoPhotos } from "@/lib/product-photos";
+import { clearDemoPhotos, removeDemoPhoto } from "@/lib/product-photos";
 
 type Store = {
   dataOrigin: "demo" | "partner";
@@ -47,6 +48,7 @@ type Store = {
     date: string,
     qty: number,
     idempotencyKey?: string,
+    sellingPrice?: number | null,
   ) => Promise<void>;
   receiveStock: (
     productId: string,
@@ -56,7 +58,7 @@ type Store = {
   recordStockMovement: (input: StockMovementInput) => Promise<void>;
   refreshInventoryMovements: () => Promise<void>;
   updateProduct: (id: string, patch: ProductPatch, idempotencyKey?: string) => Promise<void>;
-  deleteProduct: (id: string) => Promise<{ deletedRows: number }>;
+  deleteProduct: (id: string, deleteHistory?: boolean) => Promise<{ deletedRows: number }>;
   addProduct: (
     product: Omit<Product, "id" | "sku"> & { sku?: string },
     idempotencyKey?: string,
@@ -210,8 +212,9 @@ export const useAppStore = create<Store>()(
         }
         if (requestSequence === authRequestSequence) set(anonymousApiState());
       },
-      recordSale: async (productId, date, qty, idempotencyKey) => {
+      recordSale: async (productId, date, qty, idempotencyKey, sellingPrice) => {
         validateQuantity(qty);
+        salePricing(qty, sellingPrice);
         if (get().dataMode === "api") {
           const session = requireSession(get());
           let submissions = pendingSales.get(session);
@@ -219,7 +222,7 @@ export const useAppStore = create<Store>()(
             submissions = new Map();
             pendingSales.set(session, submissions);
           }
-          const signature = JSON.stringify({ productId, date, qty });
+          const signature = JSON.stringify({ productId, date, qty, sellingPrice });
           const pending = idempotencyKey ? submissions.get(idempotencyKey) : undefined;
           const retrying = pending?.signature === signature;
           const product = retrying
@@ -241,6 +244,7 @@ export const useAppStore = create<Store>()(
             date,
             qty,
             idempotencyKey,
+            sellingPrice,
           );
           if (idempotencyKey) submissions.delete(idempotencyKey);
           if (get().session !== session) return;
@@ -279,6 +283,7 @@ export const useAppStore = create<Store>()(
           date: date || todayISO(),
           qty,
           source: "manual",
+          ...salePricing(qty, sellingPrice === undefined ? product.sellingPrice : sellingPrice),
         };
         set({
           sales: [...get().sales, sale],
@@ -511,28 +516,48 @@ export const useAppStore = create<Store>()(
             : get().inventoryMovements,
         });
       },
-      deleteProduct: async (id) => {
+      deleteProduct: async (id, deleteHistory = false) => {
         requireOwner(get());
         if (get().dataMode === "api") {
           const session = requireSession(get());
-          const result = await api.deleteProduct(session.businessId, id);
+          const result = await api.deleteProduct(session.businessId, id, deleteHistory);
           if (!sameSession(get().session, session)) return result;
           invalidatePipelineCache();
-          set({ products: get().products.filter((product) => product.id !== id) });
+          set({
+            products: get().products.filter((product) => product.id !== id),
+            ...(deleteHistory
+              ? {
+                  sales: get().sales.filter((sale) => sale.productId !== id),
+                  inventoryMovements: get().inventoryMovements.filter(
+                    (row) => row.productId !== id,
+                  ),
+                }
+              : {}),
+          });
           return result;
         }
         const product = get().products.find((row) => row.id === id);
         if (!product) return { deletedRows: 0 };
         if (
-          product.currentStock !== 0 ||
-          get().sales.some((sale) => sale.productId === id) ||
-          get().inventoryMovements.some((movement) => movement.productId === id)
+          !deleteHistory &&
+          (product.currentStock !== 0 ||
+            get().sales.some((sale) => sale.productId === id) ||
+            get().inventoryMovements.some((movement) => movement.productId === id))
         )
           throw new Error(
             "This product has stock or saved history and cannot be deleted. You can deactivate it instead.",
           );
+        removeDemoPhoto(id);
         invalidatePipelineCache();
-        set({ products: get().products.filter((row) => row.id !== id) });
+        set({
+          products: get().products.filter((row) => row.id !== id),
+          ...(deleteHistory
+            ? {
+                sales: get().sales.filter((row) => row.productId !== id),
+                inventoryMovements: get().inventoryMovements.filter((row) => row.productId !== id),
+              }
+            : {}),
+        });
         return { deletedRows: 1 };
       },
       addProduct: async (product, idempotencyKey) => {
@@ -568,11 +593,15 @@ export const useAppStore = create<Store>()(
               sku,
               name: product.name,
               category: product.category,
+              ...(product.brand !== undefined ? { brand: product.brand } : {}),
+              ...(product.model !== undefined ? { model: product.model } : {}),
+              ...(product.variant !== undefined ? { variant: product.variant } : {}),
               unit: product.unit,
               currentStock: product.currentStock,
               leadTimeDays: product.leadTimeDays,
               safetyStock: product.safetyStock,
               unitCost: product.unitCost,
+              sellingPrice: product.sellingPrice,
               isActive: true,
             },
           ],
@@ -727,6 +756,8 @@ export const useAppStore = create<Store>()(
               saleDate: row.date,
               quantity: String(row.qty),
               sourceRecordKey: row.sourceRecordKey,
+              sellingPrice: row.sellingPrice,
+              salesAmount: row.salesAmount,
             })),
             originalFilename,
           );

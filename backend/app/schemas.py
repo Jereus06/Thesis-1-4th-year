@@ -1,5 +1,5 @@
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -13,6 +13,13 @@ from pydantic import (
 )
 
 
+def sale_amount(quantity: Decimal, price: Decimal) -> Decimal:
+    # Two numeric(18, scale) operands can require 36 significant digits.
+    with localcontext() as context:
+        context.prec = 36
+        return quantity * price
+
+
 class ApiModel(BaseModel):
     model_config = ConfigDict(
         alias_generator=lambda value: "".join(
@@ -20,6 +27,16 @@ class ApiModel(BaseModel):
         ),
         populate_by_name=True,
     )
+
+    def idempotency_payload(self):
+        """Preserve old retry hashes and distinguish omitted/default from explicit unknown prices."""
+        payload = self.model_dump(mode="json")
+        for name in ("selling_price", "sales_amount"):
+            if name not in self.model_fields_set:
+                payload.pop(name, None)
+        if hasattr(self, "rows"):
+            payload["rows"] = [row.idempotency_payload() for row in self.rows]
+        return payload
 
 
 class SignIn(ApiModel):
@@ -40,6 +57,7 @@ class ProductCreate(ApiModel):
     lead_time_days: int = Field(ge=0)
     safety_stock: Decimal = Field(ge=0, decimal_places=3)
     unit_cost: Decimal = Field(ge=0, decimal_places=4)
+    selling_price: Decimal | None = Field(default=None, ge=0, decimal_places=4, max_digits=18)
 
 
 class ProductUpdate(ApiModel):
@@ -54,6 +72,7 @@ class ProductUpdate(ApiModel):
     lead_time_days: int | None = Field(default=None, ge=0)
     safety_stock: Decimal | None = Field(default=None, ge=0, decimal_places=3)
     unit_cost: Decimal | None = Field(default=None, ge=0, decimal_places=4)
+    selling_price: Decimal | None = Field(default=None, ge=0, decimal_places=4, max_digits=18)
     is_active: bool | None = None
 
 
@@ -76,7 +95,8 @@ class InventoryImportCreate(ApiModel):
 class SaleCreate(ApiModel):
     product_id: UUID
     sale_date: date
-    quantity: Decimal = Field(gt=0, decimal_places=3)
+    quantity: Decimal = Field(gt=0, decimal_places=3, max_digits=18)
+    selling_price: Decimal | None = Field(default=None, ge=0, decimal_places=4, max_digits=18)
 
 
 class MovementCreate(ApiModel):
@@ -118,8 +138,22 @@ class BusinessUpdate(ApiModel):
 class ImportSaleRow(ApiModel):
     sku: str = Field(min_length=1, max_length=100)
     sale_date: date
-    quantity: Decimal = Field(gt=0, decimal_places=3)
+    quantity: Decimal = Field(gt=0, decimal_places=3, max_digits=18)
     source_record_key: str | None = Field(default=None, max_length=200)
+    selling_price: Decimal | None = Field(default=None, ge=0, decimal_places=4, max_digits=18)
+    sales_amount: Decimal | None = Field(default=None, ge=0, decimal_places=7, max_digits=36)
+
+    @model_validator(mode="after")
+    def historical_price(self):
+        if self.selling_price is None:
+            if self.sales_amount is not None:
+                raise ValueError("Sales amount requires the actual selling price")
+        else:
+            expected = sale_amount(self.quantity, self.selling_price)
+            if self.sales_amount is not None and self.sales_amount != expected:
+                raise ValueError("Sales amount must equal quantity times actual selling price")
+            self.sales_amount = expected
+        return self
 
     @field_validator("source_record_key", mode="before")
     @classmethod

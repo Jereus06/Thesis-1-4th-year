@@ -122,12 +122,12 @@ class ImportConnection:
             return Result([batch])
         if "INSERT INTO sales" in query:
             (business, product, day, quantity, source, batch, number, key,
-             _user, created, _business) = params
+             _user, created, price, amount, _business) = params
             self.sales.append({
                 "business_id": business, "product_id": product, "sale_date": day,
                 "quantity": quantity, "source": source, "import_id": batch,
                 "source_row_number": number, "source_record_key": key,
-                "created_at": created,
+                "created_at": created, "selling_price": price, "sales_amount": amount,
             })
             return Result()
         if "UPDATE data_imports" in query:
@@ -301,7 +301,7 @@ def test_batch_fingerprint_preserves_row_multiplicity(repository):
 def test_legacy_exact_batch_digest_still_rejects_retry(repository):
     data = payload([row(None)])
     legacy_digest = hashlib.sha256(json.dumps(
-        {"source": data.source, "rows": [item.model_dump(mode="json") for item in data.rows]},
+        {"source": data.source, "rows": [item.model_dump(mode="json", exclude={"selling_price", "sales_amount"}) for item in data.rows]},
         sort_keys=True, separators=(",", ":"),
     ).encode()).hexdigest()
     repository.conn.batches.append({

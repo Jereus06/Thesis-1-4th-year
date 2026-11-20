@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { randomUUID } from "node:crypto";
 import ts from "typescript";
+import { salePricing } from "../src/lib/sale-pricing.ts";
 import { generateProductSku } from "../src/lib/product-sku.ts";
 
 const product = {
@@ -28,6 +29,69 @@ const owner = {
   displayName: "Synthetic owner",
 };
 const modules = new Map();
+
+test("stock count accepts unchanged or blank counts and explicitly saves zero", async () => {
+  for (const initial of ["", "20"]) {
+    const form = await mount("src/components/products-panel.tsx", "StockCountForm", {
+      extra: "export { StockCountForm };",
+      props: { product },
+    });
+    form.input(`count-${product.id}`).props.onChange(initial);
+    form.render();
+    await form.submit();
+    assert.equal(form.done, 1);
+    assert.equal(form.requests.length, 0);
+    assert.equal(form.notices[0].kind, "success");
+  }
+  const form = await mount("src/components/products-panel.tsx", "StockCountForm", {
+    extra: "export { StockCountForm };",
+    props: { product },
+    onRequest: async () => ({}),
+  });
+  form.find((node) => node.props.children === "Set count to 0").props.onClick();
+  form.render();
+  await form.submit();
+  assert.equal(form.requests[0].args[1].currentStock, 0);
+  assert.equal(form.done, 1);
+});
+
+test("product deletion passes explicit history consent and requires owner permissions", async () => {
+  const form = await mount("src/components/products-panel.tsx", "ProductDeleteForm", {
+    extra: "export { ProductDeleteForm };",
+    props: { product },
+    onRequest: async () => ({ deletedRows: 1 }),
+  });
+  const checkbox = () => form.find((node) => node.props.type === "checkbox");
+  assert.equal(checkbox().props.checked, false);
+  checkbox().props.onChange({ target: { checked: true } });
+  form.render();
+  assert.equal(form.button().props.children, "Delete product and records");
+  await form.submit();
+  assert.deepEqual(form.requests[0].args, [product.id, true]);
+  assert.equal(form.done, 1);
+  form.state.session.role = "staff";
+  form.render();
+  await form.submit();
+  assert.equal(form.requests.length, 1);
+});
+
+test("blank numeric details preserve saved values while explicit zeros are saved", async () => {
+  for (const value of ["", "0"]) {
+    const form = await mount("src/components/products-panel.tsx", "ProductDetailsForm", {
+      extra: "export { ProductDetailsForm };",
+      props: { product },
+      onRequest: async () => ({}),
+    });
+    for (const suffix of ["lead", "safety", "cost"]) {
+      form.find((node) => node.props.id?.endsWith(`-${suffix}`)).props.onChange(value);
+      form.render();
+    }
+    await form.submit();
+    assert.equal(form.requests.length, 1);
+    assert.equal(form.requests[0].args[1].leadTimeDays, value === "" ? 2 : 0);
+    assert.equal(form.requests[0].args[1].unitCost, value === "" ? 1 : 0);
+  }
+});
 
 async function compiled(path, extra = "") {
   const key = path + extra;
@@ -70,7 +134,13 @@ async function mount(
   const requests = [];
   const notices = [];
   let done = 0;
-  for (const method of ["recordSale", "recordStockMovement", "receiveStock"]) {
+  for (const method of [
+    "recordSale",
+    "recordStockMovement",
+    "receiveStock",
+    "updateProduct",
+    "deleteProduct",
+  ]) {
     state[method] = async (...args) => {
       requests.push({ method, args: JSON.parse(JSON.stringify(args)) });
       if (onRequest) return onRequest(method, args, state);
@@ -130,6 +200,7 @@ async function mount(
             }),
           };
         if (name === "@/lib/dates") return { businessDateISO: () => state.businessDay };
+        if (name === "@/lib/sale-pricing") return { salePricing };
         if (name === "@/lib/format") return { num: String, peso: String, quantity: String };
         if (name === "@/lib/product-sku") return { generateProductSku };
         if (name === "@/lib/use-product-photos")
@@ -169,6 +240,7 @@ async function mount(
     onDone: () => {
       done++;
     },
+    onPendingChange: () => {},
     ...props,
   };
   const harness = {

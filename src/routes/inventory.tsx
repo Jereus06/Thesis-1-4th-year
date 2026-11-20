@@ -191,9 +191,7 @@ function SalesImportCard() {
           products={products}
           rowLimit={mode === "api" ? CSV_API_ROW_LIMITS.sales : null}
           importLabel="Upload CSV"
-          placeholder={
-            "2026-09-18,Lucky Me Pancit Canton,12\n2026-09-18,Nature Spring Water 500ml,20"
-          }
+          placeholder={"Date,SKU,Quantity,Actual Selling Price,Sales Amount,Source Record Key"}
           onImport={importPreparedRows}
         />
         <p className="text-sm text-muted">

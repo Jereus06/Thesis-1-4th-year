@@ -13,7 +13,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { businessDateISO } from "@/lib/dates";
-import { quantity } from "@/lib/format";
+import { salePricing } from "@/lib/sale-pricing";
+import { peso, quantity } from "@/lib/format";
 import { usePermissions } from "@/lib/permissions";
 import { useAppStore } from "@/lib/store";
 import type { SessionUser } from "@/lib/api";
@@ -33,6 +34,7 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
   const [productId, setProductId] = useState(products[0]?.id ?? "");
   const [date, setDate] = useState(() => businessDateISO(timezone));
   const [qty, setQty] = useState("1");
+  const [priceDraft, setPriceDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const submitting = useRef(false);
   const retry = useRef<{
@@ -47,7 +49,15 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
   const selected =
     currentProduct ?? (pending?.product.id === selectedProductId ? pending.product : undefined);
   const active = Boolean(currentProduct && currentProduct.isActive !== false);
-  const signature = JSON.stringify({ productId: selectedProductId, date, qty: Number(qty) });
+  const priceText =
+    priceDraft ?? (selected?.sellingPrice == null ? "" : String(selected.sellingPrice));
+  const sellingPrice = priceText.trim() ? Number(priceText) : null;
+  const signature = JSON.stringify({
+    productId: selectedProductId,
+    date,
+    qty: Number(qty),
+    sellingPrice,
+  });
   const retrying = pending?.signature === signature;
   const today = businessDateISO(timezone);
 
@@ -63,6 +73,12 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
     const n = Number(qty);
     if (!qty.trim() || !Number.isFinite(n) || n <= 0 || Number(n.toFixed(3)) !== n) {
       toast.error("Enter a positive quantity with no more than three decimal places.");
+      return;
+    }
+    try {
+      salePricing(n, sellingPrice);
+    } catch (error) {
+      toast.error((error as Error).message);
       return;
     }
     const parsedDate = new Date(`${date}T00:00:00Z`);
@@ -91,13 +107,15 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
       retry.current = { signature, key: crypto.randomUUID(), session, product: selected };
     submitting.current = true;
     try {
+      setPriceDraft(priceText);
       setSaving(true);
-      await recordSale(selectedProductId, date, n, retry.current!.key);
+      await recordSale(selectedProductId, date, n, retry.current!.key, sellingPrice);
       if (useAppStore.getState().session !== session) return;
       retry.current = null;
       toast.success(`Recorded ${quantity(n)} ${selected.unit} of ${selected.name}.`);
       setOpen(false);
       setQty("1");
+      setPriceDraft(null);
     } catch (error) {
       if (useAppStore.getState().session !== session) return;
       toast.error(error instanceof Error ? error.message : "The sale could not be saved.");
@@ -143,7 +161,10 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
               value={selectedProductId}
               selectedProduct={selected}
               disabled={(!products.length && !selectedProductId) || saving}
-              onValueChange={setProductId}
+              onValueChange={(id) => {
+                setProductId(id);
+                setPriceDraft(null);
+              }}
             />
             {selected && (
               <p className="text-xs text-muted [overflow-wrap:anywhere]">
@@ -189,6 +210,22 @@ export function RecordSaleDialog({ trigger }: { trigger?: ReactNode }) {
               disabled={saving}
               onChange={(e) => setQty(e.target.value)}
             />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="sale-price">Actual selling price (PHP)</Label>
+            <Input
+              id="sale-price"
+              type="number"
+              min={0}
+              step={0.0001}
+              value={priceText}
+              disabled={saving}
+              onChange={(event) => setPriceDraft(event.target.value)}
+            />
+            <p className="text-xs text-muted">
+              Sales amount: {peso(sellingPrice == null ? null : sellingPrice * Number(qty))}. Leave
+              blank only when the price is unknown.
+            </p>
           </div>
           <Button
             type="submit"

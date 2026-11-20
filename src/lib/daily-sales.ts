@@ -1,3 +1,4 @@
+import { saleRevenue } from "./sale-pricing";
 import { isImportedSale } from "./sales-import";
 import type { Product, Sale } from "./types";
 
@@ -7,8 +8,10 @@ export type DailySalesProduct = {
   sku: string;
   unit: string;
   unitCost: number;
+  isActive: boolean;
   quantity: number;
-  totalAmount: number;
+  totalAmount: number | null;
+  unpricedCount: number;
   recordCount: number;
   recordedCount: number;
   importedCount: number;
@@ -19,8 +22,9 @@ export type DailySalesRow = DailySalesProduct & { date: string };
 export type DailySalesSummary = {
   products: DailySalesProduct[];
   rows: DailySalesRow[];
-  totals: { unit: string; quantity: number; totalAmount: number }[];
-  totalAmount: number;
+  totals: { unit: string; quantity: number; totalAmount: number | null; unpricedCount: number }[];
+  totalAmount: number | null;
+  unpricedCount: number;
   recordCount: number;
   recordedCount: number;
   importedCount: number;
@@ -55,14 +59,18 @@ export function summarizeDailySales(
     recordCount: 0,
     recordedCount: 0,
     importedCount: 0,
-    totalAmount: 0,
+    totalAmount: null,
+    unpricedCount: 0,
   };
   if (!validDate(startDate) || !validDate(endDate) || startDate > endDate) return summary;
 
   const catalog = new Map(products.map((product) => [product.id, product]));
   const byProduct = new Map<string, DailySalesProduct>();
   const byDateProduct = new Map<string, DailySalesRow>();
-  const byUnit = new Map<string, { quantity: number; totalAmount: number }>();
+  const byUnit = new Map<
+    string,
+    { quantity: number; totalAmount: number | null; unpricedCount: number; recordCount: number }
+  >();
   const query = search.trim().toLocaleLowerCase();
   for (const sale of sales) {
     if (sale.date < startDate || sale.date > endDate) continue;
@@ -73,11 +81,15 @@ export function summarizeDailySales(
       sku: product?.sku ?? "Unavailable",
       unit: product?.unit ?? "Unknown unit",
       unitCost: product?.unitCost ?? 0,
+      isActive: product?.isActive !== false,
     };
     if (
       query &&
       !details.name.toLocaleLowerCase().includes(query) &&
-      !details.sku.toLocaleLowerCase().includes(query)
+      !details.sku.toLocaleLowerCase().includes(query) &&
+      ![product?.brand, product?.model, product?.variant, product?.category].some((value) =>
+        value?.toLocaleLowerCase().includes(query),
+      )
     ) {
       continue;
     }
@@ -85,6 +97,7 @@ export function summarizeDailySales(
       ...details,
       quantity: 0,
       totalAmount: 0,
+      unpricedCount: 0,
       recordCount: 0,
       recordedCount: 0,
       importedCount: 0,
@@ -95,24 +108,28 @@ export function summarizeDailySales(
       date: sale.date,
       quantity: 0,
       totalAmount: 0,
+      unpricedCount: 0,
       recordCount: 0,
       recordedCount: 0,
       importedCount: 0,
     };
     // Saved quantities have at most three decimals. Sum thousandths to avoid float noise.
     const thousandths = Math.round(sale.qty * 1000);
-    // Unit costs allow four decimals. Accumulate integer ten-millionths so fractional
+    // Saved selling prices allow four decimals. Accumulate integer ten-millionths so fractional
     // quantities retain their full value without rounding each sale to whole cents.
-    const amount = thousandths * Math.round(details.unitCost * 10000);
+    const revenue = saleRevenue(sale);
+    const amount = revenue == null ? 0 : Math.round(revenue * 1e7);
     const imported = isImportedSale(sale);
     for (const group of [row, datedRow]) {
       group.quantity += thousandths;
-      group.totalAmount += amount;
+      group.totalAmount = (group.totalAmount ?? 0) + amount;
+      if (revenue == null) group.unpricedCount++;
       group.recordCount += 1;
       if (imported) group.importedCount += 1;
       else group.recordedCount += 1;
     }
     summary.recordCount += 1;
+    if (revenue == null) summary.unpricedCount++;
     if (imported) {
       summary.importedCount += 1;
     } else {
@@ -120,26 +137,44 @@ export function summarizeDailySales(
     }
     byProduct.set(sale.productId, row);
     byDateProduct.set(dateKey, datedRow);
-    const unit = byUnit.get(row.unit) ?? { quantity: 0, totalAmount: 0 };
+    const unit = byUnit.get(row.unit) ?? {
+      quantity: 0,
+      totalAmount: 0,
+      unpricedCount: 0,
+      recordCount: 0,
+    };
     unit.quantity += thousandths;
-    unit.totalAmount += amount;
+    unit.recordCount++;
+    unit.totalAmount = (unit.totalAmount ?? 0) + amount;
+    if (revenue == null) unit.unpricedCount++;
     byUnit.set(row.unit, unit);
-    summary.totalAmount += amount;
+    summary.totalAmount = (summary.totalAmount ?? 0) + amount;
   }
 
   summary.products = [...byProduct.values()]
-    .map((row) => ({ ...row, quantity: row.quantity / 1000, totalAmount: row.totalAmount / 1e7 }))
+    .map((row) => ({
+      ...row,
+      quantity: row.quantity / 1000,
+      totalAmount: row.unpricedCount === row.recordCount ? null : (row.totalAmount ?? 0) / 1e7,
+    }))
     .sort(compareProducts);
   summary.rows = [...byDateProduct.values()]
-    .map((row) => ({ ...row, quantity: row.quantity / 1000, totalAmount: row.totalAmount / 1e7 }))
+    .map((row) => ({
+      ...row,
+      quantity: row.quantity / 1000,
+      totalAmount: row.unpricedCount === row.recordCount ? null : (row.totalAmount ?? 0) / 1e7,
+    }))
     .sort((a, b) => b.date.localeCompare(a.date) || compareProducts(a, b));
   summary.totals = [...byUnit]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([unit, totals]) => ({
       unit,
       quantity: totals.quantity / 1000,
-      totalAmount: totals.totalAmount / 1e7,
+      totalAmount:
+        totals.unpricedCount === totals.recordCount ? null : (totals.totalAmount ?? 0) / 1e7,
+      unpricedCount: totals.unpricedCount,
     }));
-  summary.totalAmount /= 1e7;
+  summary.totalAmount =
+    summary.unpricedCount === summary.recordCount ? null : (summary.totalAmount ?? 0) / 1e7;
   return summary;
 }

@@ -91,7 +91,7 @@ Only owners can manage products, correct stock counts, write off stock, import f
 
 1. Choose **Record sale**.
 2. Select the **Product**. Check the displayed on-hand quantity and counting unit.
-3. Select the sale **Date** and enter the positive **Quantity** actually sold.
+3. Select the sale **Date** and enter the positive **Quantity** actually sold. Check **Actual selling price (PHP)**, initially filled from the product selling price. Change it to the price actually charged. Leave it blank only when unknown; zero means a verified free sale. The saved amount is quantity × this price. Later catalog price changes do not change this sale.
 4. Choose **Save sale** and wait for the saved confirmation.
 5. Open **Inventory > Sales ledger** to see the sale and **Stock movements** to see its stock deduction.
 
@@ -208,11 +208,12 @@ The system will not accept a write-off that makes stock negative. A backdated re
 
 1. Physically count the product using its existing counting unit.
 2. Find its card and choose **Correct stock count**.
-3. Enter the actual **Verified on-hand count**. Enter the full counted balance, not the difference.
+3. Enter the actual **Verified on-hand count**. Enter the full counted balance, not the difference. **Set count to 0** selects an empty balance; blank keeps the current balance.
 4. Choose **Save count correction**.
 5. Check the updated balance in **Products** and its adjustment in **Stock movements**.
 
 **What changes:** the recorded balance is set to the verified count, and the difference is audited. If StockCast shows 20 units and you count 17, entering 17 records an adjustment of minus 3.
+Saving an unchanged count closes successfully without creating an adjustment. Stock corrections do not delete history.
 
 Use this task for a verified counting correction. Use **Record sale**, **Record delivery**, **Record return**, or **Write off stock** for the corresponding actual transaction.
 
@@ -239,6 +240,7 @@ Use one consistent counting unit for the product. For example, if the unit is pa
 3. Check the saved product card.
 
 Changing the unit label does not convert existing quantities. Use **Correct stock count** for a verified count rather than editing product details.
+When editing, blank lead time, safety stock, or unit cost retains the saved value. Enter zero only when verified. New products still require these values; blank selling price means unknown.
 
 ### Hide or restore a product
 
@@ -255,9 +257,13 @@ the product inactive and leaves its current stock unchanged.
 1. Find the product and choose **Delete**.
 2. Check its name and SKU, then choose **Delete product** to permanently remove it, or **Cancel** to keep it.
 
-Only products with zero stock and no saved history can be deleted. Sales, stock movements, forecasts,
-and other saved records are protected. If these prevent deletion, the dialog explains why. You can
-use **Deactivate** to stop using a product while keeping its records. Deletion cannot be undone.
+The default deletion protects stock and saved history. To permanently remove a product with records,
+select the checkbox confirming deletion of its stock, sales, stock movements, photos, and data-quality
+records, then choose **Delete product and records**. You do not need to clear details or change stock
+to zero first. Saved forecast runs containing it are removed too, including other products' results
+within those runs; refresh forecasts afterward. Other products and their sales remain.
+If a matching forecast is running, wait for it to finish and retry. Import metadata is retained.
+Use **Deactivate** to stop using a product while keeping its records. Deletion cannot be undone in the app.
 
 ## Import current inventory
 
@@ -277,6 +283,8 @@ Use an inventory file to add products or update verified current stock counts. S
 | Lead Time    | Whole number of supplier lead-time days |
 | Safety Stock | Buffer quantity, zero or higher         |
 | Unit Cost    | Cost per counting unit in PHP           |
+| Selling Price, optional | Current selling price per counting unit; blank means unknown |
+| Brand, Model, Size / variant, optional | Distinguishing attributes; keep a separate SKU for each variation |
 
 1. Choose **Import inventory**, then **Choose CSV file** and select your file. You can also choose **Paste CSV**.
 2. StockCast automatically selects the useful columns and number format, then checks all records.
@@ -294,9 +302,15 @@ Selecting a file or viewing its preview does not save it. Original and converted
 
 If a notice says the import **was saved** but the product list could not be refreshed, choose **Reload saved records**. Avoid importing the same source again just to refresh the view.
 
-Stock and safety quantities allow up to three decimal places; unit cost allows four. Extra precision is rejected rather than rounded. Duplicate SKUs in one file must be corrected. For an existing SKU, use its current counting unit; changing a unit label does not convert quantities or historical records. The maximum is **5,000 inventory data rows per import**, with a **25 MiB file or pasted-source limit**. Extra unused columns are ignored even in wide files. This is a current inventory snapshot, not a delivery list or sales file.
+Stock and safety quantities allow up to three decimal places; unit cost and selling price allow four. Extra precision is rejected rather than rounded. Duplicate SKUs in one file must be corrected. For an existing SKU, use its current counting unit; changing a unit label does not convert quantities or historical records. The maximum is **5,000 inventory data rows per import**, with a **25 MiB file or pasted-source limit**. Extra unused columns are ignored even in wide files. This is a current inventory snapshot, not a delivery list or sales file.
 
 ## Import past sales
+
+Product imports also support separate **Unit Cost** and **Selling Price**, plus **Brand**, **Model**,
+and **Size / variant** (or **Cable Type**). Keep separate SKUs for different categories, models,
+sizes, and cable types. Count-only imports preserve saved metadata; select **Update existing
+product details from CSV** to update supplied attributes and prices. Blank selling prices mean
+unknown. Prices support four decimal places.
 
 **Who can do this:** owner only.
 
@@ -309,12 +323,14 @@ Create or import the products first. Save the spreadsheet as CSV. StockCast dete
 | Date                        | Sale date; clear formats are detected and saved as **YYYY-MM-DD**                |
 | Product                     | An existing SKU; an unambiguous product name or internal product ID also works   |
 | Quantity                    | Positive sold quantity in that product's unit                                    |
+| Actual Selling Price, optional | Verified per-unit price used for this sale; up to four decimals |
+| Sales Amount, optional | Quantity × actual selling price; up to seven decimals |
 | Source Record Key, optional | A stable unique identifier for one sale line                                     |
 | Unit, optional check        | Nonblank values must match the product's counting unit; blank values are ignored |
 
 1. Open **Sales ledger > Import CSV**, then choose **Choose CSV file** and select your file, or choose **Paste CSV**.
 2. StockCast automatically selects the useful columns and formats, then checks all records. The displayed format summary shows its choices.
-3. Check the **Import preview**, especially dates, products, sold quantities, and counting units. Unused columns and safe report rows are ignored automatically. Open **Adjust import** only if a detected column or format needs changing.
+3. Check the **Import preview**, especially dates, products, sold quantities, counting units, prices, and amounts. Unused columns and safe report rows are ignored automatically. Open **Adjust import** only if a detected column or format needs changing. Price columns need headers or explicit mapping; the original headerless sales layout remains Date, Product, Quantity, and optional Source Record Key.
 4. If required data is unavailable, a short explanation appears near the disabled **Upload CSV** button; **Import details** lists the affected records. If a product is unrecognized, correct its source SKU or open **Adjust import** and use **Find catalog product** and **Match product** to choose the existing product with the same counting unit. Add missing products in **Products** first. The complete error report includes problems beyond those shown on screen.
 5. When the status says the file is ready, choose **Upload CSV** beside the filename, before the status and preview, to save it; no additional confirmation checkbox is required. The button stays visible after selection and shows **Uploading…** while saving.
 6. Read the imported, already-imported, and rejected counts. Check the **Sales ledger** or choose **Export sales CSV** for all saved rows.
@@ -335,18 +351,61 @@ Sold quantities must be positive with up to three decimal places. Extra precisio
 
 ### Fix an import problem
 
+Sales imports support **Actual Selling Price** / **Selling Price** / **Unit Price**, and **Sales
+Amount** / **Line Amount** / **Revenue**. Check these fields in the converted preview. Use verified
+line values, not receipt-wide totals. The amount must equal quantity × actual selling price;
+an amount without a price or a conflicting amount is rejected. A supplied price can calculate an
+omitted amount. Prices support four decimals and amounts seven. Historical imports never copy
+today's catalog price or unit cost, change stock, or reactivate products. Leave both monetary
+fields blank for unpriced history. Changed prices or amounts under a saved source key are conflicts.
+
+Synthetic format example only; replace with authorized records and matching SKUs:
+
+```csv
+Date,SKU,Quantity,Actual Selling Price,Sales Amount,Source Record Key
+2026-01-01,SYNTHETIC-CABLE-1,2.125,3.4567,7.3454875,synthetic-line-1
+2026-01-02,SYNTHETIC-CABLE-1,3,,,synthetic-unpriced-line
+```
+
+Historical discounts must be reflected in the verified actual per-unit selling price. Review
+receipt-level adjustments before import; the application does not infer them.
+
 - If a product is unknown or ambiguous, check its SKU and unit in **Products**, then match it explicitly or correct the source file.
 - If a date is rejected, check the selected date format and the actual calendar date. Two-digit years and timestamps are not converted to sale dates.
 - If numbers are rejected, check the selected decimal/grouping format. Remove currency symbols in the source and verify that stock/quantity precision is supported.
 - If quotation marks or separators are malformed, correct the CSV structure before its rows can be checked.
 - Repeated Source Record Keys inside the same file must be corrected before importing. Separate sale lines need distinct keys.
 - Keep the same **Source Record Key** when the same sale line appears in another file. Separate sale lines need distinct keys, even when they share a receipt number.
-- A matching saved key is skipped. A key reused with different product, date, or quantity is a conflict; check the original record.
+- A matching saved key is skipped. A key reused with different product, date, quantity, selling price, or sales amount is a conflict; check the original record.
 - If some rows were saved and others rejected, inspect the results before retrying. Without source keys, retry only the rows that were not saved to avoid duplicate sales.
 
 Added history is used by a later forecast refresh. The owner can refresh earlier, or the installation's daily forecast schedule can process it.
 
 ## Find sales and stock history
+
+### Quantity, revenue, and forecast comparisons
+
+Owners can open **Sales report**, choose dates and products (including inactive products), and
+switch **Quantity / Revenue**. The primary total, chart axes/tooltips, rankings, and product shares
+follow this selection. Quantity shares require one counting unit; revenue shares use saved revenue.
+Inactive products remain labeled and cannot be used for new sales.
+
+Daily sales, Sales report, and Sales ledger display pesos to two decimals while preserving stored
+price/amount precision. Revenue uses saved sale prices and amounts. Unpriced history is
+**Unavailable**. Totals containing only the priced portion say **Incomplete** and show the number
+of unpriced records. Inventory valuation and purchasing estimates still use unit cost. Voided sales
+are excluded; returns remain separate stock movements under the existing return policy.
+
+**Actual versus forecast** uses the selected model or each product's operating model. Only matching
+saved final-test product/date observations contribute, with separate counting units, observation
+counts, MAE, and RMSE. Missing daily test evidence is unavailable. These are quantity metrics and
+remain independent of historical prices.
+
+**Estimated revenue** multiplies future predicted quantity by the displayed assumed current selling
+price. Its assumption date is the report's business date; the price is assumed constant throughout
+the displayed saved forecast period. This is not profit or guaranteed earnings. Missing prices,
+unavailable forecasts, and expired forecasts stay unavailable. Price assumptions do not change
+quantity model training, validation, or final testing.
 
 **Who can do this:** owner or staff.
 

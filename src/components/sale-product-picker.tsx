@@ -36,7 +36,9 @@ export function SaleProductPicker({
           product.isActive !== false &&
           (!normalizedQuery ||
             product.name.toLocaleLowerCase().includes(normalizedQuery) ||
-            product.sku.toLocaleLowerCase().includes(normalizedQuery)),
+            [product.sku, product.brand, product.model, product.variant, product.category].some(
+              (value) => value?.toLocaleLowerCase().includes(normalizedQuery),
+            )),
       ),
     [products, normalizedQuery],
   );
@@ -214,7 +216,11 @@ export function SaleProductPicker({
                       {product.name}
                     </span>
                     <span className="flex flex-wrap gap-x-2 gap-y-0.5 text-xs text-muted [overflow-wrap:anywhere]">
-                      <span>{product.sku}</span>
+                      <span>
+                        {[product.sku, product.brand, product.model, product.variant]
+                          .filter(Boolean)
+                          .join(" | ")}
+                      </span>
                       <span className={product.currentStock <= 0 ? "text-warning" : "text-primary"}>
                         {product.currentStock <= 0
                           ? "Out of stock"

@@ -1,5 +1,21 @@
 # StockCast Python backend
 
+## Price history contract
+
+Migration 012 adds `products.selling_price`, `sales.selling_price`, `sales.sales_amount`, and the
+existing API's brand/model/variant attributes. Apply it through normal migration startup;
+001–011 are unchanged and old rows are not assigned prices. Product `sellingPrice` is nullable
+and separate from `unitCost`. PATCH with explicit null clears the current price.
+
+POST sales accepts optional `sellingPrice`: omission defaults to the locked catalog price;
+explicit null means unknown. The server saves quantity × actual price as `salesAmount` using Decimal.
+Sales imports accept optional actual `sellingPrice` and `salesAmount`; an amount requires a price
+and must equal quantity × price exactly. An omitted amount is calculated only from a supplied price.
+Prices allow four decimals, amounts seven; displays use two. CSV exports include `selling_price`
+and `sales_amount`, blank for unknowns. Source-key duplicate/conflict detection includes price and
+amount. Historical imports preserve current stock and inactive status. Quantity forecasting,
+chronological splits, owner/staff permissions, and void behavior remain unchanged.
+
 Python 3.12, FastAPI, psycopg, PostgreSQL, and the official XGBoost package implement the backend.
 TypeScript remains in the React frontend. The laptop and hosted application both run
 `backend.app.main`; `npm start` manages PostgreSQL, migrations, owner initialization, and the worker.
@@ -79,6 +95,14 @@ the worker saves results. Products with stock or saved records return 409; use D
 to retain their records. Other products and history remain unchanged, and no migration is needed.
 Replaying a deleted product's original creation idempotency key returns 409; a new creation
 requires a new key.
+
+Owners can explicitly add `?deleteHistory=true` to the same DELETE route to remove the product
+regardless of its stock, along with its sales, movements, quality records, and photo. Matching
+forecast runs (snapshot references or persisted results) are removed as complete runs so aggregate
+metrics cannot become misleading; other products and their sales remain. A matching running forecast
+returns 409 without deleting anything. Business/product/run locks serialize deletion with new writes
+and worker claims. Import metadata and idempotency tombstones remain, CSRF/business/owner checks
+still apply, and repeated deletion returns zero. No schema migration is needed.
 
 Owners can delete a recorded or imported sale using `DELETE /businesses/{businessId}/sales/{saleId}`
 or use `DELETE /businesses/{businessId}/sales/imported` for all imported rows.

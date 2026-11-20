@@ -34,13 +34,17 @@ export class ApiError extends Error {
 }
 
 type Envelope<T> = { data: T };
-type ApiProduct = Omit<Product, "currentStock" | "safetyStock" | "unitCost"> & {
+type ApiProduct = Omit<Product, "currentStock" | "safetyStock" | "unitCost" | "sellingPrice"> & {
   currentStock: string;
   safetyStock: string;
   unitCost: string;
+  sellingPrice?: string | null;
   isActive: boolean;
 };
 type ApiSale = {
+  sellingPrice?: string | null;
+  salesAmount?: string | null;
+  sourceRecordKey?: string;
   id: string;
   productId: string;
   saleDate: string;
@@ -207,9 +211,9 @@ export const api = {
         idempotencyKey,
       }),
     ),
-  deleteProduct: (businessId: string, productId: string) =>
+  deleteProduct: (businessId: string, productId: string, deleteHistory = false) =>
     request<{ deletedRows: number }>(
-      `/businesses/${businessId}/products/${encodeURIComponent(productId)}`,
+      `/businesses/${businessId}/products/${encodeURIComponent(productId)}${deleteHistory ? "?deleteHistory=true" : ""}`,
       { method: "DELETE" },
     ),
   sales: async (businessId: string) =>
@@ -234,7 +238,14 @@ export const api = {
     }),
   importSales: (
     businessId: string,
-    rows: { sku: string; saleDate: string; quantity: string; sourceRecordKey?: string }[],
+    rows: {
+      sku: string;
+      saleDate: string;
+      quantity: string;
+      sourceRecordKey?: string;
+      sellingPrice?: number | null;
+      salesAmount?: number | null;
+    }[],
     originalFilename?: string,
   ) =>
     request<SalesImportResult>(`/businesses/${businessId}/data-imports`, {
@@ -330,11 +341,12 @@ export const api = {
     date: string,
     qty: number,
     idempotencyKey?: string,
+    sellingPrice?: number | null,
   ) =>
     toSale(
       await request<ApiSale>(`/businesses/${businessId}/sales`, {
         method: "POST",
-        body: { productId, saleDate: date, quantity: String(qty) },
+        body: { productId, saleDate: date, quantity: String(qty), sellingPrice },
         idempotencyKey: idempotencyKey ?? crypto.randomUUID(),
       }),
     ),
@@ -431,11 +443,15 @@ function cookie(name: string) {
   return item ? decodeURIComponent(item.slice(name.length + 1)) : null;
 }
 function toProduct(value: ApiProduct): Product {
+  const { sellingPrice, ...details } = value;
   return {
-    ...value,
+    ...details,
     currentStock: Number(value.currentStock),
     safetyStock: Number(value.safetyStock),
     unitCost: Number(value.unitCost),
+    ...(sellingPrice !== undefined
+      ? { sellingPrice: sellingPrice === null ? null : Number(sellingPrice) }
+      : {}),
   };
 }
 function toSale(value: ApiSale): Sale {
@@ -444,6 +460,13 @@ function toSale(value: ApiSale): Sale {
     productId: value.productId,
     date: value.saleDate,
     qty: Number(value.quantity),
+    ...(value.sellingPrice !== undefined
+      ? { sellingPrice: value.sellingPrice === null ? null : Number(value.sellingPrice) }
+      : {}),
+    ...(value.salesAmount !== undefined
+      ? { salesAmount: value.salesAmount === null ? null : Number(value.salesAmount) }
+      : {}),
+    ...(value.sourceRecordKey ? { sourceRecordKey: value.sourceRecordKey } : {}),
     source: value.source,
   };
 }

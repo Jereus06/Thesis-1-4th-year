@@ -558,14 +558,12 @@ test("pending sale and movement dates survive a backwards business-day change", 
     const save = (qty = 1, key = "timezone-attempt") =>
       kind === "sale"
         ? useAppStore.getState().recordSale(product.id, "2026-10-20", qty, key)
-        : useAppStore
-            .getState()
-            .recordStockMovement({
-              ...input,
-              movementDate: "2026-10-20",
-              quantityDelta: qty,
-              idempotencyKey: key,
-            });
+        : useAppStore.getState().recordStockMovement({
+            ...input,
+            movementDate: "2026-10-20",
+            quantityDelta: qty,
+            idempotencyKey: key,
+          });
     globalThis.fetch = async (_url, options) => {
       if (options.method === "GET") return catalogEnvelope(9);
       posts.push({ key: options.headers["idempotency-key"], body: JSON.parse(options.body) });
@@ -1127,6 +1125,39 @@ test("an anonymous session cannot send a product deletion request", async () => 
   await assert.rejects(state.deleteProduct(product.id), /session has expired/);
   assert.equal(requests, 0);
   assert.equal(useAppStore.getState().products, state.products);
+});
+
+test("confirmed product removal clears only its history in API and browser demo modes", async () => {
+  for (const dataMode of ["api", "browser-demo"]) {
+    const removed = { ...product, id: "remove-with-history", currentStock: 5 };
+    const keptSale = { id: "keep-sale", productId: product.id, date: input.movementDate, qty: 1 };
+    const keptMovement = { ...movement, productId: product.id };
+    useAppStore.setState({
+      dataMode,
+      session,
+      products: [removed, product],
+      sales: [{ ...keptSale, id: "remove-sale", productId: removed.id }, keptSale],
+      inventoryMovements: [
+        { ...keptMovement, id: "remove-movement", productId: removed.id },
+        keptMovement,
+      ],
+    });
+    const requests = [];
+    globalThis.fetch = async (url, options) => {
+      requests.push({ url, options });
+      return envelope({ deletedRows: 1 });
+    };
+    assert.deepEqual(await useAppStore.getState().deleteProduct(removed.id, true), {
+      deletedRows: 1,
+    });
+    assert.deepEqual(useAppStore.getState().products, [product]);
+    assert.deepEqual(useAppStore.getState().sales, [keptSale]);
+    assert.deepEqual(useAppStore.getState().inventoryMovements, [keptMovement]);
+    if (dataMode === "api") {
+      assert.match(requests[0].url, /\?deleteHistory=true$/);
+      assert.equal(requests[0].options.method, "DELETE");
+    } else assert.equal(requests.length, 0);
+  }
 });
 
 test("demo product deletion removes an unused inactive product while retaining all unrelated history", async () => {

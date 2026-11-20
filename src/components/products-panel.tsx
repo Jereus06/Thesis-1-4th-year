@@ -77,9 +77,14 @@ export function ProductsPanel() {
       const active = product.isActive !== false;
       return (
         (status === "all" || (status === "active" ? active : !active)) &&
-        [product.name, product.sku, product.category].some((value) =>
-          value.toLowerCase().includes(normalized),
-        )
+        [
+          product.name,
+          product.sku,
+          product.category,
+          product.brand ?? "",
+          product.model ?? "",
+          product.variant ?? "",
+        ].some((value) => value.toLowerCase().includes(normalized))
       );
     });
   }, [products, query, status]);
@@ -162,7 +167,7 @@ export function ProductsPanel() {
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search by product, SKU, or category"
+              placeholder="Search name, SKU, category, brand, model, or variant"
               aria-label="Search inventory products"
             />
           </div>
@@ -225,7 +230,7 @@ export function ProductsPanel() {
               rowLimit={mode === "api" ? CSV_API_ROW_LIMITS.inventory : null}
               importLabel="Upload CSV"
               placeholder={
-                "SKU,Product,Category,Unit,On Hand,Lead Time,Safety Stock,Unit Cost\nNS-500,Nature Spring Water 500ml,Beverages,bottle,80,2,24,12"
+                "SKU,Product,Category,Brand,Model,Variant,Unit,On Hand,Lead Time,Safety Stock,Unit Cost,Selling Price"
               }
               onImport={importPreparedInventory}
             />
@@ -281,7 +286,7 @@ export function ProductsPanel() {
                     : action?.kind === "count"
                       ? "Enter the verified on-hand balance. Changes are recorded as stock-count adjustments."
                       : action?.kind === "delete"
-                        ? "Permanently remove this product. Products with stock or saved history cannot be deleted."
+                        ? "Delete an unused product, or explicitly choose to remove its stock and saved records too."
                         : selectedProduct?.isActive === false
                           ? "Make this product available for new sales and stock movements."
                           : "Inactive products are excluded from new sales, stock movements, and restocking advice. Existing records and the stock balance are retained."}
@@ -490,7 +495,8 @@ const ProductCard = memo(function ProductCard({
           </div>
           <p className="text-xs leading-relaxed break-words text-muted">
             {product.sku} · {product.category} · Cost {peso(product.unitCost)} · Sell{" "}
-            {peso(product.unitCost)} / {product.unit}
+            {peso(product.sellingPrice)} / {product.unit}
+            {[product.brand, product.model, product.variant].filter(Boolean).join(" | ")}
           </p>
           <dl className="grid grid-cols-3 gap-2 rounded-xl bg-surface-2/70 p-3 text-center text-sm">
             <div className="min-w-0">
@@ -590,11 +596,15 @@ function ProductDetailsForm({
     sku: product?.sku ?? "",
     name: product?.name ?? "",
     category: product?.category ?? "Staples",
-    unit: product?.unit ?? "pc",
+    unit: product?.unit ?? "",
+    brand: product?.brand ?? "",
+    model: product?.model ?? "",
+    variant: product?.variant ?? "",
+    sellingPrice: product?.sellingPrice == null ? "" : String(product.sellingPrice),
     currentStock: String(product?.currentStock ?? 0),
-    leadTimeDays: String(product?.leadTimeDays ?? 3),
-    safetyStock: String(product?.safetyStock ?? 5),
-    unitCost: String(product?.unitCost ?? 10),
+    leadTimeDays: product ? String(product.leadTimeDays) : "",
+    safetyStock: product ? String(product.safetyStock) : "",
+    unitCost: product ? String(product.unitCost) : "",
   });
   const [customCategory, setCustomCategory] = useState(
     Boolean(draft.category) && !categories.includes(draft.category),
@@ -639,9 +649,27 @@ function ProductDetailsForm({
         name: draft.name.trim(),
         category: draft.category.trim(),
         unit: draft.unit.trim(),
-        leadTimeDays: nonnegativeNumber(draft.leadTimeDays, "Lead time", 0),
-        safetyStock: nonnegativeNumber(draft.safetyStock, "Safety stock", 3),
-        unitCost: nonnegativeNumber(draft.unitCost, "Unit cost", 4),
+        brand: draft.brand.trim(),
+        model: draft.model.trim(),
+        variant: draft.variant.trim(),
+        sellingPrice: draft.sellingPrice.trim()
+          ? nonnegativeNumber(draft.sellingPrice, "Selling price", 4)
+          : null,
+        leadTimeDays: nonnegativeNumber(
+          draft.leadTimeDays.trim() || (product ? String(product.leadTimeDays) : ""),
+          "Lead time",
+          0,
+        ),
+        safetyStock: nonnegativeNumber(
+          draft.safetyStock.trim() || (product ? String(product.safetyStock) : ""),
+          "Safety stock",
+          3,
+        ),
+        unitCost: nonnegativeNumber(
+          draft.unitCost.trim() || (product ? String(product.unitCost) : ""),
+          "Unit cost",
+          4,
+        ),
       };
       const openingStock = product
         ? null
@@ -754,6 +782,33 @@ function ProductDetailsForm({
             </Select>
           </div>
         )}
+        {(["brand", "model", "variant"] as const).map((field) => (
+          <TextField
+            key={field}
+            id={`${prefix}-${field}`}
+            label={
+              field === "variant"
+                ? "Size / variant / cable type"
+                : field === "brand"
+                  ? "Brand"
+                  : "Model"
+            }
+            value={draft[field]}
+            onChange={(value) => edit(field, value)}
+            maxLength={field === "brand" ? 100 : 150}
+          />
+        ))}
+        <div className="grid gap-1.5">
+          <Label htmlFor={`${prefix}-price`}>Selling price (PHP, optional)</Label>
+          <Input
+            id={`${prefix}-price`}
+            type="number"
+            min={0}
+            step={0.0001}
+            value={draft.sellingPrice}
+            onChange={(event) => edit("sellingPrice", event.target.value)}
+          />
+        </div>
         <TextField
           id={`${prefix}-unit`}
           label="Unit"
@@ -773,6 +828,7 @@ function ProductDetailsForm({
         <NumericField
           id={`${prefix}-lead`}
           label="Lead time (days)"
+          required={!product}
           value={draft.leadTimeDays}
           onChange={(value) => edit("leadTimeDays", value)}
           step={1}
@@ -780,12 +836,14 @@ function ProductDetailsForm({
         <NumericField
           id={`${prefix}-safety`}
           label="Safety stock"
+          required={!product}
           value={draft.safetyStock}
           onChange={(value) => edit("safetyStock", value)}
         />
         <NumericField
           id={`${prefix}-cost`}
           label="Unit cost (PHP)"
+          required={!product}
           value={draft.unitCost}
           onChange={(value) => edit("unitCost", value)}
           step={0.0001}
@@ -796,7 +854,9 @@ function ProductDetailsForm({
       )}
       {product && (
         <p className="text-xs text-muted">
-          Keep the same counting unit; existing stock and sales quantities are not converted.
+          Keep the same counting unit; existing stock and sales quantities are not converted. Leave
+          lead time, safety stock, or unit cost blank to keep its saved value. Enter 0 only when it
+          is correct. These fields do not need to be cleared to delete a product.
         </p>
       )}
       {error && (
@@ -833,11 +893,18 @@ function StockCountForm({
     if (submitting.current || !canManageProducts) return;
     setError(null);
     try {
-      const currentStock = nonnegativeNumber(stock, "Verified stock count", 3);
+      const currentStock = nonnegativeNumber(
+        stock.trim() || String(product.currentStock),
+        "Verified stock count",
+        3,
+      );
       const signature = JSON.stringify({ productId: product.id, currentStock });
       const retrying = retry.current?.signature === signature;
-      if (!retrying && currentStock === product.currentStock)
-        throw new Error("The count is unchanged. Enter a different verified balance or cancel.");
+      if (!retrying && currentStock === product.currentStock) {
+        toast.success("Stock count is already saved. No adjustment was needed.");
+        onDone();
+        return;
+      }
       if (!retrying) retry.current = { signature, key: crypto.randomUUID() };
       submitting.current = true;
       setSaving(true);
@@ -868,12 +935,17 @@ function StockCountForm({
         <NumericField
           id={`count-${product.id}`}
           label={`Verified on-hand count (${product.unit})`}
+          required={false}
           value={stock}
           onChange={setStock}
         />
+        <Button type="button" variant="outline" className="mt-2" onClick={() => setStock("0")}>
+          Set count to 0
+        </Button>
       </fieldset>
       <p className="text-xs text-muted">
-        Use this after a stock count. Record deliveries, returns, and write-offs separately.
+        Leave blank to keep the current count. Enter 0 for no stock. Record deliveries, returns, and
+        write-offs separately. Setting stock to zero does not erase its history.
       </p>
       {error && (
         <p className="text-sm text-danger" role="alert">
@@ -899,6 +971,7 @@ function ProductDeleteForm({
 }: FormCallbacks & { product: Product }) {
   const deleteProduct = useAppStore((state) => state.deleteProduct);
   const { canManageProducts } = usePermissions();
+  const [deleteHistory, setDeleteHistory] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submitting = useRef(false);
@@ -911,7 +984,7 @@ function ProductDeleteForm({
     onPendingChange(true);
     setError(null);
     try {
-      const result = await deleteProduct(product.id);
+      const result = await deleteProduct(product.id, deleteHistory);
       toast.success(
         result.deletedRows ? `Deleted ${product.name}.` : "Product is no longer in the catalog.",
       );
@@ -935,6 +1008,26 @@ function ProductDeleteForm({
         {quantity(product.currentStock)} {product.unit}
       </p>
       <p className="text-sm text-muted">This cannot be undone.</p>
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={deleteHistory}
+          disabled={saving}
+          onChange={(event) => {
+            setDeleteHistory(event.target.checked);
+            setError(null);
+          }}
+        />
+        <span>
+          Also permanently delete this product's stock, sales, stock movements, photos, and
+          data-quality records. Saved forecast runs containing it will be removed, including results
+          for other products in those runs. Other products and their sales stay.
+        </span>
+      </label>
+      <p className="text-xs text-muted">
+        Select this option for products with stock or saved history. You do not need to change stock
+        to zero or clear product details first. Use Deactivate to keep history.
+      </p>
       {error && (
         <p className="text-sm text-danger" role="alert">
           {error}
@@ -942,7 +1035,7 @@ function ProductDeleteForm({
       )}
       <div className="flex gap-2">
         <Button type="submit" variant="danger" disabled={saving || !canManageProducts}>
-          {saving ? "Deleting…" : "Delete product"}
+          {saving ? "Deleting…" : deleteHistory ? "Delete product and records" : "Delete product"}
         </Button>
         <Button type="button" variant="outline" disabled={saving} onClick={onDone}>
           Cancel
@@ -1052,12 +1145,14 @@ function NumericField({
   value,
   onChange,
   step = 0.001,
+  required = true,
 }: {
   id: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
   step?: number;
+  required?: boolean;
 }) {
   return (
     <div className="grid gap-1.5">
@@ -1065,7 +1160,7 @@ function NumericField({
       <Input
         id={id}
         type="number"
-        required
+        required={required}
         min={0}
         step={step}
         value={value}

@@ -4,6 +4,95 @@ CSV importer, account access, and imported-sale deletion source reviewed against
 
 ## Purpose and confirmed research context
 
+### Product cleanup and form corrections — 2026-11-20
+
+At the user's explicit request, the store identified by the screenshot SKU `RM-BAT-001` was
+cleared: 217 products, 14 sales, 257 stock movements, 97 forecast runs, four import batches, and
+related quality/retry records. Its account and settings were preserved; other stores were not
+cleared. A pre-cleanup PostgreSQL recovery dump is in the ignored local `backups/` directory.
+
+Product deletion now has an explicit owner-only `deleteHistory=true` option, exposed as a
+confirmation checkbox. The default remains protective. Confirmed deletion removes the selected
+product's stock/sales/movements/quality/photo records and whole forecast runs containing it;
+other products and their sales stay. Running matching forecasts block deletion until finished.
+Import metadata and retry tombstones are retained. Existing migrations are unchanged.
+Stock corrections accept blank as keep-current, provide a zero-count button, and treat an
+unchanged balance as a successful no-op. Blank lead time/safety stock/cost in editing preserves
+saved values; new products still need explicit values and blank selling prices remain unknown.
+
+Verification: 533 frontend tests passed; the full Python 3.12/PostgreSQL 16 suite passed
+752 tests and 14 subtests (276 warnings, 1177.11 seconds). Seven Edge browser check groups
+passed using intercepted synthetic HTTP, including native blank-field validation, explicit zero,
+history-deletion consent, and the 390px dialog. Typecheck, lint (three existing React Refresh
+warnings), build, and `git diff --check` passed. `npm start` rebuilt the local app successfully;
+the HTTP health endpoint reports a connected database. The cleared store remained empty after
+service restart with its account and settings present. The isolated test database was removed;
+logs/screenshots are under ignored `benchmarks/`. These tests are synthetic verification, not
+client research results.
+
+### Selling prices and historical revenue — 2026-11-20
+
+Additive migration `012_selling_prices` adds nullable product/sale selling prices and saved sale
+amounts without backfilling historical prices. It also supplies brand/model/variant columns already
+referenced by the API but absent from migrations 001–011. Existing migrations remain unchanged.
+Startup inspection found an existing local database with separately applied catalog extensions
+`010_product_catalog_metadata` and `011_product_selling_price`, whose files are absent from this
+checkout. Before migration 012 was applied there, its upgrade was corrected to reuse existing
+catalog columns and preserve their values, while removing the old product-price zero default and
+NOT NULL restriction. Historical sales remain unpriced. Its rollback retains catalog columns
+because they may predate this migration; no earlier applied migration is rewritten.
+PostgreSQL stores four-place prices and seven-place amounts and enforces quantity × price consistency.
+Omitted manual-sale prices default to the locked current product price; explicit null records
+unknown pricing. Price changes never rewrite sales. Retry hashes distinguish omitted prices from
+explicit null and retain compatibility with requests predating price fields.
+
+Product forms, displays, imports, and searches expose brand/model/variant and separate cost/sell
+values. New-product forms require entered unit, cost, lead time, and safety stock instead of
+inventing those values. Historical CSV imports accept actual selling prices and matching amounts,
+preserve current stock and inactive status, and include prices in duplicate/conflict detection.
+Blank historical prices stay unknown. Exports include both monetary fields. Inventory metadata
+updates remain opt-in; count-only imports preserve saved details. Receipt totals without an actual
+per-unit price are rejected rather than inferred.
+
+Daily sales and Sales report use saved revenue, identify incomplete totals and unpriced counts,
+and include inactive-product history. Quantity/Revenue views change chart values, shares, and
+rankings; quantity shares require one counting unit. Final-test comparisons use the selected or
+operating method with matched product/date errors and separate counting units. Missing evidence
+stays unavailable. Estimated revenue states the assumed current price, business date, model, and
+saved future period without modifying quantity forecasts or chronological splits. Currency displays
+use two decimal places; inventory valuation and purchasing retain unit cost.
+
+Earlier dated verification and cost-based report descriptions below are historical records, not
+verification of this change. No client prices, records, units, supplier timings, safety-stock values,
+or research findings were created. Partner prices and receipt-level adjustment policies still need
+verified source records. The initial implementation verification did not rebuild the running application.
+
+Subsequent local startup repair on 2026-11-20 applied the corrected migration 012 through
+`npm start`; initialization succeeded and the local API/database passed health checks, with
+web/worker running. No records were deleted or reset. The repair passed all 12 selling-price
+tests on disposable PostgreSQL (including both schema lineages), typecheck, lint (three existing
+warnings), and build. The earlier full-suite counts below predate this focused repair.
+
+Verification used synthetic records on 2026-11-20. The complete serial frontend run passed
+528 tests without failures or skips; the final attribute/demo/search refinements then passed
+88 focused frontend regressions. Typecheck, lint, and production build passed, with the same
+three existing React Refresh lint warnings. Four isolated Edge browser groups passed using
+intercepted synthetic HTTP, including actual-price entry, reloads, catalog price edits preserving
+history, inactive history, incomplete revenue/shares, attributes, and 390px screenshots.
+
+The complete Python 3.12/PostgreSQL 16 suite passed 746 tests and 14 subtests with no failures
+or skips (277 warnings, 932.33 seconds). Subsequent full-precision arithmetic, additive-upgrade,
+and canonical-price fingerprint refinements passed 90 focused backend tests (163 warnings).
+A separate real restart of disposable PostgreSQL preserved stored prices/amounts, unknown history,
+attributes, inactive status, stock, and exports; a fresh Python process also read persisted amounts.
+The test database/container was separate from the running application and removed after verification.
+Local logs and browser screenshots are retained under ignored `benchmarks/selling-prices/`.
+
+Initial verification exposed the existing missing attribute columns and untyped nullable date
+filters in CSV exports; migration 012 and explicit SQL date casts resolve them. Headerless CSV
+regressions were corrected without changing its original column order. No remaining test failures
+are claimed as passes, and these checks are not partner data, deployment, or research findings.
+
 Official thesis title: **Sales Forecasting and Inventory Optimization for Small Retail Businesses
 Using XGBoost Algorithm**.
 
@@ -35,7 +124,7 @@ claim a new runtime execution or completed client findings.
 | Imports            | Inventory snapshots are atomic; historical SKU-mapped sales imports preserve current stock                                                                                                                                                                                 |
 | Exports            | Sales/stock-movement downloads use authenticated Python CSV endpoints                                                                                                                                                                                                      |
 | Forecasts          | Official Python XGBoost, immutable queued inputs, chronological selection/testing, saved predictions/metrics/models                                                                                                                                                        |
-| Sales tools        | Browser-demo dashboard cards open forecast options and an owner sales report with date/product/category filters, trend summaries, product ranking, and holdout comparison; monetary totals use recorded unit cost as an estimate until selling prices are modeled          |
+| Sales tools        | Browser-demo dashboard cards open forecast options and an owner sales report with date/product/category filters, trend summaries, product ranking, and holdout comparison; revenue uses saved sale prices and amounts with explicit missing-price coverage          |
 | Restock            | Python reads the operating forecast or baseline and current stock; zero suggestions or unavailable demand still allow recording actual deliveries from Restock or Inventory                                                                                                |
 | Data quality       | Missing/incomplete dates, explicit zeros, closures, and stockouts have reviewed classifications, audit history, and CSV export                                                                                                                                             |
 | Backups            | `npm run backup` creates a PostgreSQL dump; CI checks a separate restore and container recreation                                                                                                                                                                          |
@@ -101,8 +190,8 @@ load the new code before these fixes take effect in a running installation.
 ## Product maintenance, stock movements, and frontend roles
 
 Inventory has Products, Low stock, Sales ledger, Daily sales, Stock movements, and Account & settings tabs
-(Account for staff). Owners can maintain SKU, name, category, unit, lead time, safety stock, and unit
-cost;
+(Account for staff). Owners can maintain SKU, name, category, brand, model, variant, unit, lead time, safety stock, unit
+cost, and selling price;
 verified stock-count corrections are a separate action using the existing audited product PATCH.
 Low stock lists active catalog products at zero or at/below their displayed threshold, independently
 of whether sales history or a forecast exists. It uses the current finite forecast reorder point
@@ -127,7 +216,7 @@ and healthy API. Database, API, and worker services were not restarted.
 
 Daily sales is a separate date-based view with a calendar picker, previous/next day, Today and
 Yesterday shortcuts, a clickable weekday strip, and an optional inclusive date range. Its grouped
-product table shows sale date, name, SKU, quantity, unit, and total amount based on unit cost, with a separate
+product table shows sale date, name, SKU, quantity, unit, and revenue from saved sale prices and amounts, with a separate
 row for each product and sale date in a range. A case-insensitive name/SKU search filters the rows
 and all summary totals together; the product count remains the number of distinct products.
 Quantity and unit columns use a compact gap with consistent header/value alignment. Numeric
