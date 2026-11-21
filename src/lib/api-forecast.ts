@@ -206,6 +206,7 @@ export function toResult(
       maWeight: 1 - weight,
       holdout: points("final_test"),
       future: points("future"),
+      forecastOriginDate: summary?.forecastOriginDate ?? undefined,
       dailyDemand: demandAvailable ? dailyDemand : NaN,
       seriesMean: demandAvailable ? dailyDemand : NaN,
       confidence: recommendation?.confidenceLevel ?? "low",

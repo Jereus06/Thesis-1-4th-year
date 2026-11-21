@@ -4,6 +4,31 @@ CSV importer, account access, and imported-sale deletion source reviewed against
 
 ## Purpose and confirmed research context
 
+### Revenue availability and report columns ? 2026-11-21
+
+Both report tables omit the client-facing Details columns. Revenue still discloses the
+current-price assumption date, quantity, price, and forecast dates. Its totals cover the
+remaining saved forecast period. The frontend now reads the existing per-product
+`forecastOriginDate` summary field to validate that remaining period against the saved
+horizon, rather than incorrectly requiring elapsed dates the API has already removed.
+Missing dates and unavailable model predictions still prevent a revenue total.
+Expired rows explain that recent usable sales or reviewed missing dates are needed;
+refreshing alone cannot advance a product's sales-history cutoff. Source inspection confirms
+the worker anchors each forecast to that cutoff. The screenshot indicates expiry, but the
+specific product's live records and latest run were not inspected. No backend contract,
+forecast training, or database changes were made. No tests, lint, build, restart, or push
+were performed, per the user's instruction; runtime behavior remains unverified.
+
+### Scroll containment correction — 2026-11-21
+
+Actual versus forecast and Estimated revenue use table rows again, replacing the individual
+unit/product cards. Estimated revenue keeps search and shows all matching products in its
+bounded scroll area without eight-item pagination. Both tables use the shared sticky column
+headers. Shared scrollable tables remove top padding so rows cannot show above headers.
+Calculations and price assumptions are unchanged. This supersedes the card layout described
+in the earlier entry below. Source was inspected; tests, build, lint, and system restart were
+explicitly skipped at the user's request. Browser appearance remains unverified.
+
 ### Client wording and report layout — 2026-11-21
 
 The primary client screens now explain units, saved-price revenue, purchase cost, supplier

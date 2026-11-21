@@ -187,6 +187,8 @@ export type ProductForecast = {
   maWeight: number;
   holdout: ForecastPoint[];
   future: ForecastPoint[];
+  /** Last usable sales date anchoring the saved daily forecast. */
+  forecastOriginDate?: string;
   dailyDemand: number;
   seriesMean: number;
   confidence: ConfidenceLevel;

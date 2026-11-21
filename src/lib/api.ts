@@ -549,6 +549,7 @@ export type ApiDashboard = {
       nonzeroDays: number;
       eligible: boolean;
       operatingMethod: string;
+      forecastOriginDate?: string | null;
       fallbackReason?: string;
       xgbWeight?: number;
       parameters?: { max_depth: number; learning_rate: number; n_estimators: number };

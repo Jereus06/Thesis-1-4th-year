@@ -246,6 +246,12 @@
     scrollbar-gutter: stable;
   }
 
+  .record-scroll:has(> table) {
+    /* Keep sticky headers flush with the scrollport so rows cannot peek above them. */
+    padding-top: 0;
+    isolation: isolate;
+  }
+
   .record-scroll thead {
     position: sticky;
     top: 0;

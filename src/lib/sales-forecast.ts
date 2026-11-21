@@ -79,6 +79,16 @@ export function estimatedRevenue(
   const method = model === "operating" ? forecast?.method : model;
   const points = [...(forecast?.future ?? [])].sort((a, b) => a.date.localeCompare(b.date));
   const step = forecast?.grain === "weekly" ? 7 : 1;
+  const origin = Date.parse(`${forecast?.forecastOriginDate}T00:00:00Z`);
+  const today = Date.parse(`${assumptionDate}T00:00:00Z`);
+  // The API omits elapsed dates. Validate the remaining saved daily period,
+  // rather than requiring the original horizon after some days have passed.
+  const hasSavedPeriod = step === 1 && Number.isFinite(origin) && expectedDays != null;
+  const remainingStart = hasSavedPeriod ? Math.max(origin + 86400000, today) : NaN;
+  const savedEnd = hasSavedPeriod ? origin + expectedDays! * 86400000 : NaN;
+  const expectedRemaining = hasSavedPeriod
+    ? Math.max(0, (savedEnd - remainingStart) / 86400000 + 1)
+    : expectedDays;
   const complete =
     points.every((point, index) => {
       const timestamp = Date.parse(`${point.date}T00:00:00Z`);
@@ -89,7 +99,11 @@ export function estimatedRevenue(
           timestamp - Date.parse(`${points[index - 1].date}T00:00:00Z`) === step * 86400000)
       );
     }) &&
-    (expectedDays == null || points.length * step >= expectedDays);
+    (expectedRemaining == null || points.length * step >= expectedRemaining) &&
+    (!hasSavedPeriod ||
+      (points.length === expectedRemaining &&
+        Date.parse(`${points[0]?.date}T00:00:00Z`) === remainingStart &&
+        Date.parse(`${points.at(-1)?.date}T00:00:00Z`) === savedEnd));
   const available =
     forecast &&
     forecast.demandAvailable !== false &&
@@ -104,12 +118,25 @@ export function estimatedRevenue(
     ? points.reduce((sum, point) => sum + point[predictionKey(method!)], 0)
     : null;
   const price = product.sellingPrice;
+  const expired = forecast?.forecastExpired || (Number.isFinite(savedEnd) && savedEnd < today);
+  const unavailableReason = predictedQuantity != null
+    ? undefined
+    : expired
+      ? `The forecast period ended${Number.isFinite(savedEnd) ? ` on ${new Date(savedEnd).toISOString().slice(0, 10)}` : ""}. Add recent sales or review missing sales dates, then refresh forecasts. Refreshing alone does not move old sales history forward.`
+      : forecast?.unavailableReason ??
+        (!forecast || !points.length
+          ? "No current forecast is available for this product. Check its sales history and the latest forecast run."
+          : !complete
+            ? "The saved forecast has missing dates. Refresh forecasts to generate a complete period."
+            : "The selected method has no usable forecast for this product. Choose the recommended method or refresh forecasts.");
   return {
     productId: product.id,
     method,
     assumptionDate,
     assumedSellingPrice: price ?? null,
     predictedQuantity,
+    unavailableReason,
+    expired: Boolean(expired),
     amount:
       predictedQuantity != null && price != null && Number.isFinite(price) && price >= 0
         ? predictedQuantity * price
