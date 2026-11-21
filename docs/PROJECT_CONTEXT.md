@@ -4,6 +4,19 @@ CSV importer, account access, and imported-sale deletion source reviewed against
 
 ## Purpose and confirmed research context
 
+### CI expectations after report table restoration - 2026-11-21
+
+GitHub run [44885203421](https://github.com/Jereus06/Thesis-1-4th-year/actions/runs/44885203421)
+passed Windows startup, typecheck, and lint, then failed two of 535 frontend tests.
+Both failures were outdated report-render assertions expecting the removed product cards,
+Details disclosures, and previous expiry wording. The pricing regressions now assert the
+unit-separated tables, absence of Details columns, price/date disclosures, and current
+expiry explanation. The standalone selling-price browser verifier also targets table rows
+and internal scrolling instead of cards and pagination. No application behavior changed.
+Source and CI logs were reviewed; local tests, build, lint, restart, and GitHub reruns/pushes
+were not performed, honoring the user's earlier instruction. A passing new CI run remains
+unconfirmed; later steps in the failed run were skipped, not verified.
+
 ### Revenue availability and report columns ? 2026-11-21
 
 Both report tables omit the client-facing Details columns. Revenue still discloses the

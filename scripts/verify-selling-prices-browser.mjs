@@ -277,20 +277,24 @@ try {
   await page.getByRole("heading", { name: "Sales report", exact: true }).waitFor();
   const estimates = page.getByRole("region", { name: "Estimated revenue", exact: true });
   const estimateSearch = estimates.getByLabel("Find a product", { exact: true });
-  await estimates.getByText("Showing 1–8 of 11 products", { exact: true }).waitFor();
-  await estimates.getByRole("button", { name: "Next", exact: true }).click();
-  await estimates.getByText("Showing 9–11 of 11 products", { exact: true }).waitFor();
+  const estimateRows = estimates.getByRole("table", { name: "Estimated revenue by product" }).locator("tbody tr");
+  await estimates.getByText("11 products", { exact: true }).waitFor();
+  assert.equal(await estimateRows.count(), 11);
+  assert.equal(await estimates.getByRole("button", { name: "Next", exact: true }).count(), 0);
+  const estimateScroll = estimates.getByRole("region", { name: "Estimated revenue products", exact: true });
+  assert.equal(await estimateScroll.evaluate((element) => element.scrollHeight > element.clientHeight), true);
   await estimateSearch.fill("Searchable brand");
   await estimates
-    .getByRole("heading", { name: "Synthetic report product 9", exact: true })
+    .getByText("Synthetic report product 9", { exact: true })
     .waitFor();
-  assert.equal(await estimates.locator("article").count(), 1);
+  assert.equal(await estimateRows.count(), 1);
   assert.match(await estimates.innerText(), /Add a selling price in Inventory/);
-  assert.match(await estimates.innerText(), /current, complete sales forecast is needed/);
+  assert.match(await estimates.innerText(), /No current forecast is available for this product/);
   assert.doesNotMatch(await estimates.innerText(), /Unavailable · Unavailable|₱0\.00/);
   await estimateSearch.fill("no matching product");
   await estimates.getByRole("button", { name: "Clear search", exact: true }).click();
-  await estimates.getByText("Showing 1–8 of 11 products", { exact: true }).waitFor();
+  await estimates.getByText("11 products", { exact: true }).waitFor();
+  assert.equal(await estimateRows.count(), 11);
   const unitFilter = page.getByLabel("Unit (e.g. piece, can, box)", { exact: true });
   await unitFilter.selectOption("can");
   await page.getByRole("button", { name: "Product", exact: true }).click();
@@ -307,10 +311,10 @@ try {
   );
   await unitFilter.selectOption("all");
   await estimateSearch.fill("SYNTHETIC-9");
-  assert.equal(await estimates.locator("article").count(), 1);
+  assert.equal(await estimateRows.count(), 1);
   await page.screenshot({ path: resolve(output, "report-clear-desktop.png"), fullPage: true });
   report.checks.push(
-    "Revenue search by brand/SKU, pagination, clear search, specific missing-data messages, and synchronized unit/product filters",
+    "Revenue search by brand/SKU, scrollable table rows, clear search, specific missing-data messages, and synchronized unit/product filters",
   );
   await page.setViewportSize({ width: 390, height: 844 });
   await estimates.scrollIntoViewIfNeeded();

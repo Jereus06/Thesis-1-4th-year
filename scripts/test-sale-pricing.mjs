@@ -218,7 +218,7 @@ test("estimated revenue uses explicit current price/date and requires a complete
   );
 });
 
-test("client report explains matched quantities, preserves technical evidence, and states price assumptions", () => {
+test("client report shows unit-separated tables without details columns and states price assumptions", () => {
   const markup = renderToStaticMarkup(
     createElement(ReportForecastPanels, {
       products: [product, { ...product, id: "kg", unit: "kg" }],
@@ -230,15 +230,16 @@ test("client report explains matched quantities, preserves technical evidence, a
       onModelChange() {},
     }),
   );
-  assert.match(markup, /Products counted in pc/);
-  assert.match(markup, /Products counted in kg/);
+  assert.match(markup, /<table aria-label="Actual versus forecast"/);
+  assert.match(markup, /<td[^>]*>pc<\/td>/);
+  assert.match(markup, /<td[^>]*>kg<\/td>/);
   assert.match(markup, /Actually sold/);
-  assert.match(markup, /2\.00 pc per product per day on average/);
-  assert.match(markup, /<summary[^>]*>How this was checked<\/summary>/);
-  assert.match(markup, /Average error \(MAE\): 2\.00/);
-  assert.match(markup, /RMSE\): 2\.00/);
+  assert.match(markup, /2\.00 pc per product per day/);
+  assert.match(markup, /2\.00 kg per product per day/);
+  assert.match(markup, /<table aria-label="Estimated revenue by product"/);
+  assert.doesNotMatch(markup, /<th\b[^>]*>Details<\/th>|How this was checked|Estimate details/);
   assert.match(markup, /₱60\.00/);
-  assert.match(markup, /Price assumed as of 2026-01-01/);
+  assert.match(markup, /Prices checked on 2026-01-01/);
   assert.match(markup, /2026-02-01 to 2026-02-01/);
   assert.match(markup, /Prices are assumed to stay the same/);
   assert.match(markup, /not profit or guaranteed sales/);
@@ -258,7 +259,10 @@ test("client report explains missing prices and expired forecasts without displa
   );
   assert.match(markup, /No past forecast comparison is available/);
   assert.match(markup, /Add a selling price in Inventory/);
-  assert.match(markup, /Refresh forecasts to get an estimate for current dates/);
+  assert.match(markup, /The forecast period ended/);
+  assert.match(markup, /Add recent sales or review missing sales dates, then refresh forecasts/);
+  assert.match(markup, /Refreshing alone does not move old sales history forward/);
+  assert.match(markup, /Forecast expired/);
   assert.match(markup, /Not available yet/);
   assert.doesNotMatch(markup, /₱0\.00|Unavailable.*Unavailable/);
 });
